@@ -1,0 +1,22 @@
+# The musl BusyBox build is static, so wget also works in distroless images.
+services:
+  health-probe:
+    image: busybox:1.37.0-musl@sha256:5cec3fc171c87218698e85a52af7087de727372aae264a787b8112901a5b0092
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-5}"
+    network_mode: none
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 16m
+    pids_limit: 16
+    entrypoint: ["/bin/busybox", "cp", "-f"]
+    command: ["/bin/busybox", "/probe/busybox"]
+    volumes: ["health_probe:/probe"]
+
+volumes:
+  health_probe:

@@ -166,6 +166,11 @@ validate_compose_proxy_subnet() {
   [[ "$private" == true ]]
 }
 
+# A reviewed risk-register reference; setup reads the same rule when it decides POOL_LISTENER_TLS.
+pool_plaintext_waived() {
+  [[ -n "$1" && "$1" != *CHANGE_ME* ]]
+}
+
 valid_session_idle_minutes() {
   local value="$1" numeric
   [[ "$value" =~ ^[0-9]{1,3}$ ]] || return 1
@@ -178,6 +183,11 @@ valid_session_idle_minutes() {
 if [[ "${1:-}" == --validate-public-host ]]; then
   [[ $# -eq 2 ]] || exit 2
   public_deployment_host_is_allowed "$2" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --validate-listener-address ]]; then
+  [[ $# -eq 2 ]] || exit 2
+  is_valid_ipv4_literal "$2" && exit 0
   exit 1
 fi
 if [[ "${1:-}" == --validate-public-origin ]]; then
@@ -193,6 +203,11 @@ fi
 if [[ "${1:-}" == --validate-forwarder-cidrs ]]; then
   [[ $# -eq 2 ]] || exit 2
   validate_dashboard_networks "$2" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --pool-plaintext-waived ]]; then
+  [[ $# -eq 2 ]] || exit 2
+  pool_plaintext_waived "$2" && exit 0
   exit 1
 fi
 if [[ "${1:-}" == --validate-session-idle-minutes ]]; then
@@ -214,7 +229,6 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${DASHBOARD_EXPOSURE:=}"
 : "${COMPOSE_FILE_SELECTION:=}"
 : "${BACKUPS_ENABLED:=false}"
-: "${AUTH_OVERLAY_ENABLED:=false}"
 : "${MONITORING_ENABLED:=false}"
 : "${GRAFANA_ADMIN_PASSWORD:=}"
 : "${GRAFANA_BIND:=127.0.0.1}"
@@ -226,10 +240,6 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${METRICS_MIN_FREE_DISK_BYTES:=2147483648}"
 : "${FLUENT_BIT_FORWARD_PORT:=24224}"
 : "${CHRONICLE_INTERNAL_WEB_SECRET:=}"
-: "${MOBILE_SIGNING_ENABLED:=false}"
-: "${MOBILE_SIGNING_REQUIRED:=false}"
-: "${MOBILE_SIGNING_SECRET:=}"
-: "${MOBILE_SIGNING_SECRET_PREVIOUS:=}"
 : "${CHRONICLE_REVIEWER_ACCESS_ENABLED:=false}"
 : "${CHRONICLE_REVIEWER_ACCESS_SECRET:=}"
 : "${CHRONICLE_REVIEWER_STUDY_ID:=}"
@@ -237,8 +247,10 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${ENABLE_ENCRYPTION:=true}"
 : "${TESTING_LOGIN_ENABLED:=false}"
 : "${CHRONICLE_RECORD_STAFF_IP:=false}"
-: "${REQUIRE_MFA:=true}"
+: "${REQUIRE_MFA:=false}"
 : "${HTTP_BIND:=127.0.0.1}"
+: "${POOL_LISTENER_TLS:=true}"
+: "${POOL_PLAINTEXT_WAIVER:=}"
 : "${INTERNAL_BIND:=127.0.0.1}"
 : "${INTERNAL_PORT:=8081}"
 : "${DASHBOARD_PASSWORD_HASH:=}"
@@ -300,13 +312,10 @@ else
         compose_base_count=$((compose_base_count + 1)) ;;
       overlays/mode-behind-proxy-internal.yml|*/overlays/mode-behind-proxy-internal.yml|\
       overlays/mode-own-tls-internal.yml|*/overlays/mode-own-tls-internal.yml|\
-      overlays/mode-local-https.yml|*/overlays/mode-local-https.yml|\
-      experimental/public-dashboard/mode-behind-proxy-public.yml|*/experimental/public-dashboard/mode-behind-proxy-public.yml|\
-      experimental/public-dashboard/mode-own-tls-public.yml|*/experimental/public-dashboard/mode-own-tls-public.yml)
+      overlays/mode-local-https.yml|*/overlays/mode-local-https.yml)
         compose_mode_count=$((compose_mode_count + 1)) ;;
       overlays/backups.yml|*/overlays/backups.yml|\
-      overlays/monitoring.yml|*/overlays/monitoring.yml|\
-      experimental/public-dashboard/auth.yml|*/experimental/public-dashboard/auth.yml)
+      overlays/monitoring.yml|*/overlays/monitoring.yml)
         ;;
       *) bad "unsupported file in COMPOSE_FILE: ${compose_path}" ;;
     esac
@@ -331,8 +340,6 @@ else
       warn "This is a TRIAL mode. The certificate is signed by a CA that exists only inside this stack, so every device must install it first — fine for your own test phones, wrong for participants. Move to mode-behind-proxy-internal or mode-own-tls-internal for a real study." ;;
     behind-proxy/internal|own-tls/internal)
       ok "deployment mode: TLS_MODE=${TLS_MODE}, DASHBOARD_EXPOSURE=${DASHBOARD_EXPOSURE}" ;;
-    behind-proxy/public|own-tls/public)
-      warn "public-dashboard mode is experimental and is not shipped in release bundles" ;;
     *)
       bad "unrecognised mode overlay (TLS_MODE='${TLS_MODE}', DASHBOARD_EXPOSURE='${DASHBOARD_EXPOSURE}')" ;;
   esac
@@ -340,14 +347,61 @@ fi
 
 # A misspelled boolean must not silently turn off encryption, backups, authentication, or
 # MFA. Compose passes these values as strings, so validate the contract before branching.
-for flag in BACKUPS_ENABLED AUTH_OVERLAY_ENABLED MONITORING_ENABLED ENABLE_ENCRYPTION \
+for flag in BACKUPS_ENABLED MONITORING_ENABLED ENABLE_ENCRYPTION \
             TESTING_LOGIN_ENABLED REQUIRE_MFA CHRONICLE_REVIEWER_ACCESS_ENABLED \
-            MOBILE_SIGNING_ENABLED MOBILE_SIGNING_REQUIRED CHRONICLE_RECORD_STAFF_IP; do
+            CHRONICLE_RECORD_STAFF_IP POOL_LISTENER_TLS; do
   case "${!flag}" in
     true|false) ;;
     *) bad "${flag} must be exactly true or false (received '${!flag}')" ;;
   esac
 done
+
+# These apply only before authentication; normal authenticated requests bypass them.
+for setting in RATE_LIMIT_MOBILE_ABUSE_EVENTS RATE_LIMIT_WEB_ABUSE_EVENTS RATE_LIMIT_GUARD_EVENTS; do
+  if [[ ! "${!setting:-200}" =~ ^[1-9][0-9]{0,6}$ ]] || (( ${!setting:-200} > 1000000 )); then
+    bad "${setting} must be a decimal integer from 1 through 1000000"
+  fi
+done
+if invalid_windows=$(PYTHONPATH="$(dirname "${BASH_SOURCE[0]}")" python3 -c '
+import sys
+from chronicle_ops.startup import valid_caddy_duration
+for name, raw in zip(sys.argv[1::2], sys.argv[2::2]):
+    if not valid_caddy_duration(raw):
+        print(name)' RATE_LIMIT_MOBILE_WINDOW "${RATE_LIMIT_MOBILE_WINDOW:-1s}" \
+        RATE_LIMIT_WEB_WINDOW "${RATE_LIMIT_WEB_WINDOW:-1s}" \
+        RATE_LIMIT_GUARD_WINDOW "${RATE_LIMIT_GUARD_WINDOW:-1s}"); then
+  for setting in $invalid_windows; do
+    bad "${setting} must be a positive Caddy duration representable in nanoseconds (at most 128 characters)"
+  done
+else
+  bad "RATE_LIMIT windows could not be validated"
+fi
+
+# Each consumer reads these late or not at all: env.sh does retention arithmetic on them
+# (a word evaluates to 0 days) and the JVM rejects -Xmx at start. Empty means Compose's default
+# applies.
+[[ -z "${MIN_FREE_DISK_GIB:-}" || "$MIN_FREE_DISK_GIB" =~ ^(0|[1-9][0-9]{0,8})$ ]] ||
+  bad "MIN_FREE_DISK_GIB must be a non-negative decimal integer (received '${MIN_FREE_DISK_GIB}')"
+for setting in BACKUP_KEEP_DAYS BACKUP_KEEP_WEEKS BACKUP_KEEP_MONTHS; do
+  [[ -z "${!setting:-}" || "${!setting}" == all || "${!setting}" =~ ^(0|[1-9][0-9]{0,8})$ ]] ||
+    bad "${setting} must be all or a non-negative decimal integer (received '${!setting}')"
+done
+[[ -z "${PRE_OP_BACKUP_KEEP_DAYS:-}" || "$PRE_OP_BACKUP_KEEP_DAYS" == all || "$PRE_OP_BACKUP_KEEP_DAYS" =~ ^[1-9][0-9]{0,3}$ ]] ||
+  bad "PRE_OP_BACKUP_KEEP_DAYS must be all or 1 to 9999 days (received '${PRE_OP_BACKUP_KEEP_DAYS}')"
+# Backup verification, doctor and the stale-backup alert derive "overdue" from this schedule.
+if ! schedule_error=$(PYTHONPATH="$(dirname "${BASH_SOURCE[0]}")" python3 -c '
+import sys
+from chronicle_ops.dump import backup_max_age_seconds
+try:
+    backup_max_age_seconds(sys.argv[1])
+except ValueError as error:
+    sys.exit(str(error))' "${BACKUP_SCHEDULE:-}" 2>&1); then
+  bad "$schedule_error"
+fi
+[[ -z "${BACKEND_XMS:-}" || "$BACKEND_XMS" =~ ^-Xms[1-9][0-9]*[kKmMgG]?$ ]] ||
+  bad "BACKEND_XMS must look like -Xms512m (received '${BACKEND_XMS}')"
+[[ -z "${BACKEND_XMX:-}" || "$BACKEND_XMX" =~ ^-Xmx[1-9][0-9]*[kKmMgG]?$ ]] ||
+  bad "BACKEND_XMX must look like -Xmx2g (received '${BACKEND_XMX}')"
 
 if valid_session_idle_minutes "$CHRONICLE_SESSION_IDLE_MINUTES"; then
   ok "session idle timeout: ${CHRONICLE_SESSION_IDLE_MINUTES} minutes"
@@ -359,7 +413,7 @@ fi
 # Placeholder detection has to be separate from the length check: the shipped placeholders
 # are long enough to pass a length test and would otherwise sail through.
 placeholders=""
-for k in DOMAIN POSTGRES_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET JWT_SECRET METRICS_PASSWORD; do
+for k in DOMAIN POSTGRES_PASSWORD POSTGRES_APP_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET JWT_SECRET METRICS_PASSWORD; do
   case "${!k:-}" in
     *CHANGE_ME*|*chronicle.example*|"") placeholders="${placeholders}${k} " ;;
   esac
@@ -421,51 +475,12 @@ else
   fi
 fi
 
-for s in POSTGRES_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET; do
+for s in POSTGRES_PASSWORD POSTGRES_APP_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET; do
   v="${!s:-}"
   if [[ -z "$v" ]]; then bad "$s is not set"
   elif [[ ${#v} -lt 16 ]]; then bad "$s is only ${#v} characters; use at least 16"
   fi
 done
-
-# Public clients use per-device API keys, so the shared HMAC compatibility mode is a strict,
-# explicit opt-in. Treat the two booleans and both key slots as one atomic configuration:
-# accepting a partial state would either weaken a legacy fleet silently or retain an unused
-# deployment-wide credential indefinitely.
-if [[ "$MOBILE_SIGNING_ENABLED" != "$MOBILE_SIGNING_REQUIRED" ]]; then
-  bad "MOBILE_SIGNING_ENABLED and MOBILE_SIGNING_REQUIRED must either both be true or both be false"
-elif [[ "$MOBILE_SIGNING_ENABLED" == false ]]; then
-  if [[ -n "$MOBILE_SIGNING_SECRET" ]]; then
-    bad "MOBILE_SIGNING_SECRET must stay blank unless controlled legacy compatibility is enabled"
-  fi
-  if [[ -n "$MOBILE_SIGNING_SECRET_PREVIOUS" ]]; then
-    bad "MOBILE_SIGNING_SECRET_PREVIOUS must stay blank unless controlled legacy compatibility is enabled"
-  fi
-  if [[ -z "$MOBILE_SIGNING_SECRET" && -z "$MOBILE_SIGNING_SECRET_PREVIOUS" ]]; then
-    ok "public mobile clients use per-device API keys; legacy shared-HMAC compatibility is off"
-  fi
-elif [[ "$MOBILE_SIGNING_ENABLED" == true ]]; then
-  case "$MOBILE_SIGNING_SECRET" in
-    *CHANGE_ME*|'')
-      bad "MOBILE_SIGNING_SECRET must be a generated 32+ character key when controlled legacy compatibility is enabled"
-      ;;
-    *)
-      if [[ ${#MOBILE_SIGNING_SECRET} -lt 32 ]]; then
-        bad "MOBILE_SIGNING_SECRET must be a generated 32+ character key when controlled legacy compatibility is enabled"
-      fi
-      ;;
-  esac
-  if [[ -n "$MOBILE_SIGNING_SECRET_PREVIOUS" ]]; then
-    if [[ ${#MOBILE_SIGNING_SECRET_PREVIOUS} -lt 32 ]]; then
-      bad "MOBILE_SIGNING_SECRET_PREVIOUS is only ${#MOBILE_SIGNING_SECRET_PREVIOUS} characters; a rotation overlap key needs at least 32"
-    elif [[ "$MOBILE_SIGNING_SECRET_PREVIOUS" == "$MOBILE_SIGNING_SECRET" ]]; then
-      bad "MOBILE_SIGNING_SECRET_PREVIOUS equals MOBILE_SIGNING_SECRET; remove the redundant overlap key"
-    else
-      warn "controlled legacy mobile signing-key rotation overlap is active; finalize it after every supported legacy client has moved to the current key"
-    fi
-  fi
-  [[ $FAILED -ne 0 ]] || warn "controlled legacy shared-HMAC compatibility is enabled; public clients still use per-device API keys"
-fi
 
 # 32, not 16, and it is a hard requirement rather than advice: JWT_SECRET is an HS256
 # signing key, and Spring's NimbusJwtDecoder rejects anything under 256 bits outright with
@@ -484,6 +499,19 @@ elif [[ ${#v} -lt 32 ]]; then
 fi
 if [[ ! "${DASHBOARD_SESSION_MINUTES:-480}" =~ ^[1-9][0-9]{0,4}$ ]]; then
   bad "DASHBOARD_SESSION_MINUTES must be a whole number of minutes, for example 480"
+fi
+if [[ -n "${JWT_SECRET_PREVIOUS:-}" ]]; then
+  if [[ ${#JWT_SECRET_PREVIOUS} -lt 32 || "$JWT_SECRET_PREVIOUS" == "$JWT_SECRET" || "$JWT_SECRET_PREVIOUS" == *CHANGE_ME* ]]; then
+    bad "JWT_SECRET_PREVIOUS must be a distinct generated secret of at least 32 characters"
+  fi
+  if [[ ! "${JWT_SECRET_PREVIOUS_EXPIRES_AT:-}" =~ ^[1-9][0-9]{0,10}$ ]]; then
+    bad "JWT_SECRET_PREVIOUS_EXPIRES_AT must be absolute Unix seconds when JWT_SECRET_PREVIOUS is set"
+  elif [[ "${DASHBOARD_SESSION_MINUTES:-480}" =~ ^[1-9][0-9]{0,4}$ ]] &&
+      (( JWT_SECRET_PREVIOUS_EXPIRES_AT > $(date +%s) + ${DASHBOARD_SESSION_MINUTES:-480} * 60 )); then
+    bad "JWT_SECRET_PREVIOUS_EXPIRES_AT must not exceed one dashboard session from now"
+  fi
+elif [[ "${JWT_SECRET_PREVIOUS_EXPIRES_AT:-0}" != 0 ]]; then
+  bad "JWT_SECRET_PREVIOUS_EXPIRES_AT requires JWT_SECRET_PREVIOUS"
 fi
 if [[ ${#CHRONICLE_INTERNAL_WEB_SECRET} -lt 32 ]]; then
   bad "CHRONICLE_INTERNAL_WEB_SECRET is ${#CHRONICLE_INTERNAL_WEB_SECRET} characters; use at least 32"
@@ -561,37 +589,24 @@ else
   warn "encryption at rest is OFF (ENABLE_ENCRYPTION=false)"
 fi
 if [[ "$BACKUPS_ENABLED" == true ]]; then
-  warn "SQL dumps in ./backups are unencrypted PHI on this host (directory 0700, operator-owned). Encrypt before any off-host copy: docs/BACKUP-RESTORE.md"
+  warn "SQL dumps in ./backups are unencrypted participant data on this host (directory 0700, operator-owned). Encrypt before any off-host copy: docs/BACKUP-RESTORE.md"
 fi
 
 # ------------------------------------------------------------------ dashboard login
 if [[ "$TESTING_LOGIN_ENABLED" == true ]]; then
   bad "TESTING_LOGIN_ENABLED must be false; internal dashboards use explicit dashboard password login"
   printf '       Run ./chronicle up to migrate an existing internal installation.\n'
-elif [[ "$DASHBOARD_EXPOSURE" == public && "$AUTH_OVERLAY_ENABLED" != true ]]; then
-  bad "a public dashboard requires a separately reviewed authentication overlay"
-elif [[ "$DASHBOARD_EXPOSURE" == internal && -z "$DASHBOARD_PASSWORD_HASH" ]]; then
-  bad "no dashboard password is configured; run ./chronicle setup before starting"
-else
-  ok "dashboard password login is configured and consistent with its exposure"
+elif [[ -n "$DASHBOARD_PASSWORD_HASH" ]]; then
+  ok "dashboard password login is configured"
 fi
 
-# MFA enforcement and the built-in login are one decision, not two, and getting the pair
-# wrong fails in opposite directions: REQUIRE_MFA=false on a public dashboard removes a real
-# control, while REQUIRE_MFA=true with the built-in login produces a dashboard that logs in
-# and then 401s every API call -- which reads as a broken deployment, not a setting.
-if [[ "$REQUIRE_MFA" != true && "$DASHBOARD_EXPOSURE" != internal ]]; then
-  bad "REQUIRE_MFA=false with DASHBOARD_EXPOSURE=${DASHBOARD_EXPOSURE}"
-  printf '       That serves the dashboard API to anything that can reach this stack with no\n'
-  printf '       multi-factor requirement on the token. Use a mode-*-internal overlay, or\n'
-  printf '       leave REQUIRE_MFA=true for a separately reviewed identity-provider integration.\n'
-elif [[ "$TESTING_LOGIN_ENABLED" == true && "$REQUIRE_MFA" == true ]]; then
-  bad "TESTING_LOGIN_ENABLED=true with REQUIRE_MFA=true"
-  printf '       The built-in login mints a token with no MFA claim, so the dashboard would\n'
-  printf '       sign in and then reject every API call with 401 "Multi-factor authentication\n'
-  printf '       is required". Set REQUIRE_MFA=false to use the built-in login (the dashboard\n'
-  printf '       stays behind the internal listener, the allowlist and the password), or set\n'
-  printf '       TESTING_LOGIN_ENABLED=false and deploy a separately reviewed identity provider.\n'
+# REQUIRE_MFA=true with the built-in password login produces a dashboard that logs in and
+# then 401s every API call -- which reads as a broken deployment, not a setting.
+if [[ "$REQUIRE_MFA" == true && -n "$DASHBOARD_PASSWORD_HASH" ]]; then
+  bad "REQUIRE_MFA=true with the internal dashboard password login"
+  printf '       The password login mints a token with no MFA claim, so the dashboard would sign\n'
+  printf '       in and then reject every API call with 401. Set REQUIRE_MFA=false in .env; the\n'
+  printf '       dashboard stays behind the internal listener, the allowlist and the password.\n'
 elif [[ "$REQUIRE_MFA" == true ]]; then
   ok "dashboard tokens must prove MFA (REQUIRE_MFA=true)"
 else
@@ -606,8 +621,10 @@ else
 fi
 validate_dashboard_networks "$CADDY_TRUSTED_PROXIES" ||
   bad "CADDY_TRUSTED_PROXIES must be explicit valid CIDRs and must not trust the entire IPv4 or IPv6 space"
-if [[ "$TLS_MODE" == behind-proxy ]] && loopback_networks "$CADDY_TRUSTED_PROXIES"; then
-  warn "CADDY_TRUSTED_PROXIES covers only loopback; remote forwarded client headers are ignored, and SNAT without XFF uses the F5 socket address"
+gateway=$(PYTHONPATH="$(dirname "${BASH_SOURCE[0]}")" python3 -c 'from chronicle_ops.common import compose_gateway; import sys; print(compose_gateway(sys.argv[1]))' "$CHRONICLE_SUBNET")
+expected_proxies=$(trusted_proxy_sources "$TLS_MODE" "$HTTP_BIND" "$gateway" "$CADDY_TRUSTED_PROXIES") || expected_proxies=""
+if [[ -z "$expected_proxies" || "$expected_proxies" != "$CADDY_TRUSTED_PROXIES" ]]; then
+  bad "trusted proxies must match the listener mode; a remote LB requires explicit non-loopback source CIDRs"
 fi
 
 # ------------------------------------------------------------------ dashboard gate
@@ -631,7 +648,7 @@ if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   fi
   specific_private_bind "$INTERNAL_BIND" ||
     bad "INTERNAL_BIND must be one specific private, link-local, or loopback IP address"
-  if specific_private_bind "$INTERNAL_BIND" && [[ "$INTERNAL_BIND" == *:* ]]; then
+  if specific_private_bind "$INTERNAL_BIND" && ! is_valid_ipv4_literal "$INTERNAL_BIND"; then
     bad "INTERNAL_BIND=${INTERNAL_BIND} is IPv6. $IPV4_STACK_NETWORK, so DASHBOARD_ALLOWED_IPS would never match. Use an IPv4 address"
   fi
   # The dashboard gate is one control with three parts -- bcrypt password, source allowlist,
@@ -641,18 +658,19 @@ if [[ "$DASHBOARD_EXPOSURE" == internal ]]; then
   if ((FAILED == 0)); then
     ok "dashboard gate shut: bcrypt password, allowlist ${DASHBOARD_ALLOWED_IPS}, bound to ${INTERNAL_BIND}:${INTERNAL_PORT}"
   fi
-elif [[ -n "$DASHBOARD_EXPOSURE" ]]; then
-  warn "DASHBOARD_EXPOSURE=public — the dashboard API is reachable wherever this stack is. Prefer an internal mode unless something else restricts access."
 fi
 
 # ------------------------------------------------------------------ image pinning
 # `docker compose up -d` is a supported path, so the digest rule cannot live only in the
 # ./chronicle wrapper. Source checkouts (RELEASE_VERSION=development) build local tags.
 if [[ "$RELEASE_VERSION" != development ]]; then
-  for image_var in BACKEND_IMAGE SELFHOST_FRONTEND_IMAGE CADDY_IMAGE POSTGRES_IMAGE; do
+  image_variables=$(PYTHONPATH="$(dirname "${BASH_SOURCE[0]}")" python3 -c \
+    'import sys; from chronicle_ops.images import requested_images; print("\n".join([image.variable for image in requested_images(sys.argv[1])] + ["POSTGRES_IMAGE"]))' "$COMPOSE_FILE_SELECTION") ||
+    bad "could not resolve the release image inventory"
+  while IFS= read -r image_var; do
     [[ "${!image_var:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] ||
       bad "${image_var} must be digest-pinned (name@sha256:...) in a release; copy it from the release .env.example"
-  done
+  done <<<"$image_variables"
 fi
 
 # ------------------------------------------------------------------ TLS material
@@ -672,9 +690,18 @@ elif [[ -n "$TLS_MODE" ]]; then
   # No ok line: the "deployment mode:" check above already stated TLS_MODE, and repeating
   # it here is a second green line about a setting the operator has already been told.
   :
+  if [[ "$POOL_LISTENER_TLS" == true ]]; then
+    ok "pool listener ${HTTP_BIND} serves TLS with ./tls/internal-cert.pem (trust ./tls/internal-ca.crt on the load balancer)"
+  elif pool_plaintext_waived "$POOL_PLAINTEXT_WAIVER"; then
+    warn "pool listener ${HTTP_BIND} serves plain HTTP under recorded waiver: ${POOL_PLAINTEXT_WAIVER}"
+  else
+    bad "HTTP_BIND=${HTTP_BIND} serves participant uploads in plain HTTP without a reviewed waiver"
+    printf '       Set POOL_LISTENER_TLS=true and have the load balancer trust ./tls/internal-ca.crt,\n'
+    printf '       or record a reviewed POOL_PLAINTEXT_WAIVER (risk register reference) in .env.\n'
+  fi
   if [[ "$HTTP_BIND" == "0.0.0.0" || "$HTTP_BIND" == "::" || "$HTTP_BIND" == "[::]" ]]; then
-    warn "HTTP_BIND=${HTTP_BIND} serves plain HTTP to your whole network. Use 127.0.0.1 (or the address only your proxy can reach) unless you intend that."
-  elif [[ "$HTTP_BIND" == *:* ]]; then
+    warn "HTTP_BIND=${HTTP_BIND} serves the pool listener to your whole network. Use the address only your proxy can reach unless you intend that."
+  elif ! is_valid_ipv4_literal "$HTTP_BIND"; then
     bad "HTTP_BIND=${HTTP_BIND} is IPv6. $IPV4_STACK_NETWORK, so POOL_ALLOWED_IPS and CADDY_TRUSTED_PROXIES would never match your proxy. Use an IPv4 address"
   elif [[ "$HTTP_BIND" =~ ^127\. ]]; then
     # Nothing here can prove where the proxy runs, so this cannot be a hard failure -- a
@@ -689,7 +716,7 @@ echo
 if [[ $FAILED -ne 0 ]]; then
   write_configuration_metric 0
   printf '%sConfiguration is not safe to deploy.%s Nothing was started.\n' "$RED" "$RST" >&2
-  printf 'Fix the FAIL lines above in .env, then run `docker compose up -d` again.\n' >&2
+  printf 'Fix the FAIL lines above in .env, then run ./chronicle up again.\n' >&2
   exit 1
 fi
 write_configuration_metric 1

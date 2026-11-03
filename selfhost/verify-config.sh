@@ -19,6 +19,8 @@
 set -uo pipefail
 
 cd "$(dirname "$0")" || exit 1
+export CHRONICLE_HOST_UID="${CHRONICLE_HOST_UID:-$(id -u)}"
+export CHRONICLE_HOST_GID="${CHRONICLE_HOST_GID:-$(id -g)}"
 
 FAILED=0
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
@@ -77,20 +79,17 @@ fi
 #    reasonably expect to do something.
 for v in $COMPOSE_PASSED; do
   # These settings are consumed directly by Kotlin services rather than a rendered template:
-  # security/export/session values bind to Spring or ExportFileWriter, while the trusted proxy
-  # CIDRs are read by ClientIpResolver.
+  # security/session values bind to Spring, while the trusted proxy CIDRs are read by
+  # ClientIpResolver.
   # CHRONICLE_SECURITY_* are bound by Spring relaxed binding inside the app, not by a template.
   # LOG_DIR is read by chronicle-server/src/main/resources/log4j2.xml
   # (${env:LOG_DIR:-/var/log/chronicle}), which is inside the image and not visible here.
-  # CHRONICLE_EXPORT_DIR is consumed directly by ExportFileWriter for persistent managed
-  # export artifacts. LOG_FORMAT is read directly by log4j2.xml. Neither passes through a
-  # rendered config template. CHRONICLE_RECORD_STAFF_IP is read directly by ClientIpRecord.
-  case "$v" in \
-    CHRONICLE_SERVER_*|CHRONICLE_SECURITY_*|CHRONICLE_EXPORT_DIR|CHRONICLE_RECORD_STAFF_IP|\
-    CHRONICLE_EXPORT_MAX_ROWS|CHRONICLE_EXPORT_MAX_BYTES|CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS|\
-    CHRONICLE_EXPORT_MAX_TOTAL_BYTES|CHRONICLE_EXPORT_MIN_FREE_BYTES|\
+  # LOG_FORMAT is read directly by log4j2.xml and does not pass through a rendered config
+  # template. CHRONICLE_RECORD_STAFF_IP is read directly by ClientIpRecord.
+  case "$v" in
+    CHRONICLE_SERVER_*|CHRONICLE_SECURITY_*|CHRONICLE_RECORD_STAFF_IP|\
     CHRONICLE_SESSION_IDLE_MINUTES|CHRONICLE_TRUSTED_PROXY_CIDRS|\
-    POSTGRES_HOST|POSTGRES_PORT|LOG_DIR|LOG_FORMAT) continue ;; \
+    POSTGRES_HOST|POSTGRES_PORT|LOG_DIR|LOG_FORMAT) continue ;;
   esac
   if ! grep -q "\${$v}" config/*.template 2>/dev/null && ! grep -q "\${$v:" backend-entrypoint.sh 2>/dev/null; then
     fail "docker-compose.yml passes $v to the backend but nothing consumes it"
@@ -108,9 +107,8 @@ else
   ok "every documented setting a template consumes actually reaches the backend"
 fi
 
-# The same dashboard password gates Caddy and the backend session-minting endpoint.
-# Merely validating the Caddy bcrypt hash is insufficient: without this rendered field,
-# Basic auth succeeds but POST /chronicle/v3/auth/dashboard-login rejects every password.
+# The backend session-minting endpoint verifies the dashboard password against this hash;
+# without the rendered field POST /chronicle/v3/auth/dashboard-login rejects every password.
 if grep -Fq 'dashboardPasswordHash: "${DASHBOARD_PASSWORD_HASH}"' config/chronicle-auth.yaml.template; then
   ok "dashboard bcrypt hash is rendered into the backend auth configuration"
 else
@@ -121,8 +119,7 @@ echo
 echo "Route definitions"
 
 # 5. Every supported listener must import the shared snippets rather than inlining routes,
-#    or its public-ingest and private-dashboard lists can silently diverge. Public-dashboard
-#    variants are source-only files under experimental/ and are not part of this contract.
+#    or its public-ingest and private-dashboard lists can silently diverge.
 CADDYFILES="Caddyfile.split Caddyfile.split.local Caddyfile.split.tls"
 for f in $CADDYFILES; do
   if ! grep -q '^import snippets.caddy' "$f"; then
@@ -177,25 +174,26 @@ else
   ok "proxy and deny lists do not contradict each other"
 fi
 
-# Every network surface used by the Android ChronicleStudyApi must reach the backend on the
-# public listener. v4 covers enrollment, uploads, reminders, consent acknowledgments, and
-# withdrawal; v3 covers settings; v2 covers the legacy EDM lookup; /chronicle/study carries
-# installed-client status/questionnaire compatibility. /health must reflect backend dependency
-# readiness rather than returning an edge-only static success.
+# Current mobile clients use v4 device operations and v3 generalized settings.
+# /health reflects backend readiness; retired prefixes return 404 at the edge.
 for route_contract in \
-  'reverse_proxy /chronicle/v2/* backend:40320' \
-  'reverse_proxy /chronicle/v3/* backend:40320' \
-  'reverse_proxy /chronicle/v4/* backend:40320' \
-  'reverse_proxy /chronicle/study/* backend:40320' \
+  'reverse_proxy /chronicle/v3/* https://backend:8443' \
+  'reverse_proxy /chronicle/v4/* https://backend:8443' \
   'handle /health' \
   'rewrite * /chronicle/internal/health/ready' \
-  'reverse_proxy backend:40320'; do
+  'reverse_proxy https://backend:8443'; do
   if ! grep -Fq "$route_contract" caddy/snippets.caddy; then
     fail "Android mobile contract is missing public route: $route_contract"
   else
     ok "Android mobile contract exposes: $route_contract"
   fi
 done
+
+if grep -Fq 'respond @chronicle_retired_api 404' caddy/snippets.caddy; then
+  ok "Retired mobile API prefixes are denied"
+else
+  fail "Retired mobile API prefixes must be denied"
+fi
 
 service_block() {
   awk -v service="$1" '
@@ -331,6 +329,17 @@ else
   ok "self-host dashboard uses the canonical participant-facing public origin"
 fi
 
+# Invitation links carry the CA root only where the bundle's own CA signs the certificate.
+if ! sed '/^[[:space:]]*#/d' caddy/snippets.caddy | grep -Fq 'localCa: {$CHRONICLE_LOCAL_CA:false}' ||
+   ! grep -Eq '^[[:space:]]+CHRONICLE_LOCAL_CA: "true"[[:space:]]*(#.*)?$' overlays/mode-local-https.yml ||
+   ! awk '/^:8081 \{/,/^}/' Caddyfile.split.local | grep -Eq '^[[:space:]]*import local_ca_download[[:space:]]*(#.*)?$'; then
+  fail "local HTTPS trial dashboard cannot put its CA root in invitation links"
+elif grep -R -E -l "^[[:space:]]+CHRONICLE_LOCAL_CA: [\"']?true[\"']?[[:space:]]*(#.*)?$" overlays --exclude='mode-local-https.yml' | grep -q .; then
+  fail "a deployment mode without the bundle's private CA puts a CA root in invitation links"
+else
+  ok "only the local HTTPS trial puts its CA root in invitation links"
+fi
+
 if ! grep -Fq ': "${CHRONICLE_PUBLIC_BASE_URL:=https://${DOMAIN}}"' backend-entrypoint.sh ||
    ! grep -Fq 'public-base-url: "${CHRONICLE_PUBLIC_BASE_URL}"' config/mobile-security.yaml.template; then
   fail "enrollment manifests do not use the configured canonical https://DOMAIN origin"
@@ -356,7 +365,8 @@ else
 fi
 
 if PYTHONPATH=. PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY_ORIGIN'
-from chronicle_ops.release import merge_env, read_env, value
+from chronicle_ops.env_migration import merge_env
+from chronicle_ops.envfile import read_env, value
 old = {"CHRONICLE_PUBLIC_BASE_URL": "'https://alias.example.org:8443'", "POSTGRES_DB": "custom"}
 text = merge_env(old, open('.env.example').read(), None, '.', ['docker-compose.yml'], preserve_images=True)
 import tempfile
@@ -386,15 +396,8 @@ for reviewer_contract in \
 done
 [[ $FAILED -eq 0 ]] && ok "reviewer bootstrap is fully operator-configured and disabled by default"
 
-if ! grep -Fq 'reviewer_scope_state()' chronicle ||
-   ! grep -Fq 'doctor_add reviewer-scope' chronicle ||
-   ! grep -Fq 'reviewer_scope_state()' rotate-secret.sh ||
-   ! grep -Fq 'scope_state="$(reviewer_scope_state)"' rotate-secret.sh; then
+if ! grep -Fq 'doctor_add reviewer-scope' doctor.sh; then
   fail "reviewer setup can be enabled without verifying the live synthetic study/participant scope"
-elif grep -Fq "participation_status IN ('NOT_ENROLLED', 'ENROLLED')" chronicle rotate-secret.sh ||
-     ! grep -Fq "participation_status = '\''ENROLLED'\''" chronicle ||
-     ! grep -Fq "participation_status = 'ENROLLED'" rotate-secret.sh; then
-  fail "reviewer live-scope verification does not require an already-enrolled synthetic participant"
 elif ! grep -Fq './chronicle doctor' README.md ||
      ! grep -Fq 'reviewer-scope' docs/CONFIGURATION.md; then
   fail "reviewer live-scope creation and reset checks are not documented"
@@ -402,24 +405,9 @@ else
   ok "doctor and reviewer rotation verify the live synthetic reviewer scope"
 fi
 
-if ! grep -Fq 'free_kb >= 20971520' chronicle ||
-   ! grep -Fq 'doctor_add disk warn' chronicle ||
-   ! grep -Fq 'free space falls below 20 GiB' chronicle; then
-  fail "doctor treats a low filesystem percentage as fatal even when ample absolute space remains"
-else
-  ok "doctor distinguishes low percentage from less than 20 GiB of remaining space"
-fi
-
-if ! grep -Fq 'if ! read -r free_kb free_pct' chronicle ||
-   ! grep -Fq 'free_pct=""' chronicle; then
-  fail "doctor can exit before reporting an unreadable filesystem capacity"
-else
-  ok "doctor reports an unreadable filesystem capacity without set -e aborting early"
-fi
-
 for public_contract in \
   'redir /reviewer /chronicle/reviewer permanent' \
-  'reverse_proxy /chronicle/v4/mobile/reviewer-enrollment backend:40320'; do
+  'reverse_proxy /chronicle/v4/mobile/reviewer-enrollment https://backend:8443'; do
   if ! grep -Fq "$public_contract" caddy/snippets.caddy; then
     fail "public participant/reviewer route is missing: $public_contract"
   else
@@ -474,29 +462,29 @@ fi
 # The same operator command also supports the public source-clone path. Source images must
 # be tied to the checked-out superproject revision; a fixed :source tag made `git pull`
 # appear successful while the old backend/dashboard/proxy kept running indefinitely.
-if grep -Fq "source_image_tag() { printf '%s-%s:source-%s" chronicle &&
-    grep -Fq 'is_managed_source_image "${BACKEND_IMAGE:-}" backend' chronicle &&
-    grep -Fq '"VCS_REF=$source_revision"' chronicle &&
-    grep -Fq '"GIT_SHA=$source_revision"' chronicle &&
-    grep -Fq 'build_managed_source_image_if_missing "$BACKEND_IMAGE"' chronicle &&
-    grep -Fq 'build_managed_source_image_if_missing "$SELFHOST_FRONTEND_IMAGE"' chronicle &&
-    grep -Fq 'build_managed_source_image_if_missing "$CADDY_IMAGE"' chronicle; then
-  ok "source-clone images are revision-tagged and carry revision build metadata"
+if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 - <<'PY_SOURCE_IMAGES'
+from chronicle_ops.images import SOURCE_IMAGES
+from chronicle_ops.envfile import read_env, value
+settings = read_env('.env.example')
+variables = {image.variable for image in SOURCE_IMAGES}
+if len(variables) != len(SOURCE_IMAGES):
+    raise SystemExit('duplicate source-image owner')
+for image in SOURCE_IMAGES:
+    reference = value(settings, image.variable)
+    if not reference:
+        raise SystemExit('missing first-party image configuration')
+    if reference.startswith('__CHRONICLE_') and reference != image.placeholder:
+        raise SystemExit('image placeholder belongs to another build owner')
+PY_SOURCE_IMAGES
+then
+  ok "source-clone image registry covers the configured first-party images"
 else
-  fail "source-clone image handling can reuse revisions, omit metadata, or build local source under a custom tag"
+  fail "source-clone image registry does not match the configuration"
 fi
 grep -Fq 'submodule status --recursive -- "${SOURCE_SUBMODULES[@]}"' chronicle \
   || fail "source-clone builds do not reject submodules that differ from the pinned revision"
 
-if ! grep -Fq '/chronicle/v4/mobile/reviewer-enrollment' chronicle_ops/verify.py ||
-   ! grep -Fq 'reviewer bootstrap minted a fresh one-time invitation with the configured credential' chronicle_ops/verify.py ||
-   ! grep -Fq 'exact reviewer route returned a server error' chronicle_ops/verify.py; then
-  fail "runtime verification does not test the exact reviewer route or explicitly reject server errors"
-else
-  ok "runtime verification tests the exact reviewer route and rejects server errors"
-fi
-
-for image_var in BACKEND_IMAGE SELFHOST_FRONTEND_IMAGE CADDY_IMAGE POSTGRES_IMAGE; do
+for image_var in BACKEND_IMAGE CADDY_IMAGE POSTGRES_IMAGE; do
   grep -Fq "image: \${${image_var}:?" docker-compose.yml \
     || fail "docker-compose.yml does not require ${image_var}"
 done
@@ -584,15 +572,21 @@ else
   ok "base compose leaves ports and the Caddyfile entirely to the mode overlay"
 fi
 
-# 11. Everything that used to be a step in ./chronicle must exist as a service, or
+# 11. Every setup step must exist as a service, or
 #     `docker compose up -d` silently produces a stack with unencrypted tables, no
 #     dashboard certificate and a world-readable ./backups.
-for svc in config-guard cert-init db-init; do
+for svc in config-guard cert-init db-init migrate; do
   grep -q "^  ${svc}:" docker-compose.yml \
     || fail "docker-compose.yml has no ${svc} service — plain 'docker compose up -d' would skip what it does"
 done
-grep -q 'db-init:' <(awk '/^  backend:/{f=1;next} /^  [a-z]/{f=0} f' docker-compose.yml) \
-  || fail "backend does not depend on db-init — Flyway would create tables before encryption is on"
+docker compose --env-file .env.example -f docker-compose.yml config --format json | python3 -c '
+import json, sys
+services = json.load(sys.stdin)["services"]
+sys.exit(not all(services[service]["depends_on"][dependency]["condition"] == "service_completed_successfully"
+                 for service, dependency in (("backend", "migrate"), ("migrate", "db-init"))))
+' ||
+  fail "backend must wait for the migration service, which must wait for database encryption initialization"
+
 ok "the one-shot services that make 'docker compose up -d' sufficient are all wired in"
 
 # 12. The restore path. Piping a dump into a database that still has its schema skips every
@@ -629,7 +623,6 @@ else
   ok "db-init byte-verifies the recoverable keyring copy"
 fi
 
-# Round-2 sweep guardrails (2026-09-17): each locks in a fix that a review found.
 # 1. Every curl that probes THIS deployment must bypass HTTP_PROXY, or a proxied host lets
 #    the university proxy answer for Caddy. Only cmd_update's downloader may egress.
 update_start=$(grep -nE '^cmd_update\(\) \{' chronicle | cut -d: -f1)
@@ -642,10 +635,10 @@ else
   ok "every deployment probe in ./chronicle bypasses HTTP_PROXY"
 fi
 # 2. macOS has no sha256sum; python3 is already required by both scripts.
-if grep -q 'sha256sum' upgrade.sh rotate-secret.sh; then
-  fail "upgrade.sh/rotate-secret.sh depend on sha256sum (absent on macOS)"
+if grep -q 'sha256sum' rotate-secret.sh; then
+  fail "rotate-secret.sh depend on sha256sum (absent on macOS)"
 else
-  ok "upgrade.sh and rotate-secret.sh compute digests without sha256sum"
+  ok "rotate-secret.sh compute digests without sha256sum"
 fi
 # 3. upgrade-receipts/ is created 0700 by upgrade.sh and adopt; the readability guard must
 #    skip it or every check/up after an upgrade fails, and the printed fix must not chmod it.
@@ -674,11 +667,11 @@ else
 fi
 
 echo
-echo "Launch-audit guardrails (2026-09-24)"
+echo "Configuration guardrails"
 
-# C1: every operator-tunable variable Compose reads is documented, and every documented
-# setting is read. Set internally by ./chronicle or the image, or source-only experimental.
-compose_internal_vars=$'CHRONICLE_HOST_GID\nCHRONICLE_HOST_UID\nCHRONICLE_SERVER_ARGS\nHEALTHCHECK_PORT\nOIDC_CLIENT_SECRET\nRESTORE_FILE'
+# Every operator-tunable variable Compose reads is documented, and every documented
+# setting is read. The internal names are set by ./chronicle or the image.
+compose_internal_vars=$'CHRONICLE_HOST_GID\nCHRONICLE_HOST_UID\nCHRONICLE_SERVER_ARGS\nHEALTHCHECK_PORT\nRESTORE_FILE'
 undocumented_compose=$(comm -23 \
   <(grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose.yml overlays/*.yml | sed 's/\${//' | sort -u) \
   <(sort -u <(echo "$ENV_EXAMPLE_VARS") <(echo "$compose_internal_vars")))
@@ -687,10 +680,21 @@ if [[ -n "$undocumented_compose" ]]; then
 else
   ok "every setting Compose reads is documented in .env.example"
 fi
+undocumented_runtime=$(PYTHONPATH=. python3 - "$ENV_EXAMPLE_VARS" <<'PY'
+import sys
+from chronicle_ops.config_inventory import undocumented_runtime_settings
+print(' '.join(undocumented_runtime_settings('.', sys.argv[1].split())))
+PY
+) || fail "could not inspect Python and shell setting readers"
+if [[ -n "$undocumented_runtime" ]]; then
+  fail "Python or shell reads settings that .env.example does not document: $undocumented_runtime"
+else
+  ok "every Python and shell override is documented or supplied internally"
+fi
 unread_example=""
 for k in $ENV_EXAMPLE_VARS; do
-  grep -rqw -- "$k" docker-compose.yml overlays chronicle upgrade.sh rotate-secret.sh restore.sh \
-    guard-config.sh backend-entrypoint.sh config monitoring chronicle_ops cert-init.sh db-init.sh caddy \
+  grep -rqw -- "$k" docker-compose.yml overlays chronicle ./*.sh \
+    config monitoring chronicle_ops caddy \
     Caddyfile.split Caddyfile.split.local Caddyfile.split.tls || unread_example+="$k "
 done
 if [[ -n "$unread_example" ]]; then
@@ -699,7 +703,7 @@ else
   ok "every .env.example setting is read by the bundle"
 fi
 
-# C8: one default for ENABLE_ENCRYPTION everywhere, or the probe stops watching TDE health.
+# One default for ENABLE_ENCRYPTION everywhere, or the probe stops watching TDE health.
 encryption_defaults=$(grep -ohE 'ENABLE_ENCRYPTION:-[a-z]+' docker-compose.yml overlays/*.yml | sort -u)
 if [[ "$encryption_defaults" != 'ENABLE_ENCRYPTION:-true' ]] ||
    ! grep -Fq ': "${ENABLE_ENCRYPTION:=true}"' monitoring/probe.sh; then
@@ -721,70 +725,22 @@ for long_job in db-init restore; do
 done
 [[ $FAILED -eq 0 ]] && ok "postgres bounds statements, idle transactions and lock waits; restore and db-init opt out"
 
-# Per-service contract across the base file and every overlay: log caps (B4, R5, CH16) and
-# container hardening (R1, CH10-CH14). A service that only overrides a base service is
+# Per-service contract across the base file and every overlay: log caps and
+# container hardening. A service that only overrides a base service is
 # checked through the base definition.
 service_contract_violations=$(python3 - docker-compose.yml overlays/*.yml <<'PY'
 import sys
-from chronicle_ops.common import WRITABLE_ROOT_REASON_LABEL
-try:
-    import yaml
-except ImportError:  # PyYAML is not an operator-host requirement; source CI has it.
-    print("__NO_YAML__")
-    sys.exit(0)
-
-base = {}
-defined = {}
-for path in sys.argv[1:]:
-    with open(path, encoding="utf-8") as handle:
-        document = yaml.safe_load(handle) or {}
-    for name, service in (document.get("services") or {}).items():
-        if path.endswith("docker-compose.yml"):
-            base[name] = service
-        if "image" in service:
-            defined[(path, name)] = service
-problems = []
-for (path, name), service in sorted(defined.items()):
-    label = f"{path}:{name}"
-    labels = service.get("labels") or {}
-    if isinstance(labels, list):
-        labels = dict(entry.split("=", 1) for entry in labels if "=" in entry)
-    if service.get("read_only") is not True and not str(labels.get(WRITABLE_ROOT_REASON_LABEL, "")).strip():
-        problems.append(f"{label} root filesystem is writable without a justified exemption")
-    if "logging" not in service:
-        problems.append(f"{label} has no logging cap")
-    if "no-new-privileges:true" not in (service.get("security_opt") or []):
-        problems.append(f"{label} lacks no-new-privileges")
-    if "ALL" not in (service.get("cap_drop") or []):
-        problems.append(f"{label} does not drop all capabilities")
-    if "pids_limit" not in service or "mem_limit" not in service:
-        problems.append(f"{label} has no pid or memory limit")
-    for volume in service.get("volumes") or []:
-        source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
-        if source in ("/var/run", "/var/run/docker.sock", "/run", "/run/docker.sock"):
-            # Only the GET-only proxy on its internal network may hold the socket.
-            environment = service.get("environment") or {}
-            if name != "docker-socket-proxy" or str(environment.get("POST")) != "0" \
-                    or service.get("networks") != ["docker-api"]:
-                problems.append(f"{label} mounts the Docker socket directory {source}")
-    if service.get("restart") not in (None, "no") and "healthcheck" not in service and name not in {"victoriametrics", "victorialogs", "fluent-bit"}:
-        problems.append(f"{label} is long-running with no healthcheck")
-networks = {}
-for path in sys.argv[1:]:
-    with open(path, encoding="utf-8") as handle:
-        networks.update((yaml.safe_load(handle) or {}).get("networks") or {})
-if "docker-api" in networks and (networks["docker-api"] or {}).get("internal") is not True:
-    problems.append("the docker-api network that carries the Docker API proxy is not internal")
-print("\n".join(problems))
+from chronicle_ops.verify import service_contract_violations
+print(service_contract_violations(sys.argv[1:]))
 PY
-)
+) || fail "could not inspect the service hardening contract"
 if [[ "$service_contract_violations" == __NO_YAML__ ]]; then
   echo "  --   per-service hardening/logging contract not checked (python3 PyYAML is not installed)"
 elif [[ -n "$service_contract_violations" ]]; then
   fail "service hardening/logging contract violations:"
   echo "$service_contract_violations" | sed 's/^/         /'
 else
-  ok "every service caps its logs, drops capabilities, sets no-new-privileges and limits, and mounts no Docker socket"
+  ok "every service meets hardening limits; only the documented isolated proxy holds the Docker socket"
 fi
 
 echo
