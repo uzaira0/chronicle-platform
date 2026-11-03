@@ -47,6 +47,9 @@ RUN dnf -y remove percona-patroni python3.12-etcd && \
     dnf clean all && \
     rm -rf /usr/lib/python3.12/site-packages/dns /usr/lib/python3.12/site-packages/dnspython-*.dist-info
 
+# Package-manager libraries (CVE-2026-120194, CVE-2026-119373, CVE-2026-119586); no dnf or rpm after this.
+RUN rpm -e --nodeps json-glib librhsm sqlite-libs
+
 # CVE-2026-114406: distrust the compromised eMudhra intermediates in the system trust store until Red Hat
 # ships the ca-certificates update. Remove with the .trivyignore.yaml entry once it does.
 COPY backup-image/emudhra-distrusted-2026-10.pem /etc/pki/ca-trust/source/blocklist/

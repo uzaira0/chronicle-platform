@@ -32,9 +32,12 @@ Debian run-parts (GPL-2.0, source:
 https://deb.debian.org/debian/pool/main/d/debianutils/) on the pinned Percona image; licenses ship in
 the image under /usr/share/doc.
 
+`ghcr.io/uzaira0/chronicle-selfhost-postgres` (database and one-shot services) is built by this
+project from the pinned Percona Distribution for PostgreSQL image (https://github.com/percona/postgres)
+with unused packages removed.
+
 | Image | Used by | Upstream |
 |---|---|---|
-| Percona Distribution for PostgreSQL (`POSTGRES_IMAGE`) | database | https://github.com/percona/postgres |
 | `victoriametrics/victoria-metrics`, `victoriametrics/victoria-logs` | monitoring overlay | https://github.com/VictoriaMetrics/VictoriaMetrics |
 | `fluent/fluent-bit` | monitoring overlay | https://github.com/fluent/fluent-bit |
 | `ghcr.io/google/cadvisor` | monitoring overlay | https://github.com/google/cadvisor |

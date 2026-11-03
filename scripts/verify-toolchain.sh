@@ -246,18 +246,16 @@ DIGEST_STALE="$(grep -rEn 'percona/percona-distribution-postgresql:[^@[:space:]]
 
 # ── 6. Self-host bundle ───────────────────────────────────────────────────────
 # selfhost/ ships separately and was invisible to this checker, so a manifest bump used
-# to leave it on the old major. Its compose defaults the image four times (postgres plus
-# the config-guard / cert-init / db-init one-shots, which borrow the same image for bash,
-# psql, openssl and GNU stat), and .env.example states it once more for the operator.
+# to leave it on the old major. The release Postgres image is built FROM the pinned parent.
 SELFHOST_STALE="$(grep -rn 'percona/percona-distribution-postgresql' \
-  "$ROOT_DIR/selfhost/docker-compose.yml" "$ROOT_DIR/selfhost/.env.example" 2>/dev/null \
+  "$ROOT_DIR/selfhost/docker-compose.yml" "$ROOT_DIR/selfhost/.env.example" "$ROOT_DIR/selfhost/Dockerfile.postgres" 2>/dev/null \
   | grep -v "$PG_IMAGE" || true)"
 [[ -z "$SELFHOST_STALE" ]] \
   && ok "selfhost bundle -> $PG_IMAGE" \
   || fail "selfhost postgres image drift: $(head -1 <<<"$SELFHOST_STALE")"
-grep -Fq "POSTGRES_IMAGE=${PG_IMAGE}@${PG_DIGEST}" "$ROOT_DIR/selfhost/.env.example" \
-  && ok "selfhost release Postgres digest -> $PG_DIGEST" \
-  || fail "selfhost/.env.example must pin POSTGRES_IMAGE to ${PG_IMAGE}@${PG_DIGEST}"
+grep -Fxq "FROM ${PG_IMAGE}@${PG_DIGEST}" "$ROOT_DIR/selfhost/Dockerfile.postgres" \
+  && ok "selfhost release Postgres parent -> $PG_DIGEST" \
+  || fail "selfhost/Dockerfile.postgres must build FROM ${PG_IMAGE}@${PG_DIGEST}"
 
 # Backup is now built from the pinned Percona parent, not the published backup
 # fixture image. Grafana's pinned parent lives in its source-build Dockerfile.

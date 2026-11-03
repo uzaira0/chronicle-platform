@@ -74,11 +74,11 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
 
     @classmethod
     def start_database(cls, initialize_tde=True):
-        from chronicle_ops.images import bundle_config
         cls.project = 'chronicle-sat-r1-fu2-drill-' + uuid.uuid4().hex
         cls.subnet = subprocess.run([sys.executable, str(schemas.ROOT / 'selfhost/network-subnet.py'), 'select',
                                      '10.251.2.0/24', cls.project], check=True, capture_output=True, text=True).stdout.strip()
-        cls.pg_image = bundle_config(schemas.SELFHOST)['services']['postgres']['image']
+        from selfhost_fixture import postgres_image
+        cls.pg_image = postgres_image()
         cls.bootstrap = cls.work / 'bootstrap'
         cls.bootstrap.mkdir()
         (cls.bootstrap / 'docker-compose.yml').write_text(yaml.safe_dump(cls.database_compose()))

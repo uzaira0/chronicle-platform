@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from chronicle_ops.env_migration import compose_names, merge_env
 from chronicle_ops.release import MIGRATIONS_KEY, UPGRADE_FROM_MINIMUM, UPGRADE_FLOOR_KEY, compose_release, free_disk_floor, parse_version, read_manifest, require_current_owner
 from chronicle_ops.receipts import OPERATOR_RECEIPTS_DIR
+# Imported before any patch so their from-imports bind the real functions, not a test's mock.
+from chronicle_ops import update, upgrade  # noqa: F401
 from selfhost_fixture import copy_selfhost_fixture
 from test_secret_generation import SelfhostSetupFixture
 from chronicle_ops.common import run

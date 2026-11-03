@@ -449,7 +449,7 @@ class UpstreamRuntimeTests(unittest.TestCase):
                 try:
                     with patch.object(images, 'run', side_effect=docker), patch.object(images.SourceImage, 'archive', archive), \
                          patch.dict(os.environ, BACKUP_IMAGE=backup, CADDY_IMAGE='__CHRONICLE_SELFHOST_CADDY_IMAGE__'):
-                        for name in ('BACKEND_IMAGE', 'SELFHOST_FRONTEND_IMAGE', 'GRAFANA_IMAGE'):
+                        for name in ('BACKEND_IMAGE', 'SELFHOST_FRONTEND_IMAGE', 'GRAFANA_IMAGE', 'POSTGRES_IMAGE'):
                             os.environ.pop(name, None)
                         if failing:
                             with self.assertRaises(subprocess.CalledProcessError):
@@ -465,9 +465,11 @@ class UpstreamRuntimeTests(unittest.TestCase):
                                  {image.variable: value(saved, image.variable) for image in images.SOURCE_IMAGES if not image.overlay})
                 self.assertEqual(0o600, settings.stat().st_mode & 0o777)
                 self.assertEqual(backup, value(saved, 'BACKUP_IMAGE'))
-                self.assertEqual([('frontend', Path(folder), revision), ('caddy', Path(folder), revision)], archived)
-                (frontend, frontend_input), (caddy, caddy_input) = builds
-                self.assertEqual((b'frontend', b'caddy'), (frontend_input, caddy_input))
+                self.assertEqual([('frontend', Path(folder), revision), ('caddy', Path(folder), revision),
+                                  ('postgres', Path(folder), revision)], archived)
+                (frontend, frontend_input), (caddy, caddy_input), (postgres, postgres_input) = builds
+                self.assertEqual((b'frontend', b'caddy', b'postgres'), (frontend_input, caddy_input, postgres_input))
+                self.assertIn('Dockerfile.postgres', postgres)
                 self.assertEqual(['docker', 'build', '-q', '-f', 'selfhost/Dockerfile.frontend', '-t', tags['frontend'],
                                   '--build-arg', 'GIT_SHA=' + revision, '--label', 'org.opencontainers.image.revision=' + revision,
                                   '--label', images.INPUTS_TREE_LABEL + '=' + tree, '-'], frontend)

@@ -665,7 +665,7 @@ fi
 # ./chronicle wrapper. Source checkouts (RELEASE_VERSION=development) build local tags.
 if [[ "$RELEASE_VERSION" != development ]]; then
   image_variables=$(PYTHONPATH="$(dirname "${BASH_SOURCE[0]}")" python3 -c \
-    'import sys; from chronicle_ops.images import requested_images; print("\n".join([image.variable for image in requested_images(sys.argv[1])] + ["POSTGRES_IMAGE"]))' "$COMPOSE_FILE_SELECTION") ||
+    'import sys; from chronicle_ops.images import requested_images; print("\n".join(image.variable for image in requested_images(sys.argv[1])))' "$COMPOSE_FILE_SELECTION") ||
     bad "could not resolve the release image inventory"
   while IFS= read -r image_var; do
     [[ "${!image_var:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] ||

@@ -70,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--caddy-image", required=True)
     parser.add_argument("--backup-image", required=True)
     parser.add_argument("--grafana-image", required=True)
+    parser.add_argument("--postgres-image", required=True)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "build" / "releases")
     return parser.parse_args()
 

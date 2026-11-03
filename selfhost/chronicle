@@ -1387,6 +1387,8 @@ cmd_check() {
   shift || true
   need_env
   begin_operation check configuration_invalid
+  # config-guard runs from POSTGRES_IMAGE, which a source checkout builds.
+  if is_source_checkout; then ensure_images; fi
   preflight
   ops_python backup-footprint || die "could not estimate backup disk use"
   printf '%sConfiguration is valid.%s  Next: ./chronicle up\n' "$GRN" "$RST"

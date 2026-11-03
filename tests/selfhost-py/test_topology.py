@@ -183,13 +183,13 @@ class TopologyTests(unittest.TestCase):
 
     def test_monitoring_renderer_scrapes_the_backend_through_web(self):
         import yaml
-        from chronicle_ops.images import bundle_config
         with tempfile.TemporaryDirectory() as folder:
             work = Path(folder)
             rendered = work / 'monitoring-config'; rendered.mkdir()
             backend_tls = work / 'backend-tls'; backend_tls.mkdir()
             (backend_tls / 'backend.crt').write_text('synthetic-backend-certificate')
-            image = bundle_config(ROOT / 'selfhost')['services']['postgres']['image']
+            from selfhost_fixture import postgres_image
+            image = postgres_image()
             result = subprocess.run(['docker', 'run', '--rm', '--name', 'chronicle-sat-r1-render-' + work.name,
                 '--network', 'none', '--memory', '256m', '--memory-swap', '256m',
                 '--read-only', '--user', '0', '--entrypoint', 'bash',

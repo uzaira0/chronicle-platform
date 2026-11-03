@@ -1,6 +1,7 @@
 """Copy the publisher's operator inventory into isolated test installations."""
 
 from dataclasses import dataclass
+import functools
 import os
 from pathlib import Path
 import runpy
@@ -13,6 +14,15 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_POSTGRES_PASSWORD = "synthetic-test-password"
 FIXTURE_POSTGRES_APP_PASSWORD = "synthetic-app-test-password"
+
+
+@functools.cache
+def postgres_image():
+    """The release Postgres image built from selfhost/Dockerfile.postgres; it copies nothing, so no context."""
+    tag = "chronicle-selfhost-postgres:test"
+    subprocess.run(["docker", "build", "-q", "-t", tag, "-"], input=(ROOT / "selfhost/Dockerfile.postgres").read_bytes(),
+                   check=True, capture_output=True, timeout=600)
+    return tag
 
 
 def run_cert_init(tls_dir, *, script=ROOT / "selfhost/cert-init.sh", base=None, timeout=60, **settings):

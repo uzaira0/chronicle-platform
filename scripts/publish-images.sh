@@ -64,7 +64,7 @@ print(str(is_stable_release(candidate) and (not stable or version_key(candidate)
 fi
 release_signing_key=${CHRONICLE_RELEASE_SIGNING_KEY:-$HOME/.config/chronicle/release-signing-key}
 # capture assigns these variables by name, including symbolic values in dry runs.
-login='' revision='' epoch='' backend_digest='' frontend_digest='' caddy_digest='' backup_digest='' grafana_digest=''
+login='' revision='' epoch='' backend_digest='' frontend_digest='' caddy_digest='' backup_digest='' postgres_digest='' grafana_digest=''
 public_repo='' notes_dir='' public_revision='' sbom_output='' release_key_fingerprint=''
 inputs_tree='' inputs_tree_label=''
 
@@ -205,6 +205,7 @@ backend="ghcr.io/$login/chronicle-backend:$release"
 frontend="ghcr.io/$login/chronicle-selfhost-frontend:$release"
 caddy="ghcr.io/$login/chronicle-selfhost-caddy:$release"
 backup="ghcr.io/$login/chronicle-selfhost-backup:$release"
+postgres="ghcr.io/$login/chronicle-selfhost-postgres:$release"
 grafana="ghcr.io/$login/chronicle-selfhost-grafana:$release"
 # Build from a tar of tracked files. The directory walk of the checkout (hundreds of MB of
 # untracked build output) starves the BuildKit session healthcheck on a loaded host and
@@ -247,6 +248,7 @@ PY_IMAGE_PATHS
   scan_image "$tag"
 }
 build_component backup "$backup"
+build_component postgres "$postgres"
 build_component frontend "$frontend" \
   --build-arg "GIT_SHA=$revision" --build-arg "SOURCE_REF=$release"
 build_component caddy "$caddy" --build-arg "SOURCE_REF=$release" --build-context "chronicle-selfhost-frontend:release=docker-image://$frontend"
@@ -266,6 +268,7 @@ run docker push "$backend"
 run docker push "$frontend"
 run docker push "$caddy"
 run docker push "$backup"
+run docker push "$postgres"
 run docker push "$grafana"
 resolve_published_digest() {
   docker inspect --format '{{json .RepoDigests}}' "$1" |
@@ -277,6 +280,7 @@ capture backend_digest resolve_published_digest "$backend"
 capture frontend_digest resolve_published_digest "$frontend"
 capture caddy_digest resolve_published_digest "$caddy"
 capture backup_digest resolve_published_digest "$backup"
+capture postgres_digest resolve_published_digest "$postgres"
 capture grafana_digest resolve_published_digest "$grafana"
 # The private HEAD exists in no public repository. Record and tag the curated public commit
 # verified above so the bundle maps to published source.
@@ -289,7 +293,7 @@ fi
 run python3 scripts/build-selfhost-release.py --version "$release" \
   --source-revision "$revision" --public-revision "$public_revision" --source-date-epoch "$epoch" \
   --backend-image "$backend_digest" --frontend-image "$frontend_digest" --caddy-image "$caddy_digest" \
-  --backup-image "$backup_digest" --grafana-image "$grafana_digest"
+  --backup-image "$backup_digest" --grafana-image "$grafana_digest" --postgres-image "$postgres_digest"
 run ssh-keygen -Y sign -n "$release_signer" -f "$release_signing_key" "$bundle.sha256"
 run python3 -c '
 from pathlib import Path
@@ -300,7 +304,7 @@ runpy.run_path(str(root / "scripts/build-selfhost-release.py"))["verify_release_
     checksum, Path(str(checksum) + ".sig"), verify_key)
 ' "$root" "$bundle.sha256" "$release_verify_key"
 capture sbom_output env CHRONICLE_SBOM_SOURCE_REVISION="$revision" bash "$root/scripts/write-image-sboms.sh" "$release" "$root/build/releases" \
-  "$backend_digest" "$frontend_digest" "$caddy_digest" "$backup_digest" "$grafana_digest"
+  "$backend_digest" "$frontend_digest" "$caddy_digest" "$backup_digest" "$grafana_digest" "$postgres_digest"
 mapfile -t sbom_assets <<< "$sbom_output"
 run mkdir -p "$HOME/tmp"
 capture notes_dir mktemp -d -p "$HOME/tmp" chronicle-release-notes.XXXXXX

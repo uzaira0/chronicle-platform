@@ -1,0 +1,17 @@
+# Database and one-shot image: the pinned Percona server minus packages it never runs.
+# Build with selfhost/ as context. User, entrypoint, command and labels stay the base image's.
+# Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.
+FROM percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+
+USER 0
+
+# Unused base packages with HIGH findings: BIND client tools, kernel headers, emacs-filesystem,
+# Patroni and its etcd client with their unpackaged dnspython (CVE-2026-114605).
+RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem percona-patroni python3.12-etcd && \
+    dnf clean all && \
+    rm -rf /usr/lib/python3.12/site-packages/dns /usr/lib/python3.12/site-packages/dnspython-*.dist-info
+
+# Package-manager libraries (CVE-2026-120194, CVE-2026-119373, CVE-2026-119586); no dnf or rpm after this.
+RUN rpm -e --nodeps json-glib librhsm sqlite-libs
+
+USER 26

@@ -49,6 +49,8 @@ SOURCE_IMAGES = (
                 placeholder='__CHRONICLE_BACKUP_IMAGE__', context='.', overlay='overlays/backups.yml'),
     SourceImage(component='grafana', variable='GRAFANA_IMAGE', dockerfile='Dockerfile.grafana',
                 placeholder='__CHRONICLE_GRAFANA_IMAGE__', context='.', overlay='overlays/monitoring.yml'),
+    SourceImage(component='postgres', variable='POSTGRES_IMAGE', dockerfile='Dockerfile.postgres',
+                placeholder='__CHRONICLE_SELFHOST_POSTGRES_IMAGE__', context='.'),
 )
 
 

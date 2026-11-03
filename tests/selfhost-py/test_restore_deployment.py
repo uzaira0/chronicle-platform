@@ -18,8 +18,8 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from chronicle_ops.dump import SESSION_STATE_TABLE, CATALOG_GATE_SQL, CATALOG_SQL, EXIT_REJECTED_BEFORE_MUTATION, RestoreSource, DUMP_EXCLUDE_OPTIONS, UNCLASSIFIED_OBJECTS, backup_marker
-from selfhost_fixture import FIXTURE_POSTGRES_PASSWORD, rotation_fixture
-from test_restore_schemas import PgTdeFixture, ROOT, SELFHOST, KEY_EVIDENCE_SQL, ACTIVE_KEY_SQL
+from selfhost_fixture import FIXTURE_POSTGRES_PASSWORD, postgres_image, rotation_fixture
+from test_restore_schemas import PgTdeFixture, ROOT, KEY_EVIDENCE_SQL, ACTIVE_KEY_SQL
 from chronicle_ops.release import ROLLBACK_DUMP
 
 CLASSPATH_TASK = "restoreDeploymentClasspath"
@@ -447,11 +447,10 @@ sys.exit(status)
 
     def volume_rows_with_keyring(self, keyring):
         """Copies the stopped data volume onto a fresh one beside only this keyring file and reads every row."""
-        from chronicle_ops.images import bundle_config
         fresh = self.container + "-fresh-" + uuid.uuid4().hex[:8]
         self.addCleanup(self.docker, "rm", "-fv", fresh)
         self.docker("create", "--name", fresh, "--network", "none", "--memory", "1g",
-                    bundle_config(SELFHOST)['services']['postgres']['image'],
+                    postgres_image(),
                     "-c", "shared_preload_libraries=pg_tde", "-c", "max_parallel_workers_per_gather=0")
         self.docker("stop", self.container)
         try:
@@ -626,7 +625,7 @@ SELECT json_agg(snapshot ORDER BY kind, identity) FROM (
             self.assert_pilot_table(expected, table)
         dump_path = backup_marker(self.work, "chronicle").parent / "chronicle-pilot.sql.gz"
         dump_path.parent.mkdir()
-        # The next restore test publishes into the same backup folder.
+        # The deployment restore test publishes into the same backup folder.
         self.addCleanup(dump_path.parent.rename, self.work / "pilot-backups")
         self.docker("exec", "--user", "0", "-e", "PGUSER=" + self.database_user,
                     "-e", "PGHOST=127.0.0.1", self.container, "python3", "/selfhost/backup-image/selfcheck.py",
@@ -699,6 +698,8 @@ SELECT json_agg(snapshot ORDER BY kind, identity) FROM (
         # The shipped backup self-check exercises its snapshot gate and TDE scratch bootstrap.
         dump_path = backup_marker(self.work, "chronicle").parent / "chronicle-deployment.sql.gz"
         dump_path.parent.mkdir()
+        # The pilot restore test publishes into the same backup folder.
+        self.addCleanup(dump_path.parent.rename, self.work / "deployment-backups")
         self.docker("exec", "--user", "0", "-e", "PGUSER=" + self.database_user,
                     "-e", "PGHOST=127.0.0.1", self.container, "python3", "/selfhost/backup-image/selfcheck.py",
                     "dump", "chronicle", self.container_path(dump_path), "-Z1", "--no-owner")

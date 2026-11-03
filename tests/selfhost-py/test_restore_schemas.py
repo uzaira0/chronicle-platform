@@ -19,7 +19,7 @@ from chronicle_ops.dump import RESTORE_MUTATION_MARKER, COMPLETE, validate_dump,
 from chronicle_ops import release
 from chronicle_ops.release import ROLLBACK_DUMP
 from chronicle_ops.verify import DATABASE_PRIVILEGES_SQL
-from selfhost_fixture import FIXTURE_POSTGRES_APP_PASSWORD, FIXTURE_POSTGRES_PASSWORD, rotation_fixture
+from selfhost_fixture import FIXTURE_POSTGRES_APP_PASSWORD, FIXTURE_POSTGRES_PASSWORD, postgres_image, rotation_fixture
 from test_restore import DUMP
 
 
@@ -51,8 +51,7 @@ class PgTdeFixture(unittest.TestCase):
 
     @classmethod
     def start_database(cls, initialize_tde=True):
-        from chronicle_ops.images import bundle_config
-        image = bundle_config(SELFHOST)['services']['postgres']['image']
+        image = postgres_image()
         cls.docker("run", "-d", "--name", cls.container, *cls.network_options, "--memory", "1g",
                    "-e", "POSTGRES_HOST_AUTH_METHOD=trust", "-e", "POSTGRES_USER=" + cls.database_user,
                    "-e", "POSTGRES_INITDB_ARGS=--encoding=UTF8",

@@ -141,6 +141,7 @@ class ReleaseImageTests(unittest.TestCase):
 
     def test_fresh_compose_creation_cannot_turn_certificate_files_into_directories(self):
         from chronicle_ops.images import bundle_config
+        from selfhost_fixture import postgres_image
         source = bundle_config(ROOT / 'selfhost')['services']
         services = {name: source[name] for name in ('monitoring-cert-init', 'grafana')}
         directory = self.work / 'compose-create'; directory.mkdir()
@@ -158,6 +159,7 @@ class ReleaseImageTests(unittest.TestCase):
                 elif mount['target'].startswith('/etc/grafana/tls'):
                     mount['source'] = str(tls / Path(mount['source']).name)
         services['grafana']['image'] = self.images['grafana']
+        services['monitoring-cert-init']['image'] = postgres_image()
         services['grafana']['entrypoint'] = ['/bin/sh', '-ec',
             'test -s /etc/grafana/tls/monitoring.crt; test -f /etc/grafana/tls/monitoring.key']
         project = 'chronicle-u-cert-' + uuid.uuid4().hex
