@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 SELFHOST_ROOT="${SELFHOST_MATRIX_ROOT:-${ROOT_DIR}/selfhost}"
+# shellcheck source=selfhost/network-policy.sh
+source "$SELFHOST_ROOT/network-policy.sh"
+local_proxy_sources="$(trusted_proxy_sources own-tls '' '' '')"
 RUN_PARENT="${SELFHOST_MATRIX_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-matrix}"
 DOC="${SELFHOST_ROOT}/docs/DEPLOYMENT-COMPATIBILITY.md"
 
@@ -63,6 +66,7 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 DEPLOYMENT="${RUN_DIR}/deployment"
 /bin/mkdir -p "${DEPLOYMENT}/overlays"
 /bin/cp "${SELFHOST_ROOT}/docker-compose.yml" "${DEPLOYMENT}/docker-compose.yml"
+/bin/cp -R "${SELFHOST_ROOT}/config" "${DEPLOYMENT}/config"
 for mode in "${supported_modes[@]}"; do
   /bin/cp "${SELFHOST_ROOT}/overlays/${mode}" "${DEPLOYMENT}/overlays/${mode}"
 done
@@ -71,13 +75,16 @@ done
 
 render_env() {
   local output="$1" compose_file="$2" encryption="$3" state_dir="$4" project="$5"
-  python3 - "$SELFHOST_ROOT/.env.example" "$output" "$compose_file" "$encryption" \
-    "$state_dir" "$project" <<'PY'
+  PYTHONPATH="$ROOT_DIR/selfhost" python3 -s - "$SELFHOST_ROOT/.env.example" "$output" "$compose_file" "$encryption" \
+    "$state_dir" "$project" "$local_proxy_sources" <<'PY'
 from pathlib import Path
-import re
+import os
 import sys
+from chronicle_ops.credentials import POSTGRES, POSTGRES_APP
+from chronicle_ops.envfile import parse_env_text, set_env_values, value
+from chronicle_ops.images import SOURCE_IMAGES
 
-source, output, compose_file, encryption, state_dir, project = sys.argv[1:]
+source, output, compose_file, encryption, state_dir, project, local_proxy = sys.argv[1:]
 text = Path(source).read_text(encoding="utf-8")
 values = {
     # The trial mode must be addressed by a LAN address; production modes by a public name.
@@ -88,27 +95,25 @@ values = {
     "ENABLE_ENCRYPTION": encryption,
     "HTTP_BIND": "127.0.0.1",
     "INTERNAL_BIND": "127.0.0.1",
-    "DASHBOARD_PASSWORD_HASH": "'$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+    "DASHBOARD_PASSWORD_HASH": "$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "POSTGRES_PASSWORD": "matrix-postgres-password-not-a-secret",
     "JWT_SECRET": "matrix-jwt-signing-key-not-a-secret-123456789",
-    "MOBILE_SIGNING_SECRET": "",
-    "MOBILE_SIGNING_SECRET_PREVIOUS": "",
     "CHRONICLE_INTERNAL_WEB_SECRET": "matrix-internal-web-key-not-a-secret-123456",
     "TESTING_LOGIN_ENABLED": "false",
     "REQUIRE_MFA": "false",
-    "MOBILE_SIGNING_ENABLED": "false",
-    "MOBILE_SIGNING_REQUIRED": "false",
     "METRICS_PASSWORD": "matrix-metrics-password-not-a-secret-1234567",
     "GRAFANA_ADMIN_PASSWORD": "matrix-grafana-password-not-a-secret-1234567",
-    "BACKEND_IMAGE": "ghcr.io/example/chronicle-backend@sha256:" + "a" * 64,
-    "SELFHOST_FRONTEND_IMAGE": "ghcr.io/example/chronicle-frontend@sha256:" + "b" * 64,
-    "CADDY_IMAGE": "ghcr.io/example/chronicle-caddy@sha256:" + "c" * 64,
+    # Setup records the operator's retention; the matrix keeps everything and chooses no number.
+    **dict.fromkeys(("BACKUP_KEEP_DAYS", "BACKUP_KEEP_WEEKS", "BACKUP_KEEP_MONTHS", "PRE_OP_BACKUP_KEEP_DAYS"), "all"),
 }
-for key, value in values.items():
-    pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
-    if len(pattern.findall(text)) != 1:
-        raise SystemExit(f"expected exactly one {key} assignment in .env.example")
-    text = pattern.sub(f"{key}={value}", text, count=1)
+values[POSTGRES_APP.env_key] = values[POSTGRES.env_key]
+values['CADDY_TRUSTED_PROXIES'] = value(parse_env_text(text), 'CADDY_TRUSTED_PROXIES')
+if 'mode-behind-proxy-internal.yml' not in compose_file:
+    values['CADDY_TRUSTED_PROXIES'] = local_proxy
+values.update({image.variable: f'ghcr.io/example/{image.component}@sha256:{index:064x}'
+               for index, image in enumerate(SOURCE_IMAGES, 1)})
+text = set_env_values(text, values, require_existing=True)
+text = set_env_values(text, {"CHRONICLE_HOST_UID": str(os.getuid()), "CHRONICLE_HOST_GID": str(os.getgid())}, require_existing=False)
 Path(output).write_text(text, encoding="utf-8")
 PY
   chmod 600 "$output"
@@ -116,13 +121,14 @@ PY
 
 validate_render() {
   local config_json="$1" mode="$2" encryption="$3" backups="$4" monitoring="$5" tls_dir="$6"
-  python3 - "$config_json" "$mode" "$encryption" "$backups" "$monitoring" \
+  PYTHONPATH="$ROOT_DIR/selfhost" python3 -s - "$config_json" "$mode" "$encryption" "$backups" "$monitoring" \
     "$SELFHOST_ROOT/guard-config.sh" "$tls_dir" <<'PY'
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+from chronicle_ops.common import application_services
 
 config_path, mode, encryption, backups_text, monitoring_text, guard, tls_dir = sys.argv[1:]
 backups = backups_text == "true"
@@ -130,14 +136,14 @@ monitoring = monitoring_text == "true"
 config = json.loads(Path(config_path).read_text(encoding="utf-8"))
 services = config.get("services", {})
 
-expected = {"config-guard", "cert-init", "caddy-storage-init", "db-init", "export-init", "postgres", "backend", "frontend", "web"}
+expected = set(application_services([])) | {"config-guard", "cert-init", "caddy-storage-init", "postgres"}
 if mode == "mode-local-https.yml":
     expected.add("ca-export")
 if backups:
     expected.add("db-backup")
 if monitoring:
-    expected.update({"monitoring-config", "docker-socket-proxy", "cadvisor", "operational-probe", "metrics-exporter",
-                     "victoriametrics", "victorialogs", "fluent-bit", "grafana"})
+    expected.update({"monitoring-config", "monitoring-cert-init", "health-probe", "docker-socket-proxy", "cadvisor", "operational-probe",
+                     "metrics-exporter", "victoriametrics", "victorialogs", "fluent-bit", "grafana"})
 if set(services) != expected:
     raise SystemExit(f"service set mismatch: expected {sorted(expected)}, got {sorted(services)}")
 if any("build" in service for service in services.values()):
@@ -161,7 +167,6 @@ expected_guard = {
     "ENABLE_ENCRYPTION": encryption,
     "BACKUPS_ENABLED": backups_text,
     "MONITORING_ENABLED": monitoring_text,
-    "AUTH_OVERLAY_ENABLED": "false",
     "TESTING_LOGIN_ENABLED": "false",
     "REQUIRE_MFA": "false",
 }
@@ -174,6 +179,7 @@ optional = {
     "cadvisor": monitoring,
     "docker-socket-proxy": monitoring,
     "monitoring-config": monitoring,
+    "monitoring-cert-init": monitoring,
     "operational-probe": monitoring,
     "metrics-exporter": monitoring,
     "victoriametrics": monitoring,
@@ -199,7 +205,8 @@ if caddy_mount is None or Path(caddy_mount.get("source", "")).name != expected_c
     raise SystemExit(f"web Caddyfile mismatch for {mode}")
 
 targets = {int(item["target"]) for item in services["web"].get("ports", [])}
-expected_targets = {80, 8081} if mode == "mode-behind-proxy-internal.yml" else {80, 443, 8081}
+# Behind a proxy the pool listener is :8080 (plain or POOL_LISTENER_TLS), not the redirect port.
+expected_targets = {8080, 8081} if mode == "mode-behind-proxy-internal.yml" else {80, 443, 8081}
 if targets != expected_targets:
     raise SystemExit(f"published target ports mismatch: expected {expected_targets}, got {targets}")
 
@@ -256,14 +263,14 @@ done
 
 # Mutate one known-good guard environment to prove unsupported shapes fail closed. This
 # covers conditions that cannot be represented by the supported Compose files themselves.
-python3 - "$baseline_json" "$SELFHOST_ROOT/guard-config.sh" "${RUN_DIR}/negative-tls" <<'PY'
+python3 - "$baseline_json" "$SELFHOST_ROOT/guard-config.sh" "${RUN_DIR}/negative-tls" "$local_proxy_sources" <<'PY'
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 
-config_path, guard, tls_dir = sys.argv[1:]
+config_path, guard, tls_dir, local_proxy = sys.argv[1:]
 Path(tls_dir).mkdir(parents=True, exist_ok=True)
 (Path(tls_dir) / "cert.pem").write_text("fixture\n", encoding="utf-8")
 (Path(tls_dir) / "key.pem").write_text("fixture\n", encoding="utf-8")
@@ -274,18 +281,41 @@ base["CHRONICLE_GUARD_TLS_DIR"] = tls_dir
 base["DASHBOARD_PASSWORD_HASH"] = base.get("DASHBOARD_PASSWORD_HASH", "").replace("$$", "$")
 
 cases = [
+    ("staff-ip-invalid", {"CHRONICLE_RECORD_STAFF_IP": "no"}, "CHRONICLE_RECORD_STAFF_IP must be exactly true or false"),
+    ("mobile-abuse-oversized", {"RATE_LIMIT_MOBILE_ABUSE_EVENTS": "1000001"}, "RATE_LIMIT_MOBILE_ABUSE_EVENTS must be a decimal integer"),
+    ("web-abuse-invalid", {"RATE_LIMIT_WEB_ABUSE_EVENTS": "no"}, "RATE_LIMIT_WEB_ABUSE_EVENTS must be a decimal integer"),
+    ("guard-abuse-zero", {"RATE_LIMIT_GUARD_EVENTS": "0"}, "RATE_LIMIT_GUARD_EVENTS must be a decimal integer"),
+    ("mobile-window-invalid", {"RATE_LIMIT_MOBILE_WINDOW": "forever"}, "RATE_LIMIT_MOBILE_WINDOW must be a positive Caddy duration"),
+    ("web-window-zero", {"RATE_LIMIT_WEB_WINDOW": "0s"}, "RATE_LIMIT_WEB_WINDOW must be a positive Caddy duration"),
+    ("guard-window-invalid", {"RATE_LIMIT_GUARD_WINDOW": "-1s"}, "RATE_LIMIT_GUARD_WINDOW must be a positive Caddy duration"),
+    ("monitoring-bind-wildcard", {"MONITORING_ENABLED": "true", "GRAFANA_BIND": "0.0.0.0"}, "GRAFANA_BIND=0.0.0.0 exposes"),
+    ("monitoring-metrics-retention", {"MONITORING_ENABLED": "true", "METRICS_RETENTION": "0d"}, "METRICS_RETENTION must be whole days"),
+    ("monitoring-logs-retention", {"MONITORING_ENABLED": "true", "LOGS_RETENTION": "forever"}, "LOGS_RETENTION must be whole days"),
+    ("local-http-port-range", {"TLS_MODE": "local-https", "LOCAL_HTTP_PORT": "65536"}, "LOCAL_HTTP_PORT must be between 1 and 65535"),
+    ("local-https-port-range", {"TLS_MODE": "local-https", "LOCAL_HTTPS_PORT": "0"}, "LOCAL_HTTPS_PORT must be between 1 and 65535"),
+    ("local-ports-collide", {"TLS_MODE": "local-https", "LOCAL_HTTP_PORT": "8443", "LOCAL_HTTPS_PORT": "8443"}, "LOCAL_HTTP_PORT and LOCAL_HTTPS_PORT must be different"),
+    ("subnet-public", {"CHRONICLE_SUBNET": "8.8.8.0/24"}, "CHRONICLE_SUBNET must be one canonical, private IPv4 CIDR"),
+    ("disk-floor-invalid", {"MIN_FREE_DISK_GIB": "-1"}, "MIN_FREE_DISK_GIB must be a non-negative decimal integer"),
+    ("jwt-previous-short", {"JWT_SECRET_PREVIOUS": "short"}, "JWT_SECRET_PREVIOUS must be a distinct generated secret"),
+    ("jwt-previous-duplicate", {"JWT_SECRET_PREVIOUS": base["JWT_SECRET"]}, "JWT_SECRET_PREVIOUS must be a distinct generated secret"),
+    ("jwt-previous-no-expiry", {"JWT_SECRET_PREVIOUS": "old-jwt-secret-01234567890123456789", "JWT_SECRET_PREVIOUS_EXPIRES_AT": "0"}, "JWT_SECRET_PREVIOUS_EXPIRES_AT must be absolute Unix seconds"),
+    ("jwt-previous-unbounded", {"JWT_SECRET_PREVIOUS": "old-jwt-secret-01234567890123456789", "JWT_SECRET_PREVIOUS_EXPIRES_AT": "99999999999"}, "JWT_SECRET_PREVIOUS_EXPIRES_AT must not exceed one dashboard session"),
     ("production-without-backups", {"BACKUPS_ENABLED": "false", "ENABLE_ENCRYPTION": "false"}, "production deployment modes require"),
     ("encrypted-without-backups", {"TLS_MODE": "local-https", "BACKUPS_ENABLED": "false", "ENABLE_ENCRYPTION": "true", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml"}, "encryption at rest is on"),
     ("legacy-login", {"TESTING_LOGIN_ENABLED": "true"}, "TESTING_LOGIN_ENABLED must be false"),
     ("invalid-boolean", {"ENABLE_ENCRYPTION": "treu"}, "must be exactly true or false"),
     ("duplicate-mode", {"COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/mode-own-tls-internal.yml:overlays/backups.yml"}, "exactly one mode overlay"),
-    ("public-without-auth", {"TLS_MODE": "behind-proxy", "DASHBOARD_EXPOSURE": "public", "TESTING_LOGIN_ENABLED": "false", "REQUIRE_MFA": "true", "AUTH_OVERLAY_ENABLED": "false", "COMPOSE_FILE_SELECTION": "docker-compose.yml:experimental/public-dashboard/mode-behind-proxy-public.yml:overlays/backups.yml"}, "public dashboard requires"),
-    # One mutation per guard rule that had no FAIL-line test (launch audit S7, S8, CH17, C3, CH18).
+    ("public-exposure", {"DASHBOARD_EXPOSURE": "public"}, "unrecognised mode overlay"),
+    ("mfa-with-password-login", {"REQUIRE_MFA": "true"}, "REQUIRE_MFA=true with the internal dashboard password login"),
+    ("backend-xms-unit-only", {"BACKEND_XMS": "512m"}, "BACKEND_XMS must look like -Xms512m"),
+    # One mutation per guard rule that has no other FAIL-line test.
     ("internal-bind-any-v4", {"INTERNAL_BIND": "0.0.0.0"}, "INTERNAL_BIND must be one specific"),
     ("internal-bind-any-v6", {"INTERNAL_BIND": "::"}, "INTERNAL_BIND must be one specific"),
     ("internal-bind-any-v6-bracketed", {"INTERNAL_BIND": "[::]"}, "INTERNAL_BIND must be one specific"),
     ("internal-bind-ipv6", {"INTERNAL_BIND": "fd42:242::1"}, "INTERNAL_BIND=fd42:242::1 is IPv6"),
     ("http-bind-ipv6", {"HTTP_BIND": "fd42:241::1"}, "HTTP_BIND=fd42:241::1 is IPv6"),
+    ("http-bind-any-v4-plaintext", {"HTTP_BIND": "0.0.0.0", "POOL_LISTENER_TLS": "false"}, "HTTP_BIND=0.0.0.0 serves participant uploads in plain HTTP"),
+    ("http-bind-any-v6-plaintext", {"HTTP_BIND": "::", "POOL_LISTENER_TLS": "false"}, "HTTP_BIND=:: serves participant uploads in plain HTTP"),
     ("jwt-short", {"JWT_SECRET": "only-twenty-chars-xx"}, "JWT_SECRET is only 20 characters"),
     ("session-minutes-text", {"DASHBOARD_SESSION_MINUTES": "8h"}, "DASHBOARD_SESSION_MINUTES must be a whole number"),
     ("allowlist-empty", {"DASHBOARD_ALLOWED_IPS": ""}, "DASHBOARD_ALLOWED_IPS is empty"),
@@ -301,6 +331,11 @@ cases = [
     ("trial-public-hostname", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "study.research-matrix.org"}, "local trial mode must use a private LAN address"),
     ("trial-public-ip", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "8.8.8.8"}, "local trial mode must use a private LAN address"),
     ("release-image-by-tag", {"RELEASE_VERSION": "2026.9.22", "BACKEND_IMAGE": "ghcr.io/example/chronicle-backend:latest"}, "BACKEND_IMAGE must be digest-pinned"),
+    ("secret-placeholder", {"POSTGRES_PASSWORD": "CHANGE_ME_postgres_password"}, "still at placeholder/empty values: POSTGRES_PASSWORD"),
+    ("app-password-short", {"POSTGRES_APP_PASSWORD": "fifteen-chars-x"}, "POSTGRES_APP_PASSWORD is only 15 characters; use at least 16"),
+    ("jwt-unset", {"JWT_SECRET": ""}, "JWT_SECRET is not set"),
+    ("trusted-proxies-any", {"CADDY_TRUSTED_PROXIES": "0.0.0.0/0"}, "CADDY_TRUSTED_PROXIES must be explicit valid CIDRs"),
+    ("trusted-proxies-mode-mismatch", {"TLS_MODE": "own-tls", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-own-tls-internal.yml:overlays/backups.yml", "CADDY_TRUSTED_PROXIES": "10.242.0.0/24"}, "trusted proxies must match the listener mode"),
 ]
 errors = []
 for image_key in ("BACKEND_IMAGE", "SELFHOST_FRONTEND_IMAGE", "CADDY_IMAGE", "POSTGRES_IMAGE"):
@@ -325,11 +360,13 @@ for name, changes, expected in cases:
         errors.append(f"guard rejection for {name} omitted {expected!r}:\n{completed.stdout}")
 
 # Accepted shapes that must still say something. A warn line is the only signal the operator gets.
+remote_proxy = '10.242.0.0/24'
 warn_cases = [
-    ("http-bind-any-v4", {"HTTP_BIND": "0.0.0.0"}, "HTTP_BIND=0.0.0.0 serves plain HTTP"),
-    ("http-bind-any-v6", {"HTTP_BIND": "::"}, "HTTP_BIND=:: serves plain HTTP"),
+    ("http-bind-any-v4-tls", {"HTTP_BIND": "0.0.0.0", "POOL_LISTENER_TLS": "true", "CADDY_TRUSTED_PROXIES": remote_proxy}, "HTTP_BIND=0.0.0.0 serves the pool listener to your whole network"),
+    ("http-bind-any-v6-tls", {"HTTP_BIND": "::", "POOL_LISTENER_TLS": "true", "CADDY_TRUSTED_PROXIES": remote_proxy}, "HTTP_BIND=:: serves the pool listener to your whole network"),
+    ("http-bind-plaintext-waiver", {"HTTP_BIND": "10.242.0.5", "POOL_LISTENER_TLS": "false", "POOL_PLAINTEXT_WAIVER": "RR-12", "CADDY_TRUSTED_PROXIES": remote_proxy}, "serves plain HTTP under recorded waiver: RR-12"),
     ("plaintext-dumps", {}, "SQL dumps in ./backups are unencrypted"),
-    ("trial-lan-address", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "192.168.1.50"}, "phones will reach this stack at https://192.168.1.50"),
+    ("trial-lan-address", {"TLS_MODE": "local-https", "COMPOSE_FILE_SELECTION": "docker-compose.yml:overlays/mode-local-https.yml:overlays/backups.yml", "DOMAIN": "192.168.1.50", "CADDY_TRUSTED_PROXIES": local_proxy}, "phones will reach this stack at https://192.168.1.50"),
 ]
 for name, changes, expected in warn_cases:
     environment = dict(base)

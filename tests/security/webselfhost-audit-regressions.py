@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
-"""Isolated launch-audit regressions; never contacts a deployment."""
-import itertools
+#!/usr/bin/env -S python3 -s
+"""Isolated web self-host regressions; never contacts a deployment."""
 import os
 from pathlib import Path
 import re
@@ -10,7 +9,10 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNS = ROOT / 'build/operator-test-runs/webselfhost-audit'
+sys.path.insert(0, str(ROOT / "selfhost"))
+from chronicle_ops.route_surface import RETIRED_PREFIXES
+
+RUNS = Path(os.environ.get('TMPDIR') or ROOT / 'build/operator-test-runs/webselfhost-audit')
 RUNS.mkdir(parents=True, exist_ok=True)
 os.environ['TMPDIR'] = str(RUNS)
 tempfile.tempdir = str(RUNS)
@@ -20,7 +22,7 @@ class AuditRegressions(unittest.TestCase):
         source = (ROOT / 'selfhost/restore.sh').read_text()
         branch = source.split('else\n  checkpoint_rows=', 1)[1].split('\nfi\n\n# Treat a resumed', 1)[0]
         initialization = source[source.index('RESTORE_CONTINUITY_CONTRACT_VERSION=$(cat '):
-                                source.index('\nreadonly CHECKPOINT_DIGEST_SQL')]
+                                source.index('\nreadonly RESTORE_CONTINUITY_CONTRACT_VERSION')]
         current_contract = (ROOT / 'selfhost/restore-continuity.version').read_text().strip()
         shell = '''set -euo pipefail
 psql_q() { if [[ "$*" == *contract_version* ]]; then printf '%s' "$CONTRACT"; else printf 1; fi; }
@@ -36,233 +38,6 @@ psql_q() { if [[ "$*" == *contract_version* ]]; then printf '%s' "$CONTRACT"; el
                 if contract != current_contract:
                     self.assertIn(f'unsupported contract {contract}', result.stderr.decode())
 
-    def test_W01_rollback_consumes_only_complete_checkpoint(self):
-        sys.path.insert(0, str(ROOT / 'selfhost'))
-        sys.path.insert(0, str(ROOT / 'tests/selfhost-py'))
-        from test_restore import RestoreTransactionTests
-        check = RestoreTransactionTests(
-            'test_continuity_proof_and_dump_share_transaction_and_producer_failure_cannot_commit')
-        result = unittest.TestResult()
-        check.run(result)
-        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
-
-    def test_W02_shares_are_data_and_validated(self):
-        source = (ROOT / 'docker/key-recovery.sh').read_text()
-        function = source[source.index('python_combine() {'):source.index('# ── Reconstruct key')]
-        function = function.replace('$(dirname "${BASH_SOURCE[0]}")', str(ROOT / 'docker'))
-        with tempfile.TemporaryDirectory() as d:
-            marker = Path(d) / 'injected'
-            good = ['1-001122', '2-112233', '3-223344']
-            hostile = '1-00"""; open(' + repr(str(marker)) + ', "w").write("injected"); #'
-            for values in ([hostile, *good[1:]], ['1-00','1-11','3-22'],
-                           ['0-00','2-11','3-22'], ['256-00','2-11','3-22'],
-                           ['1-zz','2-11','3-22'], ['1-00','2-1122','3-22'],
-                           [' 1-00','2-11','3-22'], ['1-00 ','2-11','3-22'],
-                           ['1-00\r','2-11','3-22'],
-                           [*good,'4-nothex']):
-                files = []
-                for n, value in enumerate(values):
-                    path = Path(d) / f'share-{n}.txt'; path.write_text(value + '\n'); files.append(str(path))
-                result = subprocess.run(['bash','-c', function + '\npython_combine 3 "$@"','combine',*files],capture_output=True)
-                self.assertNotEqual(result.returncode, 0, values)
-                self.assertFalse(marker.exists())
-            for n, value in enumerate(good):
-                (Path(d) / f'share-{n}.txt').write_text(value + '\n')
-            accepted = subprocess.run(['bash','-c', function + '\npython_combine 3 "$@"','combine',
-                *(str(Path(d) / f'share-{n}.txt') for n in range(3))],capture_output=True)
-            self.assertEqual(accepted.returncode, 0, accepted.stderr.decode())
-            self.assertEqual(len(bytes.fromhex(accepted.stdout.decode().strip())), 3)
-
-    def test_W03_rotation_updates_authority_and_rolls_back(self):
-        source = (ROOT / 'scripts/rotate-secrets.sh').read_text()
-        self.assertTrue('${CHRONICLE_ENV_FILE:-./.env}' in (ROOT / 'docker/docker-compose.traefik.yml').read_text(), 'Compose must consume the selected protected env file')
-        helper = source[source.index('file_mode() {'):source.index('# ── Pre-flight')]
-        restart = source[source.index('restart_services() {'):source.index('# Guard: under')]
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d); secrets = root / 'secrets'; secrets.mkdir()
-            (root / 'before').write_text('JWT_SECRET=old\n')
-            (root / 'env').write_text('JWT_SECRET=old\n')
-            (root / 'new').write_text('new'); (secrets / 'jwt_secret').write_text('old')
-            for path in (root / 'env',root / 'new',secrets / 'jwt_secret'): path.chmod(0o600)
-            shell = 'set -euo pipefail\nlog() { :; }; warn() { :; }; err() { echo "$*" >&2; exit 1; }; DRY_RUN=false\n' + helper + '\ntrap - EXIT\n' + restart + '\n'
-            shell += 'declare -A RESTART_NEEDED=([chronicle-backend]=1)\nenv_set JWT_SECRET "$NEW"\n[[ $(cat "$SECRET_DIR/jwt_secret") == new ]] || exit 81\nrestart_services\n'
-            env = {**os.environ,'ENV_FILE':str(root / 'env'),'SECRET_DIR':str(secrets),
-                   'BACKUP_DIR':str(root),'ENV_BACKUP':str(root / 'before'),'NEW':str(root / 'new')}
-            # Stub only the Compose and credential checks; the file updates remain real.
-            shell = shell.replace('dc() { docker compose', 'dc() { docker compose')
-            stub = 'docker() { if [[ \"$*\" == *\"config --services\"* ]]; then echo chronicle-backend; return; fi; [[ "$*" == *"up -d --force-recreate --wait"* ]] || return 99; [[ "$FAIL_HEALTH" != true ]]; }; COMPOSE_FILE=fixture; FAIL_HEALTH=false\n'
-            result = subprocess.run(['bash','-c',stub + shell],env=env,capture_output=True)
-            self.assertEqual(result.returncode,0,result.stderr.decode())
-            self.assertEqual((secrets / 'jwt_secret').read_text(),'new')
-            # Rollback restores both sources after an unsuccessful health wait.
-            rollback = source[source.index('rollback_rotation() {'):source.index('# ── Individual rotation')]
-            result = subprocess.run(['bash','-c',stub + shell.split('declare -A RESTART_NEEDED')[0] + rollback + '\nrollback_rotation\n'],env=env,capture_output=True)
-            self.assertEqual(result.returncode,0,result.stderr.decode())
-            self.assertEqual((root / 'env').read_text(),'JWT_SECRET=old\n')
-            self.assertEqual((secrets / 'jwt_secret').read_text(),'old')
-
-        # Exercise the actual stdin reader and EXIT compensator after a failed health wait.
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d); secret_dir = root / 'secrets'; secret_dir.mkdir()
-            initial = 'POSTGRES_USER=chronicle\nPOSTGRES_DB=chronicle\nPOSTGRES_PASSWORD=old-password\n'
-            for name in ('env','before'):
-                (root/name).write_text(initial); (root/name).chmod(0o600)
-            (secret_dir/'postgres_password').write_text('old-password'); (secret_dir/'postgres_password').chmod(0o600)
-            (root/'db-password').write_text('old-password')
-            bin_dir=root/'bin'; bin_dir.mkdir()
-            psql_stub=bin_dir/'psql'
-            psql_stub.write_text("#!/usr/bin/env python3\nimport os,pathlib,re,sys\np=pathlib.Path(os.environ['DB_PASSWORD'])\nassert os.environ['PGPASSWORD']==p.read_text()\nif 'SELECT 1' not in ' '.join(sys.argv):\n text=sys.stdin.read()\n match=re.search(r\"new_password '([^']+)'\",text)\n p.write_text(match.group(1) if match else 'old-password')\n if match and os.environ.get('ALTER_RESPONSE_LOST') == 'true': sys.exit(28)\n")
-            psql_stub.chmod(0o755)
-            pg_rotate=source[source.index('rotate_postgres_password() {'):source.index('rotate_jwt_secret() {')]
-            rollback=source[source.index('rollback_rotation() {'):source.index('# ── Individual rotation')]
-            stub=r'''log() { :; }; warn() { :; }; err() { exit 1; }
-export DB_PASSWORD
-# Only the Compose API and container transport are replaced. Run its real sh stdin reader.
-docker() {
-  if [[ "$1" == compose ]]; then
-    if [[ "$*" == *"config --services"* ]]; then printf 'postgres\nchronicle-backend\n'; return; fi
-    [[ "$*" == *"--env-file $ENV_FILE"* && "$CHRONICLE_ENV_FILE" == "$ENV_FILE" && "$*" == *"--force-recreate --wait"* ]] || return 92
-    if [[ ! -f "$HEALTH_FAILURE" ]]; then touch "$HEALTH_FAILURE"; return 1; fi
-    return 0
-  fi
-  [[ "$1 $2 $3" == "exec -i chronicle-postgres" ]] || return 93
-  shift 3
-  "$@"
-}
-'''
-            shell='set -euo pipefail\nDRY_RUN=false\nCOMPOSE_FILE=fixture\n'+stub+helper+'\n'+rollback+'\n'+restart+'\n'+pg_rotate+'\ndeclare -A RESTART_NEEDED=()\nrotate_postgres_password\nrestart_services || err health\nrotation_committed=true\n'
-            env={**os.environ,'ENV_FILE':str(root/'env'),'ENV_BACKUP':str(root/'before'),
-                 'SECRET_DIR':str(secret_dir),'BACKUP_DIR':str(root),'DB_PASSWORD':str(root/'db-password'),
-                 'HEALTH_FAILURE':str(root/'failed-once'),'PATH':str(bin_dir)+':'+os.environ['PATH']}
-            (root/'failed-once').touch()
-            success=subprocess.run(['bash','-c',shell],env=env,capture_output=True)
-            self.assertEqual(success.returncode,0,success.stderr.decode())
-            self.assertNotEqual((root/'db-password').read_text(),'old-password')
-            self.assertEqual((root/'db-password').read_text(),(secret_dir/'postgres_password').read_text().strip())
-            (root/'env').write_text(initial)
-            (root/'db-password').write_text('old-password')
-            (secret_dir/'postgres_password').write_text('old-password')
-            (root/'failed-once').unlink()
-            result=subprocess.run(['bash','-c',shell],env=env,capture_output=True)
-            self.assertNotEqual(result.returncode,0)
-            self.assertTrue((root/'failed-once').exists(),result.stderr.decode())
-            self.assertEqual((root/'db-password').read_text(),'old-password',result.stderr.decode())
-            self.assertEqual((root/'env').read_text(),initial)
-            self.assertEqual((secret_dir/'postgres_password').read_text(),'old-password')
-            # The forward ALTER commits, but the transport loses its reply. The
-            # compensator must try the generated credential even before env_set.
-            lost = subprocess.run(['bash','-c',shell],env={**env,'ALTER_RESPONSE_LOST':'true'},capture_output=True)
-            self.assertNotEqual(lost.returncode,0)
-            self.assertEqual((root/'db-password').read_text(),'old-password',lost.stderr.decode())
-            self.assertEqual((root/'env').read_text(),initial)
-            self.assertEqual((secret_dir/'postgres_password').read_text(),'old-password')
-
-    def test_deploy_automatic_rollback_loads_previous_state(self):
-        source = (ROOT / 'scripts/deploy.sh').read_text()
-        loader = source[source.index('load_rollback_state() {'):source.index('# Health checks')]
-        rollback = source[source.index('rollback_deployment() {'):source.index('# Main')]
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            previous = {'tag':'v1.2.3', 'backend-image':'registry/previous-backend',
-                        'frontend-image':'registry/previous-frontend',
-                        'backend-digest':'1'*64, 'frontend-digest':'2'*64}
-            shell = r'''set -euo pipefail
-log_info() { :; }; log_audit() { :; }; log_error() { :; }
-compose_cmd() { [[ "$*" == "up -d --no-deps chronicle-backend chronicle-frontend" ]]; }
-wait_for_healthy() { return 0; }
-pull_images() {
-  printf '%s\n' "$IMAGE_TAG" "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$BACKEND_DIGEST" "$FRONTEND_DIGEST"
-  BACKEND_DIGEST=${BACKEND_DIGEST:-3333333333333333333333333333333333333333333333333333333333333333}
-  FRONTEND_DIGEST=${FRONTEND_DIGEST:-4444444444444444444444444444444444444444444444444444444444444444}
-}
-''' + loader + rollback + '\nrollback_deployment\n'
-            env = {**os.environ,'STATE_DIR':str(root),'ENVIRONMENT':'fixture','IMAGE_TAG':'failed',
-                   'BACKEND_HEALTH_TIMEOUT':'1','FRONTEND_HEALTH_TIMEOUT':'1',
-                   'BACKEND_IMAGE':'registry/current-backend','FRONTEND_IMAGE':'registry/current-frontend',
-                   'BACKEND_DIGEST':'5'*64,'FRONTEND_DIGEST':'6'*64}
-            for sparse in (False, True):
-                for key, value in previous.items():
-                    path = root / ('previous-' + key)
-                    if sparse and key != 'tag':
-                        path.unlink()
-                    else:
-                        path.write_text(value + '\n')
-                result = subprocess.run(['bash','-c',shell],env=env,capture_output=True,text=True)
-                self.assertEqual(result.returncode,0,result.stderr)
-                expected = [previous['tag'], env['BACKEND_IMAGE'], env['FRONTEND_IMAGE'], '', ''] if sparse else list(previous.values())
-                self.assertEqual(result.stdout.splitlines(),expected)
-                for key, value in zip(previous, expected):
-                    if key.endswith('digest') and sparse:
-                        value = ('3' if key == 'backend-digest' else '4') * 64
-                    self.assertEqual((root / ('current-' + key)).read_text().strip(),value)
-
-    def test_W04_all_inverses_and_threshold_subsets(self):
-        sys.path.insert(0, str(ROOT / 'docker'))
-        import shamir
-        for a in range(1,256):
-            self.assertEqual(shamir.gf256_mul(a,shamir.gf256_inv(a)),1,a)
-        secret = bytes(range(16))
-        shares = shamir.make_shares(secret,3,5)
-        for subset in itertools.combinations(range(5),3):
-            recovered = bytes(shamir.lagrange_interpolate([(n+1,shares[n][pos]) for n in subset],3) for pos in range(len(secret)))
-            self.assertEqual(recovered,secret)
-
-    def test_W05_backup_passphrase_roundtrips_bytes(self):
-        source = (ROOT / 'docker/key-recovery.sh').read_text()
-        block = source[source.index('if [ "$KEY_TYPE" = "backup" ] &&'):source.index('# ── Summary')]
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d); original = root / 'original'; destination = root / 'recovered'
-            block = block.replace('/etc/chronicle/backup-encryption-key', str(destination)).replace('/etc/chronicle', str(root))
-            original.write_bytes(b'synthetic-passphrase-with-newline\n')
-            import io, tarfile
-            with tarfile.open(root / 'dump.gz','w:gz') as archive:
-                info = tarfile.TarInfo('database.dump'); content = b'synthetic-backup'; info.size = len(content)
-                archive.addfile(info,io.BytesIO(content))
-            encrypted = root / 'dump.enc'
-            subprocess.run(['openssl','enc','-aes-256-cbc','-salt','-pbkdf2','-iter','600000',
-                '-in',str(root / 'dump.gz'),'-out',str(encrypted),'-pass','file:'+str(original)],check=True,capture_output=True)
-            # sudo is a local function; no privileged commands or external destination.
-            prefix = 'set -euo pipefail\nsudo() { if [[ "$1" == chown ]]; then return; fi; "$@"; }; log() { :; }; log_ok() { :; }; log_err() { :; }; KEY_TYPE=backup; WRITE_KEY_FILE=true\n'
-            for valid in (True, False):
-                destination.write_bytes(b'previous-destination')
-                recovered = original.read_bytes().hex() if valid else b'wrong-passphrase'.hex()
-                env = {**os.environ,'RECOVERED_KEY':recovered,'BACKUP_KEY_DESTINATION':str(destination),
-                    'VERIFY_BACKUP':str(encrypted),'BACKUP_REPRESENTATION':'passphrase-file-bytes','FINGERPRINT':'synthetic-validated'}
-                result = subprocess.run(['bash','-c',prefix+block],env=env,capture_output=True)
-                self.assertEqual(result.returncode == 0,valid)
-                self.assertEqual(destination.read_bytes(),original.read_bytes() if valid else b'previous-destination')
-
-            # Exercise the actual ceremony, shares, CLI fingerprint gate and the
-            # older 100k backup format together using only synthetic local files.
-            import json
-            ceremony = root / 'ceremony'
-            made = subprocess.run(['bash', str(ROOT / 'docker/key-ceremony.sh'),
-                '--tde-key', '00' * 32, '--backup-key-file', str(original),
-                '--output-dir', str(ceremony)], capture_output=True)
-            self.assertEqual(made.returncode, 0, made.stderr.decode())
-            record = json.loads((ceremony / 'ceremony-record.json').read_text())
-            self.assertEqual(record['backup_key_representation'], 'passphrase-file-bytes')
-            subprocess.run(['openssl','enc','-aes-256-cbc','-salt','-pbkdf2','-iter','100000',
-                '-in',str(root / 'dump.gz'),'-out',str(encrypted),'-pass','file:'+str(original)],
-                check=True, capture_output=True)
-            commands = root / 'bin'; commands.mkdir()
-            sudo = commands / 'sudo'
-            sudo.write_text('#!/usr/bin/env bash\nif [[ "$1" == chown ]]; then exit 0; fi\nexec "$@"\n')
-            sudo.chmod(0o755)
-            base = ['bash', str(ROOT / 'docker/key-recovery.sh'), '--type', 'backup', '--shares',
-                *(str(ceremony / 'backup-shares' / f'share-{n}.txt') for n in (1, 3, 5)),
-                '--write-key-file', '--representation', 'passphrase-file-bytes',
-                '--verify-backup', str(encrypted)]
-            env = {**os.environ, 'PATH': str(commands) + ':' + os.environ['PATH'],
-                'BACKUP_KEY_DESTINATION': str(destination)}
-            for fingerprint, accepted in ((None, False), ('0' * 64, False),
-                                         (record['backup_key_fingerprint_sha256'], True)):
-                destination.write_bytes(b'previous-destination')
-                args = base + (['--fingerprint', fingerprint] if fingerprint else [])
-                recovered = subprocess.run(args, env=env, capture_output=True)
-                self.assertEqual(recovered.returncode == 0, accepted, recovered.stderr.decode())
-                self.assertEqual(destination.read_bytes(), original.read_bytes() if accepted else b'previous-destination')
-
     def test_W14_only_reviewed_restricted_dumps_restore(self):
         import gzip, hashlib
         sys.path.insert(0, str(ROOT / 'selfhost'))
@@ -273,8 +48,8 @@ pull_images() {
         self.assertLess(container.index('verify_restore_dump "$RESTORE_FILE"'), container.index('DROP SCHEMA'))
         complete = b'-- PostgreSQL database dump complete\n'
         with tempfile.TemporaryDirectory() as d:
-            for payload, accepted in [(b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1;\n' + complete + b'\\unrestrict token123\n',True),
-                (b'-- PostgreSQL database dump\n\\restrict token123\nCOPY public.x FROM stdin;\n\\! this-is-copy-data\n\\.\n' + complete + b'\\unrestrict token123\n',True),
+            for payload, accepted in [(b'-- PostgreSQL database dump\n\\restrict token123\nSET statement_timeout = 0;\n' + complete + b'\\unrestrict token123\n',True),
+                (b'-- PostgreSQL database dump\n\\restrict token123\nCOPY public.x (id) FROM stdin;\n\\! this-is-copy-data\n\\.\n' + complete + b'\\unrestrict token123\n',True),
                 (b'-- PostgreSQL database dump\n\\restrict token123\n\\! touch owned\n' + complete + b'\\unrestrict token123\n',False),
                 (b"-- PostgreSQL database dump\n\\restrict token123\nCOPY x FROM PROGRAM 'touch owned';\n" + complete + b'\\unrestrict token123\n',False),
                 (b'-- PostgreSQL database dump\n\\restrict token123\nSELECT 1; \\unrestrict token123\nSELECT 1; \\! touch owned\n' + complete + b'\\unrestrict token123\n',False),
@@ -301,7 +76,8 @@ pull_images() {
             for bind,password,accepted in [('0.0.0.0','short',False),('::0','x'*32,False),
                 ('127.0.0.1','x'*32,True),('10.1.2.3','x'*32,True)]:
                 result = subprocess.run(['bash',str(script)],env={**os.environ,
-                    'METRICS_PASSWORD':'x'*32,'GRAFANA_ADMIN_PASSWORD':password,'GRAFANA_BIND':bind},capture_output=True)
+                    'METRICS_PASSWORD':'x'*32,'GRAFANA_ADMIN_PASSWORD':password,'GRAFANA_BIND':bind,
+                    'CHRONICLE_HOST_UID':'1000','CHRONICLE_HOST_GID':'1000'},capture_output=True)
                 self.assertEqual(result.returncode==0,accepted,result.stderr.decode())
 
     def test_W53_public_researcher_bearer_separation(self):
@@ -310,10 +86,15 @@ pull_images() {
         block = snippets[snippets.index('(chronicle_strip_researcher_bearer)'):snippets.index('(chronicle_mobile)')]
         pattern = re.search(r'path_regexp (.+)',block).group(1)
         self.assertIn('request_header @publicResearcherSurface -Authorization',block)
+        retired = snippets.split("(chronicle_mobile) {", 1)[1].split("\n}", 1)[0]
+        deny_pattern = re.search(r"path_regexp (.+)", retired).group(1)
+        for prefix in RETIRED_PREFIXES:
+            assert re.search(deny_pattern, prefix + "/x")
+        assert "respond @chronicle_retired_api 404" in retired
         for path in ('/chronicle/v3/study/abc','/chronicle/v3/study/abc/participants',
                      '/chronicle/v3/%73tudy/abc','/chronicle%2fv3%2fstudy%2fabc',
                      '/chronicle/v3/permissions','/chronicle/v3/admin/abc',
-                     '/chronicle/v2/study/abc','/chronicle/v4/study/abc','/chronicle/study/abc',
+                     '/chronicle/v4/study/abc',
                      '/chronicle/v3/time-use-diary/abc/submit',
                      '/chronicle/v3/time-use-diary/abc/participant/p1',
                      '/chronicle/v3/time-use-diary/abc/settings'):

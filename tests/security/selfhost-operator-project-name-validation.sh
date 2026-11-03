@@ -3,13 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 source "${ROOT_DIR}/tests/security/lib/selfhost-fixtures.sh"
-WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-W32}"
+WORK_DIR="${SELFHOST_OPERATOR_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-operator-project-name-validation}"
 mkdir -p "$WORK_DIR"
-RUN_DIR="$(mktemp -d "${WORK_DIR}/W32.XXXXXX")"
+RUN_DIR="$(mktemp -d "${WORK_DIR}/run.XXXXXX")"
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 PASSWORD='synthetic-dashboard-password-W32'
 
-fail() { echo "FAIL W32: $*" >&2; exit 1; }
+fail() { echo "FAIL selfhost-operator-project-name-validation: $*" >&2; exit 1; }
 
 run_setup() {
   local case_dir="$1" project="$2" input="$3" output="$4" status
@@ -52,4 +52,4 @@ if ! run_setup "$valid_dir" 'pilot-study_2' "$valid_input" "${RUN_DIR}/valid-out
 fi
 grep -Fqx 'COMPOSE_PROJECT_NAME=pilot-study_2' "${valid_dir}/selfhost/.env" ||
   fail 'setup did not preserve the accepted project name in generated configuration'
-echo 'PASS W32: invalid project names fail before .env replacement; valid constrained name is retained'
+echo 'PASS selfhost-operator-project-name-validation: invalid project names fail before .env replacement; valid constrained name is retained'

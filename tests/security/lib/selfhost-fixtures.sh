@@ -1,15 +1,38 @@
 #!/usr/bin/env bash
 
 export CHRONICLE_RECONCILE_ENABLED=false
+# shellcheck source=tests/security/lib/selfhost-python.sh
+source "$(dirname "${BASH_SOURCE[0]}")/selfhost-python.sh"
 
 copy_selfhost_setup_fixture() {
-  local destination="$1"
-  mkdir -p "$destination"
-  cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/guard-config.sh" \
-    "${ROOT_DIR}/selfhost/network-policy.sh" "${ROOT_DIR}/selfhost/network-subnet.py" \
-    "${ROOT_DIR}/selfhost/.env.example" "${ROOT_DIR}/selfhost/release-signing.pub" "$destination/"
-  cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$destination/"
-  chmod 0755 "${destination}/chronicle"
+  selfhost_python "$ROOT_DIR/tests/selfhost-py/selfhost_fixture.py" "$1"
+}
+
+write_encrypted_storage_fixture() {
+  local command_dir="$1"
+  cat >"${command_dir}/findmnt" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' /dev/mapper/synthetic-encrypted
+SH
+  cat >"${command_dir}/lsblk" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{"blockdevices":[{"type":"crypt"}]}'
+SH
+  cat >"${command_dir}/df" <<'SH'
+#!/usr/bin/env bash
+if [[ "$*" == '-P '* ]]; then
+  printf '%s\n' 'Filesystem 512-blocks Used Available Capacity Mounted on' \
+    '/dev/fixture-encrypted 100000000 1 99999999 1% /'
+else
+  exec /bin/df "$@"
+fi
+SH
+  cat >"${command_dir}/diskutil" <<'SH'
+#!/usr/bin/env bash
+[[ "$*" == 'info -plist /dev/fixture-encrypted' ]] || exit 93
+printf '%s\n' '<?xml version="1.0"?><plist version="1.0"><dict><key>Encrypted</key><true/></dict></plist>'
+SH
+  chmod 0755 "${command_dir}/findmnt" "${command_dir}/lsblk" "${command_dir}/df" "${command_dir}/diskutil"
 }
 
 make_selfhost_setup_fixture() {
@@ -21,12 +44,15 @@ make_selfhost_setup_fixture() {
 set -euo pipefail
 if [[ "$*" == 'compose ls --all --format json' ]]; then
   printf '[]\n'
+elif [[ "$*" == 'info --format {{.DockerRootDir}}' ]]; then
+  printf '%s\n' /fixture/docker
 elif [[ "${1:-}" == run ]]; then
   cat >/dev/null
   printf '%s\n' "${SELFHOST_FIXTURE_BCRYPT:-\$2a\$14\$syntheticbcryptvalueabcdefghijklmnopqrstuv0123456789ABCDE}"
 fi
 exit 0
 SH
+  write_encrypted_storage_fixture "${case_dir}/bin"
   cat >"${case_dir}/bin/crontab" <<'SH'
 #!/usr/bin/env bash
 if [[ "$1" == -l ]]; then echo "no crontab for fixture" >&2; exit 1; fi
@@ -57,7 +83,7 @@ SH
 }
 
 write_restore_sql_fixture() {
-  printf '%s\n' '-- PostgreSQL database dump' '\restrict fixturetoken' 'SELECT 1;' \
+  printf '%s\n' '-- PostgreSQL database dump' '\restrict fixturetoken' 'SET statement_timeout = 0;' \
     '-- PostgreSQL database dump complete' '\unrestrict fixturetoken'
 }
 
@@ -148,7 +174,7 @@ digest = hashlib.sha256(archive_path.read_bytes()).hexdigest() if mode != "corru
 archive_path.with_suffix(".gz.sha256").write_text(f"{digest}  {archive_path.name}\n", encoding="ascii")
 assets = [{"name": filename, "browser_download_url": f"https://updates.invalid/{filename}"}
           for filename in (archive_path.name, archive_path.name + ".sha256", archive_path.name + ".sha256.sig")]
-(root / "latest.json").write_text(json.dumps({"tag_name": latest, "assets": assets, "body": body}))
+(root / "latest.json").write_text(json.dumps([{"tag_name": latest, "assets": assets, "body": body, "draft": False, "prerelease": False}]))
 PY
 }
 
@@ -161,13 +187,13 @@ prepare_update_signer() {
 sign_update_fixture() {
   local run_dir="$1" version="$2" mode="${3:-valid}" checksum release_signer
   if [[ "$mode" == valid ]]; then
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/tests/selfhost-py:$ROOT_DIR/selfhost" python3 - "$run_dir" "$version" <<'PY'
+    selfhost_python - "$run_dir" "$version" <<'PY'
 import sys
 from test_release import complete_update_fixture
 complete_update_fixture(sys.argv[1], sys.argv[2])
 PY
   fi
-  release_signer=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/selfhost" python3 -c \
+  release_signer=$(selfhost_python -c \
     'from chronicle_ops.release import RELEASE_SIGNER; print(RELEASE_SIGNER)')
   checksum="$run_dir/http/chronicle-selfhost-$version.tar.gz.sha256"
   rm -f -- "$checksum.sig"
@@ -176,10 +202,28 @@ PY
 
 write_selfhost_setup_answers() {
   local password="$1" overwrite="${2:-false}" reuse_hash="${3:-false}"
-  [[ "$overwrite" != true ]] || printf 'y\n'
-  printf '1\nchronicle.study-host.org\n'
-  # Proxy/dashboard binds plus the ten saved/default network policy prompts.
-  printf '\n%.0s' {1..12}
-  [[ "$reuse_hash" == true ]] || printf '%s\n%s\n' "$password" "$password"
-  printf '\nn\n'
+  local -a options=(--public-host chronicle.study-host.org)
+  [[ "$overwrite" != true ]] || options+=(--overwrite)
+  [[ "$reuse_hash" != true ]] || options+=(--reuse-hash)
+  [[ "${SELFHOST_SETUP_MONITORING:-n}" != [yY] ]] || options+=(--monitoring)
+  SMOKE_PASSWORD="$password" ENABLE_MONITORING=false \
+    selfhost_python "$ROOT_DIR/tests/smoke/selfhost_release_setup.py" --answers-only \
+      "${options[@]}" "${@:4}"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -euo pipefail
+  ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)
+  case "${1:-}" in
+    setup-fixture) make_selfhost_setup_fixture "${2:?fixture directory required}" ;;
+    run-setup)
+      write_selfhost_setup_answers synthetic-dashboard-password "${3:-false}" "${3:-false}" |
+        bash "${2:?selfhost directory required}/chronicle" setup
+      ;;
+    update-fixture)
+      write_update_curl_fixture "$2/bin"
+      write_update_fixture "$2/http" 1.2.3 "$3"
+      ;;
+    *) echo 'Unknown selfhost fixture command' >&2; exit 2 ;;
+  esac
+fi

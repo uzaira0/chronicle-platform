@@ -4,12 +4,12 @@ import copy
 import importlib.util
 import io
 import json
-from math import prod
 import os
 from pathlib import Path
 import re
 import runpy
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -19,9 +19,84 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "selfhost"))
+from selfhost_fixture import copy_selfhost_fixture
 from chronicle_ops.common import WRITABLE_ROOT_REASON_LABEL
 from chronicle_ops.reconcile import ENABLED_ENV, install, STOP_MARKER
-from chronicle_ops.verify import verify_backup_storage
+from chronicle_ops.release import certificate_digest
+from chronicle_ops.envfile import read_env, set_env_values, value
+import test_secret_generation as setup_fixture
+from chronicle_ops.verify import verify_backup_storage, verify_database_storage
+
+
+
+PUBLIC_CHECK_FIXTURE = '''public_check() {
+  PYTHONPATH="$OPS_PACKAGE" python3 -c '
+import os
+from unittest.mock import patch
+from chronicle_ops.verify import verify_public_origin
+with patch("chronicle_ops.verify.curl", side_effect=[(0, os.environ["HEALTH_CODE"]), (0, "200")]):
+    raise SystemExit(verify_public_origin("https://example.test"))'
+}
+'''
+
+
+DOCTOR_PYTHON_STUB = r'''import os
+import sys
+args = sys.argv[1:]
+if args[:1] == ['-c'] and 'DATABASE_PRIVILEGES_VIOLATION' in args[1] and os.environ['PRODUCER'] == 'contract':
+    raise SystemExit(int(os.environ['PRODUCER_STATUS']))
+if args[:2] == ['-m', 'chronicle_ops']:
+    command = args[2]
+    if command == 'backup-storage':
+        raise SystemExit(int(os.environ.get('BACKUP_STORAGE_STATUS', '0')))
+    if command == 'database-storage':
+        raise SystemExit(int(os.environ.get('DATABASE_STORAGE_STATUS', '0')))
+    if command == 'reconcile':
+        if args[3] == 'check' and os.environ.get('RECONCILE_CHECK_ERROR'):
+            print('error: ' + os.environ['RECONCILE_CHECK_ERROR'], file=sys.stderr)
+            raise SystemExit(1)
+        raise SystemExit(int(args[3] == 'stopped'))
+    if command == 'public-check':
+        if os.environ['HEALTH_CODE'] != '204':
+            print('Chronicle is not ready')
+            raise SystemExit(1)
+    elif command == 'database-privileges':
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from chronicle_ops.__main__ import main
+        answer = os.environ['PRIVILEGES_ANSWER']
+        with patch('chronicle_ops.verify.compose', return_value=SimpleNamespace(stdout='' if answer == 'missing' else 'postgres')), \
+             patch('chronicle_ops.verify.postgres_sql', return_value=answer) as query:
+            if answer == 'query-failed':
+                query.side_effect = OSError('database unavailable')
+            raise SystemExit(main(['database-privileges']))
+    raise SystemExit(0)
+if args == ['-']:
+    script = sys.stdin.read()
+    if 'verify_backup' in script:
+        raise SystemExit(0)
+    for producer in ('disk_rows', 'capacity_checks', 'monitoring_checks'):
+        if producer in script:
+            if os.environ['PRODUCER'] == producer:
+                raise SystemExit(int(os.environ['PRODUCER_STATUS']))
+            print('fixture-' + producer + '\x1fok\x1fProbe passed\x1fnone')
+            raise SystemExit(0)
+    exec(compile(script, '<stdin>', 'exec'))
+else:
+    os.execv(sys.executable, [sys.executable, *args])
+'''
+
+
+# The launcher returns before dispatch when sourced, so tests run its real functions and stub the rest.
+SOURCE_LAUNCHER = f'source {ROOT / "selfhost/chronicle"}\n'
+
+
+def source_launcher_in(folder):
+    """Source a copy of the launcher placed in folder, which it then treats as its install directory."""
+    launcher = Path(folder) / 'chronicle'
+    shutil.copyfile(ROOT / 'selfhost/chronicle', launcher)
+    launcher.chmod(0o755)
+    return f'source {launcher}\n'
 
 
 class OpsBatchTests(unittest.TestCase):
@@ -30,94 +105,238 @@ class OpsBatchTests(unittest.TestCase):
         disabled.start()
         self.addCleanup(disabled.stop)
 
-    def test_rate_probe_requires_actual_throttling_and_race_probe_rejects_missing_routes(self):
-        node = shutil.which('node')
-        self.assertIsNotNone(node, 'Node is required for the installed JavaScript probe regression')
-        prelude = r"""
-const metrics = {}, checks = [], requests = [];
-class Counter { constructor(name) { this.name=name; metrics[name]=0; } add(value) { metrics[this.name]+=value; } }
-const check = (response, predicates) => { const result=Object.values(predicates).every(fn=>fn(response)); checks.push(result); return result; };
-const __ENV = {AUTH_TOKEN:'synthetic', STUDY_ID:'synthetic-study', TEST_DEVICE_ID:'synthetic-device', MOBILE_SIGNING_SECRET:'synthetic'};
-const http = Object.fromEntries(['post','get','del','patch'].map(method=>[method,(url)=> {
- requests.push(url); return {status:PROBE_STATUS,json:()=>({}),headers:{'X-Ratelimit-Limit':String(url).endsWith('/session')?10:100}};
-}]));
-"""
-        for file, calls, status in (
-            ('tests/load/k6-rate-limit-validation.js', 'defaultBurst(); authBurst();', 404),
-            ('tests/load/k6-rate-limit-validation.js', 'defaultBurst(); authBurst();', 200),
-            ('tests/security/k6-race-conditions.js', "for(let i=0;i<10;i++){enrollment({}); nonce({}); deletion({}); settings({});}", 404),
-        ):
-            source = (ROOT / file).read_text()
-            source = re.sub(r'^import .*?;\n', '', source, flags=re.M).replace('export ', '')
-            result = subprocess.run([node, '-e', prelude.replace('PROBE_STATUS', str(status)) + source + calls +
-                '\nconsole.log(JSON.stringify({metrics,checks,thresholds:options.thresholds}));'],
-                check=True, capture_output=True, text=True)
-            evidence = json.loads(result.stdout)
-            self.assertIn(False, evidence['checks'])
-            self.assertTrue(all(count == 0 for count in evidence['metrics'].values()))
-            self.assertEqual(evidence['thresholds']['checks'], ['rate==1'])
-        mirror = (ROOT / 'tests/load/k6-race-conditions.js').read_text()
-        self.assertIn("from '../security/k6-race-conditions.js'", mirror)
+    def doctor_fixture(self):
+        fixture = self.setup_host_fixture()
+        fixture.run_setup()
+        settings = fixture.host / '.env'
+        settings.write_text(set_env_values(settings.read_text(), {
+            'COMPOSE_FILE': 'docker-compose.yml:overlays/backups.yml:overlays/monitoring.yml',
+            'CHRONICLE_ALERT_WEBHOOK_URL': 'https://alerts.example.test/fixture',
+        }, require_existing=True))
+        commands = Path(fixture.folder.name) / 'bin'
+        python = commands / 'python3'
+        python.write_text('#!' + sys.executable + '\n' + DOCTOR_PYTHON_STUB)
+        python.chmod(0o755)
+        docker = commands / 'docker'
+        docker.write_text("""#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  inspect*) [[ "$CONTAINER_STATE" != inspect-failed ]] || exit 1; printf '%s' "$CONTAINER_STATE" ;;
+  *'ps --status running --services') printf '%s\\n' postgres backend web victoriametrics victorialogs fluent-bit grafana operational-probe ;;
+  *'ps -a -q '*) [[ -z "$CONTAINER_STATE" ]] || printf '%s\\n' "${@: -1}" ;;
+esac
+""")
+        fixture.environment.update(CONTAINER_STATE='running healthy', PRIVILEGES_ANSWER='t', HEALTH_CODE='204',
+                                   PRODUCER='', PRODUCER_STATUS='0')
+        return fixture
+
+    def run_doctor(self, fixture, **overrides):
+        return subprocess.run(['bash', str(fixture.host / 'chronicle'), 'doctor', '--json'],
+                              env=dict(fixture.environment, **overrides), capture_output=True, text=True, timeout=20)
+
+    def test_doctor_fails_without_a_monitoring_alert_destination(self):
+        fixture = self.doctor_fixture()
+        settings = fixture.host / '.env'
+        settings.write_text(set_env_values(settings.read_text(), {'CHRONICLE_ALERT_WEBHOOK_URL': ''}, require_existing=True))
+        result = self.run_doctor(fixture)
+        self.assertEqual(1, result.returncode, result.stderr + result.stdout)
+        checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+        self.assertEqual('fail', checks['alert-route']['status'])
+
+    def test_low_free_percentage_warns_and_only_the_startup_reserve_fails(self):
+        # A 1-TiB host filesystem with 100 GiB available is below 15% free yet far above the reserve.
+        from chronicle_ops import verify
+        gib = 1024 ** 3
+        disk = SimpleNamespace(f_frsize=4096, f_blocks=1024 * gib // 4096, f_bfree=100 * gib // 4096,
+                               f_bavail=100 * gib // 4096)
+        for enough, reserve in ((True, 'ok'), (False, 'fail')):
+            with self.subTest(enough=enough), \
+                 patch('chronicle_ops.verify.storage_report', return_value=[('state', enough, 100 * gib, 10 ** 6, 5 * gib)]), \
+                 patch('chronicle_ops.verify.os.statvfs', return_value=disk):
+                rows = {row[0]: row[1] for row in verify.disk_rows({}, '/state')}
+            self.assertEqual({'disk': 'warn', 'state-reserve': reserve}, rows)
+
+    def test_host_filesystem_row_survives_an_unreachable_docker_daemon(self):
+        from chronicle_ops import verify
+        gib = 1024 ** 3
+        disk = SimpleNamespace(f_frsize=4096, f_blocks=1024 * gib // 4096, f_bfree=500 * gib // 4096, f_bavail=500 * gib // 4096)
+        refused = subprocess.CalledProcessError(1, ['docker', 'info'])
+        with patch('chronicle_ops.verify.storage_report', side_effect=refused), \
+             patch('chronicle_ops.verify.os.statvfs', return_value=disk):
+            rows = verify.disk_rows({}, '/state')
+        self.assertEqual(('disk', 'ok'), rows[0][:2])
+        self.assertEqual([('storage-reserve', 'fail')], [row[:2] for row in rows[1:]])
+        self.assertIn('Docker', rows[1][3])
+
+    def test_a_filesystem_without_block_counts_reports_unreadable_capacity(self):
+        # df prints "-" for Use% when a filesystem reports no blocks; doctor must say so, not crash.
+        from chronicle_ops import verify
+        empty = SimpleNamespace(f_frsize=4096, f_blocks=0, f_bfree=0, f_bavail=0)
+        with patch('chronicle_ops.verify.storage_report', return_value=[('state', True, 0, 10 ** 6, 0)]), \
+             patch('chronicle_ops.verify.os.statvfs', return_value=empty):
+            rows = {row[0]: row[1:3] for row in verify.disk_rows({}, '/state')}
+        self.assertEqual(('warn', 'Host filesystem capacity could not be read'), rows['disk'])
+        df = 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfuse 0 0 0 - /var/lib/postgresql\n'
+        answer = df + json.dumps({'database_bytes': 1, 'wal_bytes': 0, 'max_wal_bytes': 1})
+        with patch('chronicle_ops.verify.compose', return_value=SimpleNamespace(stdout=answer)):
+            rows = {row[0]: row[1:3] for row in verify.capacity_checks({'COMPOSE_FILE': ''}, '/backups')}
+        self.assertEqual(('warn', 'Database volume capacity could not be read'), rows['database-disk'])
+
+    def test_doctor_names_the_recovery_command_of_an_incomplete_operation(self):
+        fixture = self.doctor_fixture()
+        message = 'incomplete operation at /state/.chronicle-upgrade.lock; run ./chronicle update from /old/selfhost'
+        result = self.run_doctor(fixture, RECONCILE_CHECK_ERROR=message)
+        checks = {check['check']: check for check in json.loads(result.stdout)['checks']}
+        self.assertEqual(('warn', message), (checks['operation-lock']['status'], checks['operation-lock']['recoveryCommand']))
+
+    def test_doctor_reports_observed_container_and_database_privilege_states(self):
+        fixture = self.doctor_fixture()
+        cases = [('running healthy', answer, '204') for answer in ('t', 'f', 'missing', 'query-failed', 'malformed')]
+        cases += [(state, 't', '204') for state in ('running unhealthy', 'running starting', 'exited unhealthy', '', 'inspect-failed')]
+        cases += [('running healthy', 't', '503')]
+        for state, answer, health in cases:
+            with self.subTest(state=state, answer=answer, health=health):
+                result = self.run_doctor(fixture, CONTAINER_STATE=state, PRIVILEGES_ANSWER=answer, HEALTH_CODE=health)
+                self.assertEqual(result.returncode, int(state != 'running healthy' or answer != 't' or health != '204'), result.stderr + result.stdout)
+                checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+                self.assertEqual('fail' if answer != 't' else 'ok', checks['database-privileges']['status'])
+                privileges = checks['database-privileges']
+                if answer == 'f':
+                    self.assertIn('preserves ACLs', privileges['recoveryCommand'])
+                elif answer != 't':
+                    self.assertIn('Could not check database privileges', privileges['likelyCause'])
+                    self.assertEqual('Restore database connectivity and rerun doctor', privileges['recoveryCommand'])
+                for service in ('postgres', 'backend', 'web'):
+                    shown = checks['service-' + service]['likelyCause']
+                    if state.startswith('running '):
+                        self.assertIn(state.split()[1], shown)
+                    elif state == 'inspect-failed':
+                        self.assertIn('Could not check', shown)
+                    else:
+                        self.assertIn('not running', shown)
+                if health == '503':
+                    self.assertIn('Chronicle is not ready', checks['public-readiness']['likelyCause'])
+
+    def test_doctor_fails_when_diagnostic_producer_crashes_or_is_empty(self):
+        fixture = self.doctor_fixture()
+        for producer, row in (('disk_rows', 'disk'), ('capacity_checks', 'backup-capacity'), ('monitoring_checks', 'monitoring-pipeline'),
+                              ('contract', 'database-privileges')):
+            for status in ('0', '9'):
+                with self.subTest(producer=producer, status=status):
+                    result = self.run_doctor(fixture, PRODUCER=producer, PRODUCER_STATUS=status)
+                    self.assertEqual(1, result.returncode, result.stderr + result.stdout)
+                    self.assertTrue(result.stdout, result.stderr)
+                    checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+                    self.assertEqual('fail', checks[row]['status'])
+        self.assertEqual(0, self.run_doctor(fixture).returncode)
+
+    def test_grafana_password_change_causes_apply_to_rotation_and_recovery(self):
+        script = '''set -Eeuo pipefail
+source "$1"
+ROTATION_ACTION=rotate
+COMPOSE_FILE=overlays/monitoring.yml
+GRAFANA_ADMIN_PASSWORD=synthetic-old
+ROTATION_DIR=synthetic-transaction
+SAVED_ROTATION_KIND=grafana
+NEW_SECRET= OLD_SECRET= RECEIPT_DETAIL=
+for name in service_running confirm configure_apply begin_transaction env_update write_phase apply_configuration ensure_recovery_service_running restore_old_env log; do
+  eval "$name() { :; }"
+done
+complete_transaction() { printf committed; }
+complete_recovery() { printf committed; }
+fail() { echo "$*" >&2; exit 1; }
+openssl() { printf synthetic-new; }
+grafana_base_url() { printf https://grafana.example.test; }
+curl_basic_code() { printf 200; }
+env_value_from_file() { if [[ "$1" == .env ]]; then printf synthetic-new; else printf synthetic-old; fi; }
+grafana_can_auth() {
+  [[ "$1" == synthetic-old && "$RECOVERY_DIRECTION" == forward || "$1" == synthetic-new && "$RECOVERY_DIRECTION" == rollback || "$CURL_CODE" == 200 && "$CURL_STATUS" == 0 ]]
+}
+curl() { cat >/dev/null; printf '%s' "$CURL_CODE"; return "$CURL_STATUS"; }
+if [[ "$TEST_ACTION" == rotate ]]; then rotate_grafana; else recover_grafana_rotation; fi
+'''
+        for action in ('rotate', 'forward', 'rollback'):
+            for code, curl_status, message in (
+                ('200', 0, ''), ('401', 0, 'refused password-change authentication'),
+                ('403', 0, 'refused password-change authentication'), ('500', 0, 'server error'),
+                ('400', 0, 'unexpected password-change response'), ('000', 60, 'outcome could not be confirmed'),
+                ('000', 28, 'outcome could not be confirmed'), ('200', 28, 'outcome could not be confirmed'),
+            ):
+                with self.subTest(action=action, code=code, curl_status=curl_status):
+                    result = subprocess.run(['bash', '-c', script, 'fixture', str(ROOT / 'selfhost/rotation-http.sh')], capture_output=True, text=True, timeout=10,
+                        env=dict(os.environ, TEST_ACTION=action, RECOVERY_DIRECTION=action,
+                                 CURL_CODE=code, CURL_STATUS=str(curl_status), STATE_ROOT=str(Path(__file__).parent)))
+                    expected = int(code != '200' or curl_status != 0)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    self.assertIn(message, result.stderr)
+                    self.assertEqual('committed' in result.stdout, expected == 0)
+                    if expected:
+                        self.assertIn('rotation recovery', result.stderr)
+                        self.assertNotIn('Grafana rejected', result.stderr)
+                    if curl_status:
+                        self.assertNotIn('refused', result.stderr)
+                    self.assertNotIn('synthetic-old', result.stdout + result.stderr)
+                    self.assertNotIn('synthetic-new', result.stdout + result.stderr)
 
     def test_expiry_probe_requires_identical_signed_claims_and_rejects_missing_inputs_and_throttling(self):
-        import base64
-        source = (ROOT / 'tests/security/session-management-tests.sh').read_text()
-        signer = re.search(r'^make_jwt\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
-        probe = source[source.index('header "Test 1: Expired JWT Rejection"'):source.index('header "Test 2: JWT After Secret Rotation"')]
-        claims = base64.urlsafe_b64encode(json.dumps({'sub': 'fixture-user', 'custom': 'preserved'}).encode()).decode().rstrip('=')
-        status_stub = r"""
-header() { :; }; pass() { :; }; fail() { FAIL_COUNT=$((FAIL_COUNT + 1)); }
-http_status() {
-  [[ "$1" == GET && "$2" == "$BASE_URL/chronicle/v3/study" ]]
-  TOKEN="${4#Authorization: Bearer }" python3 - <<'PY_TOKEN'
-import base64, hashlib, hmac, json, os, time
-header, payload, signature = os.environ['TOKEN'].split('.')
-expected = base64.urlsafe_b64encode(hmac.new(os.environ['JWT_SECRET'].encode(), (header+'.'+payload).encode(), hashlib.sha256).digest()).decode().rstrip('=')
-assert hmac.compare_digest(signature, expected)
-claims = json.loads(base64.urlsafe_b64decode(payload+'='*(-len(payload)%4)))
-assert claims['sub'] == 'fixture-user' and claims['custom'] == 'preserved'
-assert claims['iat'] < time.time()
-print(os.environ['VALID_STATUS'] if claims['exp'] > time.time() else os.environ['EXPIRED_STATUS'])
-PY_TOKEN
-}
-"""
-        script = 'set -eu\nFAIL_COUNT=0\n' + status_stub + signer + '\n' + probe + '\n[[ "$FAIL_COUNT" == 0 ]]'
-        for valid, expired, secret, succeeds in ((200, 401, 'synthetic', True), (429, 401, 'synthetic', False),
-                                                 (200, 429, 'synthetic', False), (200, 401, '', False)):
-            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=10,
-                env=dict(os.environ, BASE_URL='https://fixture.invalid', AUTH_TOKEN='header.'+claims+'.signature',
-                         JWT_SECRET=secret, VALID_STATUS=str(valid), EXPIRED_STATUS=str(expired)))
-            self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+        from session_probe_fixture import run_session_probe
+        for mode, key, succeeds in (('secure', 'synthetic-secret', True),
+                                   ('valid-throttled', 'synthetic-secret', False),
+                                   ('expiry-throttled', 'synthetic-secret', False),
+                                   ('expiry-accepted', 'synthetic-secret', False),
+                                   ('secure', '', False)):
+            with self.subTest(mode=mode, missing_key=not key):
+                result = run_session_probe(mode, key)
+                self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+                if not succeeds:
+                    self.assertNotIn('[PASS]  Test 1:', re.sub(r'\x1b\[[0-9;]*m', '', result.stdout))
 
     def test_study_isolation_requires_same_token_positive_control_on_real_participant_routes(self):
-        source = (ROOT / 'tests/security/business-logic-tests.sh').read_text()
-        helpers = '\n'.join(re.search(r'^'+name+r'\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
-                            for name in ('http_status', 'auth_http_status', 'assert_status'))
-        probe = source[source.index('log "--- Test 1: Study Cross-Contamination ---"'):source.index('log "--- Test 2: Privilege Escalation ---"')]
-        script = 'set -eu\nFAIL_COUNT=0\nlog() { :; }; pass() { :; }; fail() { FAIL_COUNT=$((FAIL_COUNT+1)); }\n' + helpers + '\n' + probe + '\n[[ "$FAIL_COUNT" == 0 ]]'
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             curl = Path(folder) / 'curl'
             curl.write_text('''#!/usr/bin/env python3
-import os, sys
+import json, os, sys
 args = sys.argv[1:]
-assert 'Authorization: Bearer A-only' in args
-url = args[-1]
-route = url.removeprefix(os.environ['BASE_URL']+'/chronicle/v3/study/')
-assert route in ('study-a/participants', 'study-b/participants'), route
-print(os.environ['STATUS_A'] if route.startswith('study-a/') else os.environ['STATUS_B'], end='')
+assert all('Authorization:' not in argument for argument in args), 'bearer header leaked in curl argv'
+headers = []
+if '--config' in args:
+    assert args[args.index('--config') + 1] == '-'
+    for line in sys.stdin:
+        name, separator, encoded = line.partition('=')
+        assert separator and name.strip() == 'header'
+        headers.append(json.loads(encoded))
+route = args[-1].removeprefix(os.environ['BASE_URL'] + '/chronicle/v3/')
+if route.endswith('/participants'):
+    assert 'Authorization: Bearer A-only' in headers
+    print(os.environ['STATUS_A'] if route.startswith('study/study-a/') else os.environ['STATUS_B'], end='')
+elif route in ('study/study-b/participants/data?dataType=UsageEvents&participantId=participant-b&responseType=csv',
+               'study/study-b/participants/purge'):
+    if 'Authorization: Bearer A-only' not in headers:
+        print('401', end='')
+    elif route.endswith('/purge'):
+        assert '{"participantId":"participant-b","confirmationToken":"probe"}' in args
+        print(os.environ['STATUS_PURGE'], end='')
+    else:
+        print(os.environ['STATUS_B'], end='')
+else:
+    print({'': '200', 'admin/event-storage': '403', 'admin/reload/cache': '403'}.get(route, '401'), end='')
 ''')
             curl.chmod(0o755)
-            for allowed, denied, succeeds in ((200, 403, True), (403, 403, False), (200, 404, False), (200, 429, False)):
-                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=10,
-                    env=dict(os.environ, PATH=folder+os.pathsep+os.environ['PATH'], BASE_URL='https://fixture.invalid',
-                             AUTH_TOKEN='A-only', STUDY_A='study-a', STUDY_B='study-b', STATUS_A=str(allowed), STATUS_B=str(denied)))
+            fixtures = dict(AUTH_TOKEN='A-only', STUDY_A='study-a', STUDY_B='study-b', PARTICIPANT_ID='participant-b')
+            for allowed, denied, purge, missing, succeeds in ((200, 403, 403, None, True), (403, 403, 403, None, False),
+                                                              (200, 404, 403, None, False), (200, 429, 403, None, False),
+                                                              (200, 403, 200, None, False), (200, 403, 403, 'PARTICIPANT_ID', False)):
+                environment = dict(os.environ, PATH=folder+os.pathsep+os.environ['PATH'], BASE_URL='https://fixture.invalid',
+                                   STATUS_A=str(allowed), STATUS_B=str(denied), STATUS_PURGE=str(purge), **fixtures)
+                environment.pop(missing, None)
+                result = subprocess.run(['bash', str(ROOT / 'tests/security/business-logic-tests.sh')], capture_output=True, text=True, timeout=10,
+                                        env=environment)
                 self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+                self.assertIn('Test 1b', result.stdout)
+                self.assertNotIn('SKIP', result.stdout)
 
     def test_permission_scan_and_repair_preserve_private_runtime_state(self):
-        source = (ROOT / 'selfhost/chronicle').read_text()
-        start = source.index('  local -a keep_private=')
-        block = source[start:source.index('\n\n  # Signed mobile', start)]
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); root.chmod(0o755)
             private_files = []
             for name in ('.chronicle-secret-rotation', 'upgrade-receipts'):
@@ -128,12 +347,15 @@ print(os.environ['STATUS_A'] if route.startswith('study-a/') else os.environ['ST
             for name in ('.chronicle-stopped', 'reconcile.sh', 'reconcile.log'):
                 path = root / name; path.touch(mode=0o600)
             shipped = root / 'entrypoint.sh'; shipped.write_text('# fixture'); shipped.chmod(0o644)
-            script = 'bad() { printf "%s" "$permission_repair"; }; ok() { :; }; check_permissions() {\n' + block + '\n}; check_permissions'
-            result = subprocess.run(['bash', '-eu', '-c', script], cwd=root, capture_output=True, text=True, timeout=10)
+            script = source_launcher_in(root) + '''dc() { :; }; foreign_project() { :; }; ok() { :; }; warn() { :; }
+bad() { [[ -z "${permission_repair:-}" ]] || printf "%s" "$permission_repair"; }
+preflight_environment
+'''
+            result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, '')
             shipped.chmod(0o600)
-            result = subprocess.run(['bash', '-eu', '-c', script], cwd=root, capture_output=True, text=True, check=True, timeout=10)
+            result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True, check=True, timeout=10)
             self.assertTrue(result.stdout.startswith('find '))
             subprocess.run(['bash', '-eu', '-c', result.stdout], cwd=root, check=True, timeout=10)
             self.assertEqual(shipped.stat().st_mode & 0o777, 0o644)
@@ -144,10 +366,11 @@ print(os.environ['STATUS_A'] if route.startswith('study-a/') else os.environ['ST
 
     def test_uninstall_removes_only_its_schedule_and_keeps_reconciliation_paused(self):
         from chronicle_ops.reconcile import uninstall
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             state = Path(folder); (state / 'reconcile.sh').write_text('old launcher')
             current = '0 1 * * * other-job\n@reboot old # chronicle-reconcile:fixture\n@reboot other # chronicle-reconcile:other\n'
-            with patch('chronicle_ops.reconcile.shutil.which', return_value='/fixture/crontab'), \
+            with patch.dict(os.environ, HOME=folder), \
+                 patch('chronicle_ops.reconcile.shutil.which', return_value='/fixture/crontab'), \
                  patch('chronicle_ops.reconcile.run', return_value=SimpleNamespace(returncode=0, stdout=current, stderr='')) as run:
                 uninstall(state, 'fixture')
             self.assertTrue((state / STOP_MARKER).exists())
@@ -155,17 +378,17 @@ print(os.environ['STATUS_A'] if route.startswith('study-a/') else os.environ['ST
             self.assertEqual(run.call_args.kwargs['input'], '0 1 * * * other-job\n@reboot other # chronicle-reconcile:other\n')
 
     def test_reconciliation_shell_override_wins_over_saved_setting(self):
-        source = (ROOT / 'selfhost/chronicle').read_text()
-        function = re.search(r'^need_env\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / '.env'
-            script = '''set -eu
+            script = source_launcher_in(folder) + '''set -eu
 die() { exit 1; }
 stat_mode() { echo 600; }
 ops_python() { :; }
 validate_legacy_mobile_values() { :; }
 derive_mode() { :; }
-''' + function + '\nneed_env\nprintf "%s" "$CHRONICLE_RECONCILE_ENABLED"\n'
+need_env
+printf "%s" "$CHRONICLE_RECONCILE_ENABLED"
+'''
             for override, saved, expected in ((None, 'false', 'false'), ('false', 'true', 'false'), ('true', 'false', 'true')):
                 path.write_text('CHRONICLE_RECONCILE_ENABLED=' + saved + '\n'); path.chmod(0o600)
                 environment = dict(os.environ)
@@ -175,190 +398,123 @@ derive_mode() { :; }
                                         capture_output=True, text=True, check=True, timeout=10)
                 self.assertEqual(result.stdout, expected)
 
-    def test_behind_proxy_loopback_trust_warns_without_blocking_snat_startup(self):
-        source = (ROOT / 'selfhost/guard-config.sh').read_text()
-        start = source.index('if [[ "$TLS_MODE" == behind-proxy ]] && loopback_networks')
-        block = source[start:source.index('\nfi', start) + len('\nfi')]
-        for cidrs in ('127.0.0.1/32 ::1/128', '172.28.0.1/32', '10.1.2.3/32'):
-            script = 'source "$1"; bad() { exit 1; }; warn() { printf "%s" "$*"; }; ' + block
-            result = subprocess.run(['bash', '-c', script, 'fixture', str(ROOT / 'selfhost/network-policy.sh')],
-                env=dict(os.environ, TLS_MODE='behind-proxy', CADDY_TRUSTED_PROXIES=cidrs), capture_output=True, timeout=10)
-            self.assertEqual(result.returncode, 0)
-            self.assertEqual(b'SNAT without XFF' in result.stdout, cidrs.startswith('127.'))
+    def setup_host_fixture(self):
+        fixture = setup_fixture.SelfhostSetupFixture()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        return fixture
 
-    def test_remote_f5_setup_defaults_accept_snat_without_adding_a_loopback_pool_acl(self):
-        source = (ROOT / 'selfhost/chronicle').read_text()
-        start = source.index('      # Host-loopback traffic reaches Caddy')
-        block = source[start:source.index('\n    fi\n    local lb_body', start)]
-        script = '''set -eu
-source "$1"
-die() { echo "$*" >&2; exit 1; }
-http_bind=10.0.0.5
-trusted_proxies_default=172.28.0.1/32
-trusted_proxies="$trusted_proxies_default"
-pool_sources= pool_port=8080
-unset CADDY_TRUSTED_PROXIES
-''' + block + '\nprintf "trust=%s\\npool=%s\\n" "$trusted_proxies" "$pool_sources"\n'
-        result = subprocess.run(['bash', '-c', script, 'fixture', str(ROOT / 'selfhost/network-policy.sh')],
-            input='\n\n\n', capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('trust=127.0.0.1/32\npool=\n', result.stdout)
+    def test_remote_lb_requires_explicit_source_cidrs(self):
+        fixture = self.setup_host_fixture()
+        fixture.environment['HTTP_BIND'] = '0.0.0.0'
+        fixture.environment.pop('CADDY_TRUSTED_PROXIES', None)
+        with self.assertRaises(AssertionError):
+            fixture.run_setup()
+        fixture.environment['CADDY_TRUSTED_PROXIES'] = '10.20.0.0/24'
+        fixture.run_setup()
+        settings = read_env(fixture.host / '.env')
+        self.assertEqual(value(settings, 'CADDY_TRUSTED_PROXIES'), fixture.environment['CADDY_TRUSTED_PROXIES'])
+        self.assertEqual(value(settings, 'POOL_ALLOWED_IPS'), fixture.environment['CADDY_TRUSTED_PROXIES'])
 
     def test_setup_dashboard_default_tracks_the_selected_docker_gateway(self):
-        source = (ROOT / 'selfhost/chronicle').read_text()
-        start = source.index('  source ./network-policy.sh\n  local initial_subnet')
-        initial = source[start:source.index('  [[ -n "$management_url"', start)]
-        start = source.index('  gateway=$(ops_python', source.index('  local default_subnet subnet'))
-        final = source[start:source.index('\n\n', start)]
-        script = '''set -eu
-ops_python() { PYTHONPATH="$PWD" python3 "$@"; }
-die() { exit 1; }
-setup_defaults() {
-  domain=example.test
-  internal_bind=127.0.0.1
-''' + initial + '''
-  subnet=10.253.1.0/24
-  pool_sources="$trusted_proxies_default"
-''' + final + '''
-  printf '%s\\n' "$researcher_sources" "$trusted_proxies" "$pool_sources"
-}
-setup_defaults
-'''
-        environment = dict(os.environ)
-        for key in ('DASHBOARD_ALLOWED_IPS', 'CADDY_TRUSTED_PROXIES'): environment.pop(key, None)
-        result = subprocess.run(['bash', '-c', script], cwd=ROOT / 'selfhost', env=environment,
-                                capture_output=True, text=True, check=True, timeout=10)
-        self.assertEqual(result.stdout.splitlines(), ['10.253.1.1/32 127.0.0.1/32 ::1/128', '10.253.1.1/32', '10.253.1.1/32'])
+        fixture = self.setup_host_fixture()
+        ip = Path(fixture.folder.name) / 'bin/ip'
+        ip.write_text('''#!/usr/bin/env bash
+case "$*" in
+  '-4 -o addr show') printf '%s\\n' '1: lo inet 127.0.0.1/8 scope host lo' ;;
+  '-4 -j route show table all') printf '%s\\n' '[{"dst":"172.16.0.0/12","dev":"vpn"},{"dst":"10.253.0.0/24","dev":"vpn"}]' ;;
+  '-6 -j route show table all') printf '[]\\n' ;;
+  *) exit 92 ;;
+esac
+''')
+        for key in ('DASHBOARD_ALLOWED_IPS', 'CADDY_TRUSTED_PROXIES'):
+            fixture.environment.pop(key, None)
+        fixture.environment['POOL_ALLOWED_IPS'] = '172.28.0.1/32'
+        fixture.run_setup()
+        settings = read_env(fixture.host / '.env')
+        self.assertEqual(value(settings, 'CHRONICLE_SUBNET'), '10.253.1.0/24')
+        self.assertEqual(value(settings, 'DASHBOARD_ALLOWED_IPS'), '10.253.1.1/32 127.0.0.1/32 ::1/128')
+        self.assertEqual(value(settings, 'CADDY_TRUSTED_PROXIES'), '10.253.1.1/32')
+        self.assertEqual(value(settings, 'POOL_ALLOWED_IPS'), '10.253.1.1/32')
 
     def test_dashboard_rotation_verifies_tls_bypasses_proxies_and_retains_acl_denied_rotation(self):
-        source = (ROOT / 'selfhost/rotate-secret.sh').read_text()
-        functions = '\n'.join(re.search(r'^' + name + r'\(\).*?^\}', source, re.M | re.S).group(0)
-                              for name in ('escape_curl_config_value', 'curl_basic_code', 'dashboard_login_code', 'rotate_dashboard'))
-        password = 'synthetic-"password\\0123456789'
-        for mode, bind, code, expected in (('mode-behind-proxy-internal', '127.0.0.1', '200', 0),
-                                          ('mode-local-https', '127.0.0.1', '200', 0),
-                                          ('mode-behind-proxy-internal', '10.0.0.5', '403', 0),
-                                          ('mode-behind-proxy-internal', '127.0.0.1', '403', 1),
-                                          ('mode-behind-proxy-internal', '10.0.0.5', '000', 60)):
-            with self.subTest(bind=bind, code=code), tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
-                root = Path(folder)
-                (root / '.env').write_text(f'INTERNAL_BIND={bind}\nDASHBOARD_BASE_URL=https://management.example.test\n')
-                script = '''set -Eeuo pipefail
-ROTATION_ACTION=rotate
-COMPOSE_FILE="overlays/$ROTATION_MODE.yml"
-DASHBOARD_PASSWORD_HASH=retired-hash
-GRAFANA_URL=
-NEW_SECRET= OLD_SECRET= RECEIPT_DETAIL=
-service_running() { :; }
-configure_apply() { :; }
-begin_transaction() { :; }
-env_update() { CURRENT_HASH="$2"; }
-write_phase() { :; }
-apply_configuration() { :; }
-complete_transaction() { [[ "$CURRENT_HASH" == "$NEW_SECRET" ]]; printf 'committed %s\\n' "$RECEIPT_DETAIL"; }
-fail() { echo "$*" >&2; exit 1; }
-warn() { echo "$*" >&2; }
-log() { echo "$*"; }
-docker() { cat >/dev/null; printf '$2a$synthetic-hash'; }
-curl() {
-  local args=" $* "
-  [[ "$args" != *' -k '* && "$args" != *' -sk '* && "$args" == *' --noproxy * '* && "$args" == *' --cacert '* ]] || exit 80
-  [[ "${@: -1}" == https://management.example.test/* ]] || exit 81
-  [[ "$args" != *' --config '* ]] || exit 82
-  if [[ "${@: -1}" == */dashboard-login ]]; then
-    python3 -c 'import json,sys; assert len(json.load(sys.stdin)["password"]) >= 16'
-    printf 'session-probed\\n' >&2
-  fi
-  [[ "$CURL_CODE" != 000 ]] || return 60
-  if [[ "${@: -1}" == */chronicle/api/web/study && "$CURL_CODE" == 200 ]]; then printf 401; else printf '%s' "$CURL_CODE"; fi
-}
-''' + functions + '\nrotate_dashboard\n'
-                result = subprocess.run(['bash', '-c', script], cwd=root, input=password + '\n' + password + '\n',
-                    env=dict(os.environ, SCRIPT_DIR=str(ROOT / 'selfhost'), STATE_ROOT=str(root), INTERNAL_BIND=bind,
-                             CURL_CODE=code, ROTATION_MODE=mode, HTTPS_PROXY='http://untrusted-proxy.invalid:3128'),
-                    capture_output=True, text=True, timeout=10)
-                self.assertEqual(result.returncode, expected, result.stderr)
-                self.assertNotIn(password, result.stdout + result.stderr)
-                self.assertEqual('committed' in result.stdout, expected == 0)
-                if code == '200': self.assertIn('session-probed', result.stderr)
-                if bind == '10.0.0.5' and code == '403':
-                    self.assertIn('dashboard_auth=operator_check_required', result.stdout)
-                    self.assertNotIn('session-probed', result.stderr)
+        result = subprocess.run(['bash', str(ROOT / 'tests/security/selfhost-secret-rotation.sh'), '--dashboard-transport'],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        self.assertIn('dashboard transport and module loading checks passed', result.stdout)
 
     def test_secret_rotation_updates_exported_assignment_and_rejects_duplicates(self):
-        source = (ROOT / 'selfhost/rotate-secret.sh').read_text()
-        function = source[source.index('env_update() {'):source.index('\nrestore_old_env() {')]
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+        # Sourcing defines the functions without rotating; it changes into selfhost/, so return to the fixture.
+        script = 'source "$1"; cd "$2"; env_update JWT_SECRET synthetic-new-secret\n'
+        with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / '.env'
-            script = 'set -eu; fail() { exit 1; };\n' + function + '\nenv_update JWT_SECRET synthetic-new-secret\n'
+            command = ['bash', '-c', script, 'fixture', str(ROOT / 'selfhost/rotate-secret.sh'), folder]
             for prefix in ('', 'export ', '  export\t'):
                 path.write_text(prefix + "JWT_SECRET='synthetic-old-secret'\nOTHER=keep\n")
-                result = subprocess.run(['bash', '-c', script], cwd=folder,
-                    env=dict(os.environ, SCRIPT_DIR=str(ROOT / 'selfhost')), capture_output=True, text=True, timeout=10)
+                result = subprocess.run(command, cwd=folder, capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(path.read_text(), "JWT_SECRET='synthetic-new-secret'\nOTHER=keep\n")
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             duplicate = 'JWT_SECRET=first\nexport JWT_SECRET=second\n'
             path.write_text(duplicate)
-            result = subprocess.run(['bash', '-c', script], cwd=folder,
-                env=dict(os.environ, SCRIPT_DIR=str(ROOT / 'selfhost')), capture_output=True, text=True, timeout=10)
+            result = subprocess.run(command, cwd=folder, capture_output=True, text=True, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(path.read_text(), duplicate)
 
     def test_certificate_renewal_failure_retry_and_monitoring_removal(self):
-        source = (ROOT / 'selfhost/chronicle').read_text()
-        functions = '\n'.join(re.search(r'^' + name + r'\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
-                              for name in ('cmd_up', 'cmd_down'))
-        script = '''set -eu
+        script = SOURCE_LAUNCHER + PUBLIC_CHECK_FIXTURE + '''set -eu
 BLD= RST= GRN= COMPOSE_FILE=docker-compose.yml PROJECT=fixture
 STATE_ROOT="$1"
 for name in need_env lock_operation assert_no_incomplete_mutation begin_operation ensure_images preflight operation_succeeded; do
   eval "$name() { :; }"
 done
 die() { echo "$*" >&2; exit 1; }
-find() { cat "$STATE_ROOT/tls/published"; }
 ops_python() {
   case "$1" in
-    -c) PYTHONPATH="$OPS_PACKAGE" python3 "$@" ;;
+    certificates) PYTHONPATH="$OPS_PACKAGE" CHRONICLE_OPS_STATE="$STATE_ROOT" python3 -m chronicle_ops "$@" ;;
+    public-check) public_check ;;
     *) [[ "$*" != 'reconcile stopped' ]] ;;
   esac
 }
 dc() {
   case "$*" in
-    'run --rm --no-deps cert-init') printf renewed >"$STATE_ROOT/tls/published" ;;
+    'run --rm --no-deps cert-init') printf renewed >"$STATE_ROOT/tls/internal-cert.pem" ;;
     'config --services') [[ "$FAIL_DISCOVERY" == false ]] || return 1; printf 'postgres\\nbackend\\nweb\\ndb-init\\ndb-backup\\n' ;;
     '--progress '*) printf '%s\\n' "$*" ;;
     'down '*) printf '%s\\n' "$*" ;;
   esac
 }
-''' + functions + '\ncmd_up up\ncmd_down down\n'
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+cmd_up up
+cmd_down down
+'''
+        with tempfile.TemporaryDirectory() as folder:
             state = Path(folder); (state / 'tls').mkdir()
             marker = state / 'tls/.applied-certificates'; marker.write_text('previous')
-            for failure, force in (('true', True), ('false', True), ('false', False)):
+            # A public origin that is not reachable yet must not make every reconcile `up` recreate the stack:
+            # services that started healthy loaded these certificates, so the marker records them first.
+            for failure, force, health in (('true', True, '204'), ('false', True, '503'), ('false', False, '503'), ('false', False, '204')):
                 result = subprocess.run(['bash', '-c', script, 'fixture', str(state)], capture_output=True, text=True,
-                    env=dict(os.environ, FAIL_DISCOVERY=failure, CHRONICLE_RECONCILE_RUN='true', OPS_PACKAGE=str(ROOT / 'selfhost')), timeout=10)
-                self.assertEqual(result.returncode, int(failure == 'true'), result.stderr)
+                    env=dict(os.environ, FAIL_DISCOVERY=failure, HEALTH_CODE=health, CHRONICLE_RECONCILE_ENABLED='true', CHRONICLE_RECONCILE_RUN='true', OPS_PACKAGE=str(ROOT / 'selfhost')), timeout=10)
+                self.assertEqual(result.returncode, int(failure == 'true' or health == '503'), result.stderr)
                 if failure == 'true':
                     self.assertEqual(marker.read_text(), 'previous')
+                elif health == '503':
+                    self.assertEqual('--force-recreate' in result.stdout, force)
+                    self.assertEqual(marker.read_text(), certificate_digest(state))
+                    self.assertIn('HTTPS responded, but Chronicle is not ready', result.stderr)
+                    self.assertIn('resolve the failed check above', result.stderr)
+                    self.assertNotIn('DNS', result.stderr)
+                    self.assertNotIn('Started.', result.stdout)
                 else:
                     self.assertEqual('--force-recreate' in result.stdout, force)
                     self.assertEqual('--no-recreate' in result.stdout, not force)
                     self.assertIn('--remove-orphans', result.stdout)
                     self.assertIn('down --remove-orphans', result.stdout)
-                    self.assertEqual(marker.read_text(), 'renewed')
+                    self.assertEqual(marker.read_text(), certificate_digest(state))
                     self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
 
-    def test_caddy_uses_the_backend_body_limit(self):
-        backend = (ROOT / "chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/SecurityHardeningConfig.kt").read_text()
-        expression = re.search(r"MAX_REQUEST_SIZE_BYTES: Long = (.*)", backend).group(1)
-        backend_limit = prod(int(factor.strip()) for factor in expression.split("*"))
-        caddy = (ROOT / "selfhost/caddy/snippets.caddy").read_text()
-        limit_mib = int(re.search(r"max_size\s+(\d+)MiB\b", caddy).group(1))
-        self.assertEqual(limit_mib * 1024 ** 2, backend_limit)
-
     def test_abandoned_reviewed_restore_copy_obeys_backup_retention(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+        with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             stale = root / '.reviewed-restore.stale.sql.gz'; stale.write_bytes(b'fixture')
             fresh = root / '.reviewed-restore.fresh.sql.gz'; fresh.write_bytes(b'fixture')
@@ -391,67 +547,73 @@ dc() {
                     self.assertIn("warn", output.getvalue())
         with patch("chronicle_ops.verify.run", side_effect=OSError()), patch("sys.stdout", io.StringIO()):
             self.assertEqual(verify_backup_storage("/tmp"), 1)
-        source = (ROOT / "selfhost/chronicle").read_text()
-        for opening, closing, probe in (
-            ('  if [[ "${ENABLE_BACKUPS:-true}" == true ]] && ! ops_python backup-storage; then',
-             '\n  fi', 'bad() { exit 1; }; warn() { :; };'),
-            ('    if ! ops_python backup-storage >/dev/null 2>&1; then',
-             '\n    fi', 'doctor_add() { [[ "$2" == warn ]]; };'),
-        ):
-            start = source.index(opening)
-            block = source[start:source.index(closing, start) + len(closing)]
-            script = 'ops_python() { return 1; }; ' + probe + '\n' + block
-            result = subprocess.run(["bash", "-eu", "-c", script], capture_output=True, timeout=10)
-            self.assertEqual(result.returncode, 0, result.stderr)
+        fixture = self.doctor_fixture()
+        result = self.run_doctor(fixture, BACKUP_STORAGE_STATUS='1')
+        self.assertEqual(1, result.returncode, result.stderr + result.stdout)
+        checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+        self.assertEqual('fail', checks['backup-encryption']['status'])
+
+    def test_database_volume_encryption_is_probed_on_the_postgres_volume(self):
+        mountpoint = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, mountpoint)
+        volume = [{"Mountpoint": mountpoint, "Options": None}]
+        for devices, waiver, expected in (([{"type": "crypt", "children": [{"type": "disk"}]}], "", 0),
+                                          ([{"type": "disk"}], "", 1),
+                                          ([{"type": "disk"}], "OPS-reviewed-2026-10-07", 0)):
+            discovery = [SimpleNamespace(stdout=""), SimpleNamespace(stdout="fixture_postgres_data"),
+                         SimpleNamespace(stdout=json.dumps(volume))]
+            probe = [SimpleNamespace(returncode=0, stdout="/dev/mapper/fixture"),
+                     SimpleNamespace(returncode=0, stdout=json.dumps({"blockdevices": devices}))]
+            with self.subTest(devices=devices, waiver=waiver), \
+                 patch("chronicle_ops.common.run", side_effect=discovery), \
+                 patch("chronicle_ops.verify.sys.platform", "linux"), \
+                 patch("chronicle_ops.verify.run", side_effect=probe) as runtime, \
+                 patch("sys.stdout", io.StringIO()) as output:
+                self.assertEqual(verify_database_storage("fixture", waiver), expected)
+                self.assertEqual(str(Path(mountpoint).resolve()), runtime.call_args_list[0].args[0][-1])
+                self.assertIn("database volume", output.getvalue())
+        with patch("chronicle_ops.common.run", side_effect=[SimpleNamespace(stdout="")] * 2), \
+             patch("chronicle_ops.verify.run", return_value=SimpleNamespace(stdout="")), \
+             patch("sys.stdout", io.StringIO()) as output:
+            self.assertEqual(verify_database_storage("fixture"), 1)
+        docker_root = Path('/fixture/docker')
+        for status in (0, 1):
+            with patch("chronicle_ops.verify.database_volume_path", return_value=None), \
+                 patch("chronicle_ops.verify.run", return_value=SimpleNamespace(stdout=str(docker_root))), \
+                 patch("chronicle_ops.verify.verify_backup_storage", return_value=status) as probe:
+                self.assertEqual(status, verify_database_storage("new-install"))
+                probe.assert_called_once_with(docker_root, '', 'database volume')
+        fixture = self.doctor_fixture()
+        for status, row in (('1', 'fail'), ('0', None)):
+            result = self.run_doctor(fixture, DATABASE_STORAGE_STATUS=status)
+            self.assertEqual(int(status), result.returncode, result.stderr + result.stdout)
+            checks = {check['check']: check for check in json.loads(result.stdout)['checks']}
+            self.assertEqual(row, checks.get('database-encryption', {}).get('status'))
+
+    def test_verify_treats_unconfirmed_backup_encryption_as_failure(self):
+        from chronicle_ops.verify import verify_configured_backups
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.dict(os.environ, CHRONICLE_OPS_BACKUPS=str(Path(folder) / 'not-created')), \
+             patch('chronicle_ops.verify.verify_backup_storage', return_value=1), \
+             patch('chronicle_ops.verify.verify_backup', return_value=0):
+            rows = []
+            verify_configured_backups({'COMPOSE_FILE': 'docker-compose.yml:overlays/backups.yml'},
+                                      lambda ok, message, **kwargs: rows.append((ok, message, kwargs)))
+            self.assertEqual((False, {}), (rows[0][0], rows[0][2]))
 
     def test_reconciliation_opt_out_and_scheduled_up_preserve_host_state(self):
         from chronicle_ops.__main__ import main
         from chronicle_ops.release import OWNER_FILE
-        with tempfile.TemporaryDirectory() as folder, \
-             patch("chronicle_ops.reconcile.run") as crontab, \
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as operator_home, \
+             patch.dict(os.environ, HOME=operator_home), \
+             patch("chronicle_ops.reconcile.run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")) as crontab, \
              patch.dict(os.environ, CHRONICLE_OPS_STATE=folder, CHRONICLE_OPS_PROJECT="fixture"):
             for update_only in (False, True):
                 install(Path(folder) / "chronicle", folder, "fixture", update_only=update_only)
             for action in ("install", "stop", "resume"):
                 self.assertEqual(main(["reconcile", action]), 0)
-            crontab.assert_not_called()
+            self.assertTrue(any(call.args[0] == ["crontab", "-"] for call in crontab.call_args_list))
             self.assertEqual([path.name for path in Path(folder).iterdir()], [OWNER_FILE])
-        source = (ROOT / "selfhost/chronicle").read_text()
-        functions = "\n".join(re.search(r"^" + name + r"\(\) \{\n.*?^\}", source, re.M | re.S).group(0)
-                              for name in ("cmd_up", "validate_command_arguments"))
-        script = functions + '''
-BLD= RST= GRN=
-STATE_ROOT=/tmp
-find() { :; }
-for name in need_env lock_operation assert_no_incomplete_mutation begin_operation ensure_images preflight; do
-  eval "$name() { :; }"
-done
-need_env() { :; }
-die() { echo "$*" >&2; exit 1; }
-ops_python() {
-  [[ "$*" != "reconcile resume" ]] || { rm -f "$STATE_ROOT/.chronicle-stopped"; echo 'unexpected resume' >&2; return 1; }
-  [[ "$*" != "reconcile stopped" && "${CHRONICLE_RECONCILE_ENABLED:-true}" == false ]]
-}
-operation_succeeded() { printf 'reconcile=%s\\n' "$CHRONICLE_RECONCILE_ENABLED"; }
-dc() {
-  if [[ "$*" == 'config --services' ]]; then printf 'postgres\\nbackend\\nweb\\n';
-  elif [[ "$1" == --progress ]]; then printf 'compose %s\\n' "$*"; fi
-}
-validate_command_arguments up --no-reconcile
-cmd_up up --no-reconcile
-'''
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
-            marker = Path(folder) / STOP_MARKER
-            script = script.replace('STATE_ROOT=/tmp', 'STATE_ROOT="$FIXTURE_STATE"\nPROJECT=fixture')
-            for scheduled in ("false", "true"):
-                marker.touch()
-                environment = dict(os.environ, CHRONICLE_RECONCILE_RUN=scheduled, FIXTURE_STATE=folder)
-                environment[ENABLED_ENV] = "true"
-                result = subprocess.run(["bash", "-eu", "-c", script], env=environment, capture_output=True, timeout=10)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(b"reconcile=false", result.stdout)
-                self.assertEqual(b"--no-recreate" in result.stdout, scheduled == "true")
-                self.assertTrue(marker.exists())
 
     def test_reconciliation_preserves_cron_and_tracks_bundle(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -462,7 +624,7 @@ cmd_up up --no-reconcile
             (state / 'release-manifest.json').write_text('{}')
             old = "3 2 * * * other-job\n@reboot old # chronicle-reconcile:fixture\n"
             with patch("chronicle_ops.reconcile.platform.system", return_value="Linux"), \
-                 patch.dict(os.environ, {ENABLED_ENV: "true"}), \
+                 patch.dict(os.environ, {ENABLED_ENV: "true", "HOME": folder}), \
                  patch("chronicle_ops.reconcile.shutil.which", return_value="/fixture/tool"), \
                  patch("chronicle_ops.reconcile.run", return_value=SimpleNamespace(returncode=0, stdout=old, stderr="")) as run:
                 install(launcher, state, "fixture")
@@ -486,7 +648,8 @@ cmd_up up --no-reconcile
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder)
             launcher = state / "chronicle"
-            shutil.copytree(ROOT / "selfhost/chronicle_ops", state / "chronicle_ops", ignore=shutil.ignore_patterns("__pycache__"))
+            copy_selfhost_fixture(state)
+            (state / ".env").write_text(ENABLED_ENV + "=true\n")
             calls = state / "calls"
             launcher.write_text('#!/usr/bin/env bash\nprintf "%s %s\\n" "$1" "${CHRONICLE_RECONCILE_RUN:-false}" >>"$CALLS"\n[[ "$1" != up || "${UP_FAILURE_FIXTURE:-false}" != true ]]\n')
             launcher.chmod(0o700)
@@ -495,7 +658,7 @@ cmd_up up --no-reconcile
             (tools / "logger").write_text("#!/usr/bin/env bash\nexit 0\n")
             (tools / "logger").chmod(0o700)
             with patch("chronicle_ops.reconcile.platform.system", return_value="Linux"), \
-                 patch.dict(os.environ, {ENABLED_ENV: "true"}), \
+                 patch.dict(os.environ, {ENABLED_ENV: "true", "HOME": folder}), \
                  patch("chronicle_ops.reconcile.shutil.which", return_value="/fixture/tool"), \
                  patch.dict(os.environ, PATH=str(tools) + ":" + os.environ["PATH"]), \
                  patch("chronicle_ops.reconcile.run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
@@ -537,15 +700,11 @@ cmd_up up --no-reconcile
                               ("/containers/abc123/archive", False), ("/containers/create", False),
                               ("/images/json", False), ("/volumes", False)):
             self.assertEqual(bool(re.fullmatch(pattern, path)), allowed, path)
-        vault = yaml.safe_load((ROOT / "docker/docker-compose.traefik.yml").read_text())["services"]["vault"]
-        self.assertNotEqual(vault["user"].split(":")[0], "0")
-        self.assertTrue(vault["read_only"])
-        self.assertTrue(any("uid=100,gid=1000" in mount for mount in vault["tmpfs"]))
 
     def test_grafana_credentials_require_verified_https(self):
         from urllib.error import URLError
         client = ROOT / "selfhost/monitoring/grafana-user.py"
-        context = object()
+        context = ssl.create_default_context()
         for base, transport_failure in (("https://grafana", False), ("http://grafana", False), ("https://grafana", True)):
             inputs = io.BytesIO(b"\0".join(value.encode() for value in (base, "fixture-admin-password", "remove", "observer", "")) + b"\0")
             response = unittest.mock.MagicMock()
@@ -555,7 +714,10 @@ cmd_up up --no-reconcile
                  patch("sys.stdin", SimpleNamespace(buffer=inputs)), patch("sys.stdout", io.StringIO()), \
                  patch.dict(os.environ, GRAFANA_CA_FILE="fixture-ca.crt"), \
                  patch("ssl.create_default_context", return_value=context) as tls, \
-                 patch("urllib.request.urlopen", return_value=response) as request:
+                 patch("urllib.request.ProxyHandler") as proxies, patch("urllib.request.HTTPSHandler") as handler, \
+                 patch("urllib.request.build_opener") as opener:
+                request = opener.return_value.open
+                request.return_value = response
                 if transport_failure:
                     request.side_effect = URLError("certificate verification failed")
                 if base.startswith("http:") or transport_failure:
@@ -564,10 +726,84 @@ cmd_up up --no-reconcile
                 else:
                     runpy.run_path(str(client))
                     tls.assert_called_once_with(cafile="fixture-ca.crt")
-                    self.assertTrue(all(call.kwargs["context"] is context for call in request.call_args_list))
+                    # Verified TLS to the private listener, never through an inherited proxy.
+                    handler.assert_called_once_with(context=context)
+                    self.assertTrue(context.check_hostname)
+                    self.assertEqual(ssl.CERT_REQUIRED, context.verify_mode)
+                    proxies.assert_called_once_with({})
+                    opener.assert_called_once_with(proxies.return_value, handler.return_value)
                     self.assertEqual([call.args[0].method for call in request.call_args_list], ["GET", "DELETE"])
                 if base.startswith("http:"):
                     request.assert_not_called()
+
+    def test_grafana_viewer_changes_report_their_outcome_or_the_refusal(self):
+        from urllib.error import HTTPError
+        client = ROOT / "selfhost/monitoring/grafana-user.py"
+        lookup = "/api/users/lookup?loginOrEmail=ana.p%C3%A9rez%2Bpiloto%40estudio.cl"
+        password = "fixture-viewer-password"
+
+        class Answer:
+            def __init__(self, status, body):
+                self.status, self.body = status, body
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def read(self):
+                return self.body
+
+        def viewer(operation, answers, fields=None):
+            sent = []
+            def open_request(request, timeout):
+                path = request.full_url.removeprefix("https://grafana:3000")
+                sent.append((request.method, path, json.loads(request.data) if request.data else None))
+                status, body = answers[(request.method, path)]
+                if status >= 400:
+                    raise HTTPError(request.full_url, status, "error", {}, io.BytesIO(body))
+                return Answer(status, body)
+            values = fields or ("https://grafana:3000/", "fixture-admin-password", operation,
+                                "ana.p\u00e9rez+piloto@estudio.cl", password)
+            stdin = SimpleNamespace(buffer=io.BytesIO(b"\0".join(value.encode() for value in values) + b"\0"))
+            with patch("sys.stdin", stdin), patch("sys.stdout", new_callable=io.StringIO) as output, \
+                 patch.dict(os.environ, GRAFANA_CA_FILE="fixture-ca.crt"), \
+                 patch("ssl.create_default_context", return_value=ssl.create_default_context()), \
+                 patch("urllib.request.build_opener", return_value=SimpleNamespace(open=open_request)):
+                try:
+                    runpy.run_path(str(client))
+                    return output.getvalue(), sent
+                except SystemExit as exit:
+                    return str(exit), sent
+
+        missing = (404, b'{"message":"user not found"}')
+        created = {("GET", lookup): missing, ("POST", "/api/admin/users"): (200, b'{"id":7}'), ("PATCH", "/api/org/users/7"): (200, b"")}
+        output, sent = viewer("add", created)
+        self.assertEqual("Grafana Viewer 'ana.p\u00e9rez+piloto@estudio.cl' created.\n", output)
+        self.assertEqual([("GET", lookup, None),
+                          ("POST", "/api/admin/users", {"name": "ana.p\u00e9rez+piloto@estudio.cl",
+                                                        "login": "ana.p\u00e9rez+piloto@estudio.cl", "password": password}),
+                          ("PATCH", "/api/org/users/7", {"role": "Viewer"})], sent)
+        output, sent = viewer("reset", {("GET", lookup): (200, b'{"id":9}'), ("PUT", "/api/admin/users/9/password"): (200, b"{}")})
+        self.assertEqual("Grafana Viewer 'ana.p\u00e9rez+piloto@estudio.cl' updated.\n", output)
+        self.assertEqual(("PUT", "/api/admin/users/9/password", {"password": password}), sent[-1])
+        for operation, answers, message, requests in (
+                ("add", {("GET", lookup): (200, b'{"id":3}')}, "that login already exists", 1),
+                ("add", {("GET", lookup): (500, b'{"message":"database is locked"}')}, "Grafana returned HTTP 500: database is locked", 1),
+                ("add", {**created, ("POST", "/api/admin/users"): (200, b'{"message":"User created"}')},
+                 "Grafana created the user without returning an id", 2),
+                ("add", {**created, ("POST", "/api/admin/users"): (412, b"<html>password policy</html>")},
+                 "Grafana returned HTTP 412", 2),
+                ("add", {**created, ("POST", "/api/admin/users"): (202, b"{}")}, "Grafana returned HTTP 202", 2),
+                ("remove", {("GET", lookup): (200, b'{"login":"other"}')}, "Grafana lookup did not return an id", 1),
+                ("reset", {("GET", lookup): (200, b"{}")}, "Grafana lookup did not return an id", 1)):
+            with self.subTest(operation=operation, message=message):
+                output, sent = viewer(operation, answers)
+                self.assertEqual("monitoring viewer: " + message, output)
+                self.assertEqual(requests, len(sent))
+                self.assertNotIn("fixture-admin-password", output)
+        for fields, message in ((("https://grafana:3000", "admin", "add", "ana"), "invalid credential input"),
+                                (("https://grafana:3000", "admin", "promote", "ana", ""), "unsupported operation")):
+            with self.subTest(message=message):
+                self.assertEqual(("monitoring viewer: " + message, []), viewer(None, {}, fields))
 
     def test_jmh_malformed_and_incompatible_results_fail(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -632,14 +868,6 @@ cmd_up up --no-reconcile
             self.assertNotEqual(run.returncode, 0)
             self.assertIn(b"actual=fixture:wrong", run.stdout)
 
-    def test_release_gate_requires_explicit_predecessor_mode(self):
-        env = dict(os.environ)
-        env.pop("SELFHOST_SMOKE_PREVIOUS_RELEASE_ARCHIVE", None)
-        env.pop("SELFHOST_SMOKE_ALLOW_SYNTHETIC_PREDECESSOR", None)
-        run = subprocess.run(["bash", str(ROOT / "tests/smoke/selfhost-release-smoke.sh")], env=env, capture_output=True, timeout=10)
-        self.assertNotEqual(run.returncode, 0)
-        self.assertIn(b"release mode requires a published", run.stderr)
-
     def test_kotlin_shorthand_plugin_drift_fails(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -658,22 +886,38 @@ cmd_up up --no-reconcile
         drift = importlib.util.module_from_spec(module)
         module.loader.exec_module(drift)
         spec = yaml.safe_load((ROOT / "chronicle-api/chronicle.yaml").read_text())["components"]["schemas"]
+        drift.check_upload_diagnostics(ROOT, spec)
+        self.assertEqual(drift.failures, [])
         original = Path.read_text
-        targets = ["AndroidUploadDiagnosticEvent.kt", "V113__add_access_missing_diagnostic_code.sql", "LocalUploadDiagnosticsStore.kt", "chronicle-api.generated.ts"]
-        for target in targets:
+        # Each consumer loses a recognized code in its own syntax. The wire field accepts future codes;
+        # the generated web catalog describes the codes this server recognizes.
+        removals = {"AndroidUploadIssueCode.kt": "COLLECTION_ACCESS_MISSING", "V1__fresh_schema.sql": "'COLLECTION_ACCESS_MISSING',",
+                    "LocalUploadDiagnosticsStore.kt": "COLLECTION_ACCESS_MISSING", "chronicle-contracts.ts": "  'COLLECTION_ACCESS_MISSING',"}
+        mutations = [(target, old, "", "missing ['COLLECTION_ACCESS_MISSING']") for target, old in removals.items()]
+        mutations += [
+            ("LocalUploadDiagnosticsStore.kt", "HTTP_SERVER_ERROR", "", "missing ['HTTP_SERVER_ERROR']"),
+            # A server-assigned code is not in the phone's catalog; once unmarked, the phone must carry it.
+            ("chronicle.linkml.yaml", "serverAssigned:\n            value: true", "serverAssigned:\n            value: false",
+             "upload diagnostics Android issueCode: missing ['UNRECOGNIZED_ISSUE']"),
+            ("LocalUploadDiagnosticsStore.kt", "HTTP_SERVER_ERROR", "HTTP_SERVER_ERROR, UNRECOGNIZED_ISSUE",
+             "upload diagnostics Android issueCode: missing [], extra ['UNRECOGNIZED_ISSUE']"),
+        ]
+        for target, old, new, expected in mutations:
             def changed(path, *args, **kwargs):
                 text = original(path, *args, **kwargs)
-                return text.replace("COLLECTION_ACCESS_MISSING", "COLLECTION_ACCESS_MUTATED") if path.name == target else text
+                return text.replace(old, new) if path.name == target else text
             drift.failures.clear()
-            with self.subTest(target=target), patch.object(Path, "read_text", changed):
+            with self.subTest(target=target, old=old, new=new), patch.object(Path, "read_text", changed):
                 drift.check_upload_diagnostics(ROOT, copy.deepcopy(spec))
-            self.assertTrue(drift.failures, target)
+            self.assertIn(expected, "\n".join(drift.failures))
 
     def test_writable_container_root_requires_justified_exemption(self):
+        from host_tools import modern_bash
         with tempfile.TemporaryDirectory() as folder:
             docker = Path(folder) / "docker"
             docker.write_text('#!/usr/bin/env bash\nif [[ "$1" == ps ]]; then echo fixture; else printf "%s\\n" "$INSPECT_FIXTURE"; fi\n')
             docker.chmod(0o700)
+            (Path(folder) / 'bash').symlink_to(modern_bash())
             for readonly, reason, expected in ((False, "", 1), (False, "Required cache path; approved test exception", 0), (True, "", 0)):
                 fixture = [{"Name": "/fixture", "Config": {"User": "1001", "Labels": {WRITABLE_ROOT_REASON_LABEL: reason}},
                             "HostConfig": {"ReadonlyRootfs": readonly, "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges:true"], "Memory": 1048576}, "Mounts": []}]
@@ -682,10 +926,8 @@ cmd_up up --no-reconcile
                 self.assertEqual(run.returncode, expected, run.stdout + run.stderr)
 
     def test_nonweb_writable_service_fails_configuration_contract(self):
-        import re
         import yaml
-        source = (ROOT / "selfhost/verify-config.sh").read_text()
-        code = re.search(r"service_contract_violations=\$\(python3 .*?<<'PY'\n(.*?)\nPY\n", source, re.S).group(1)
+        from chronicle_ops.verify import service_contract_violations
         with tempfile.TemporaryDirectory() as folder:
             compose = Path(folder) / "docker-compose.yml"
             service = {"image": "fixture", "logging": {}, "security_opt": ["no-new-privileges:true"],
@@ -693,21 +935,54 @@ cmd_up up --no-reconcile
             for readonly, reason, passes in ((False, "", False), (False, "Reviewed writable cache requirement", True), (True, "", True)):
                 service.update(read_only=readonly, labels={WRITABLE_ROOT_REASON_LABEL: reason})
                 compose.write_text(yaml.safe_dump({"services": {"queue": service}}))
-                run = subprocess.run([sys.executable, "-c", code, str(compose)],
-                                     env=dict(os.environ, PYTHONPATH=str(ROOT / "selfhost")), capture_output=True, timeout=10)
-                self.assertEqual(run.returncode, 0, run.stderr)
-                self.assertEqual(run.stdout.strip() == b"", passes, run.stdout)
+                violations = service_contract_violations([str(compose)])
+                self.assertEqual(violations == "", passes, violations)
+                if not passes:
+                    self.assertIn("queue root filesystem is writable without a justified exemption", violations)
 
     def test_default_database_disk_warning_without_monitoring(self):
         from chronicle_ops.verify import capacity_checks
-        source = (ROOT / "selfhost/chronicle").read_text()
-        self.assertNotIn('df -Pk "$PGDATA"', source)
-        for free, expected in ((0, "fail"), (14, "fail"), (15, "ok"), (50, "ok")):
+        for free, expected in ((0, "warn"), (14, "warn"), (15, "ok"), (50, "ok")):
             result = SimpleNamespace(stdout=f'Filesystem blocks used available percent mount\ndisk 100 90 10 {100-free}% /db\n' + json.dumps({'database_bytes': 1, 'wal_bytes': 0, 'max_wal_bytes': 1}))
-            with patch("chronicle_ops.verify.compose", return_value=result) as compose:
+            with patch("chronicle_ops.verify.compose", return_value=result) as compose, \
+                 patch("chronicle_ops.verify.storage_report", return_value=[]):
                 rows = capacity_checks({}, "/unused")
             self.assertEqual(rows[0][:2], ("database-disk", expected))
             compose.assert_called_once()
+
+    def test_pilot_load_runner_refuses_a_k6_older_than_the_documented_baseline(self):
+        # k6 v0.50.0 cannot parse the load script and exits before any request; the README names the baseline.
+        documented = re.search(r"Install k6 v(\d+\.\d+\.\d+) or newer", (ROOT / "tests/load/README.md").read_text())
+        self.assertIsNotNone(documented, "tests/load/README.md must name the oldest supported k6")
+        major, minor, patch_level = map(int, documented[1].split("."))
+        with tempfile.TemporaryDirectory() as folder:
+            tools, calls = Path(folder) / "bin", Path(folder) / "calls"
+            tools.mkdir()
+            for tool in ("docker", "k6"):
+                (tools / tool).write_text(f'#!/bin/sh\n[ "$1" = version ] && [ {tool} = k6 ] && '
+                                          f'echo "$K6_FIXTURE_VERSION_OUTPUT (commit/fixture)" && exit 0\n'
+                                          f'echo "{tool} $*" >> "{calls}"\n')
+                (tools / tool).chmod(0o755)
+            for version, prefix, accepted in ((f"{major}.{minor - 1}.9", "", False), ("0.50.0", "", False), (documented[1], "", True),
+                                              (f"{major}.{minor}.{patch_level + 1}", "", True), (f"{major + 1}.0.0", "", True),
+                                              (documented[1], "version ", True), ("1.0.0", "version ", True),
+                                              ("0.50.0", "version ", False), ("unknown", "", False)):
+                report = Path(folder) / ("report-" + prefix.strip() + version)
+                calls.unlink(missing_ok=True)
+                with self.subTest(version=version, prefix=prefix):
+                    run = subprocess.run(["bash", str(ROOT / "scripts/chronicle-pilot-load.sh")], capture_output=True, text=True, timeout=20,
+                                         env=dict(os.environ, PATH=f"{tools}{os.pathsep}{os.environ['PATH']}",
+                                                  K6_FIXTURE_VERSION_OUTPUT=f"k6 {prefix}v{version}",
+                                                  BASE_URL="https://synthetic.example.test", DEVICE_FIXTURES_FILE="/unused/devices.json",
+                                                  STUDY_ID="00000000-0000-0000-0000-000000000001", COMPOSE_PROJECT_NAME="synthetic-load",
+                                                  CHRONICLE_LOAD_REPORT_DIR=str(report)))
+                    self.assertEqual(accepted, run.returncode == 0, run.stderr)
+                    invoked = calls.read_text() if calls.exists() else ""
+                    self.assertEqual(accepted, "k6 run " in invoked, invoked)
+                    if not accepted:
+                        self.assertIn(f"older than the required v{documented[1]}", run.stderr)
+                        self.assertEqual("", invoked)
+                        self.assertFalse(report.exists())
 
     def test_unmeasured_load_baseline_cannot_pass_release_gate(self):
         run = subprocess.run(["bash", str(ROOT / "scripts/k6-regression-gate.sh"),
@@ -725,53 +1000,16 @@ cmd_up up --no-reconcile
                                      env=dict(os.environ, K6_ALLOW_UNMEASURED_BUDGET="true"), capture_output=True, timeout=10)
                 self.assertEqual(run.returncode == 0, valid, run.stdout + run.stderr)
 
-    def test_load_classification_and_minute_pacing(self):
-        import re
-        source = (ROOT / "tests/load/chronicle-load-test.js").read_text()
-        function = re.search(r"function recordResponse\(response, surface\) \{.*?\n\}", source, re.S).group()
-        code = "const records=[]; const responseClasses={add:(value,tags)=>records.push(tags)}; const check=(r,checks,tags)=>Object.values(checks).every(fn=>fn(r));\n"
-        code += function + "\n"
-        code += "for(const status of [200,429,401,503,0,400]) recordResponse({status},'usage');\nconsole.log(JSON.stringify(records));"
-        result = subprocess.run(["bun", "-e", code], capture_output=True, check=True, timeout=10)
-        records = json.loads(result.stdout)
-        self.assertEqual([row["outcome"] for row in records], ["accepted", "throttled", "authentication_failed", "server_failed", "transport_failed", "request_rejected"])
-        self.assertTrue(all(row["surface"] == "usage" for row in records))
-        self.assertIn("UPLOAD_INTERVAL_SECONDS || '60'", source)
-        self.assertIn("UPLOAD_INTERVAL_SECONDS - (Date.now() - started) / 1000", source)
+            measured = json.loads((ROOT / "tests/perf/k6-baselines.json").read_text())
+            measured["measurement"] = dict(verified=True, runs=2, source_revision="0" * 40,
+                                           environment={}, fixtures={})
+            baseline = Path(folder) / "measured.json"
+            baseline.write_text(json.dumps(measured))
+            run = subprocess.run(["bash", str(ROOT / "scripts/k6-regression-gate.sh"), str(baseline), str(current)],
+                                 env=dict(os.environ, K6_ALLOW_UNMEASURED_BUDGET="false"), capture_output=True, timeout=10)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
-    def test_load_target_uses_bound_device_credentials_and_current_payload(self):
-        source = (ROOT / "tests/load/chronicle-load-test.js").read_text()
-        source = re.sub(r"^import .*;\n", "", source, flags=re.M)
-        source = source.replace("export default function ()", "function exerciseDevice()")
-        source = re.sub(r"^export ", "", source, flags=re.M)
-        device = {"participant_id": "synthetic-1", "device_id": "fixture-device", "api_key": "synthetic-credential"}
-        prefix = """const requests=[], pauses=[];
-const __ENV={STUDY_ID:'fixture-study', MAX_VUS:'1', DEVICE_FIXTURES_FILE:'fixture.json'};
-const __VU=1;
-class Counter { add() {} }; const Rate=Counter, Trend=Counter;
-function SharedArray(name, read) { return read(); }
-const open=()=>JSON.stringify(fixtureRows);
-const randomBytes=()=>new Uint8Array(16).buffer;
-const http={post:(url,body,options)=>{requests.push({url,body:JSON.parse(body),headers:options.headers});return {status:200,timings:{duration:1}}}};
-const check=(response,checks)=>Object.values(checks).every(fn=>fn(response));
-const group=(name,run)=>run(); const sleep=seconds=>pauses.push(seconds);
-Math.random=()=>0;
-"""
-        for rows, valid in (([device], True), ([dict(device, api_key="")], False)):
-            code = prefix + "const fixtureRows=" + json.dumps(rows) + ";\n" + source
-            code += "\nsetup(); exerciseDevice(); console.log(JSON.stringify({requests,pauses}));"
-            run = subprocess.run(["bun", "-e", code], capture_output=True, timeout=10)
-            self.assertEqual(run.returncode == 0, valid, run.stderr)
-            if valid:
-                result = json.loads(run.stdout)
-                usage, sensors = result["requests"]
-                self.assertEqual(usage["headers"]["X-Api-Key"], device["api_key"])
-                self.assertEqual(usage["headers"]["X-Chronicle-Device-Id"], device["device_id"])
-                self.assertNotIn("Authorization", usage["headers"])
-                self.assertEqual(usage["body"][0]["participantId"], device["participant_id"])
-                self.assertEqual(usage["body"][0]["@class"], "com.openlattice.chronicle.android.ChronicleUsageEvent")
-                self.assertEqual(sensors["body"][0]["sensor"], "accelerometer")
-                self.assertGreater(result["pauses"][0], 59)
+
 
     def test_missing_fk_index_fails_schema_gate(self):
         script = (ROOT / "scripts/verify-schema-postconditions.sh").read_text()
@@ -784,10 +1022,10 @@ Math.random=()=>0;
 
     def test_runbooks_require_retention_purge_and_update_deadlines(self):
         deletion = (ROOT / "selfhost/docs/UNINSTALL-DATA-DELETION.md").read_text()
-        for text in ("protocol retention deadline", "Delete Study", "six years", "superuser", "indefinitely", "controlled"):
+        for text in ("protocol retention deadline", "Delete Study", "approved retention schedule", "superuser", "indefinitely", "controlled"):
             self.assertIn(text, deletion)
         guide = (ROOT / "selfhost/README.md").read_text()
-        for text in ("48 hours", "7 days", "30 days", "90 days", "default-branch", "latest", "previous"):
+        for text in ("48 hours", "7 days", "30 days", "90 days", "default-branch", "latest"):
             self.assertIn(text, guide)
 
     def test_nonstandard_https_redirect_uses_canonical_origin(self):

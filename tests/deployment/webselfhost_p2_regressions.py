@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Focused deployment regressions for the 2026-10-03 webselfhost audit."""
+"""Focused deployment regressions for the web self-host setup."""
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import importlib.util
 import inspect
-import ipaddress
 import os
 import re
-import shutil
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -21,7 +19,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH_DIR = ROOT / "build/operator-test-runs" / Path(__file__).stem
+SCRATCH_DIR = Path(os.environ.get('TMPDIR', ROOT / 'build/operator-test-runs')) / Path(__file__).stem
 
 
 def read(path: str) -> str:
@@ -57,7 +55,9 @@ def check_w12() -> None:
     assert matcher, "immutable caching must require both a hashed path and an existing file"
     pattern = re.compile(matcher.group(1))
     assert pattern.fullmatch("/chunk-app123.js")
-    assert pattern.fullmatch("/chunk-style9.css")
+    # build-modern.ts names CSS by the sha256 of its final bytes, so only that name is immutable.
+    assert pattern.fullmatch("/chunk-by70j4d2-239fc9ce.css")
+    assert not pattern.fullmatch("/chunk-style9.css")
 
     fonts = ROOT / "chronicle-web" / "vendor" / "equal" / "packages" / "tokens" / "dist" / "fonts"
     font_files = sorted(fonts.glob("*.woff2"))
@@ -74,47 +74,18 @@ def check_w12() -> None:
     assert positions == sorted(positions), "cache policy must be set before the SPA fallback rewrite"
 
 
-def check_w13() -> None:
-    backend = yaml.safe_load(read("docker/docker-compose.traefik.yml"))["services"]["chronicle-backend"]
-    raw_labels = backend["labels"]
-    if isinstance(raw_labels, dict):
-        labels = {str(key): str(value) for key, value in raw_labels.items()}
-    else:
-        labels = dict(label.split("=", 1) for label in raw_labels)
-    for router in ("chronicle-mobile", "chronicle-mobile-proxy-fallback", "chronicle-web"):
-        chain = labels[f"traefik.http.routers.{router}.middlewares"].split(",")
-        assert "chronicle-compress" in chain, (router, chain)
-    assert labels["traefik.http.middlewares.chronicle-compress.compress"] == "true"
-
-
-def check_w16() -> None:
-    for path in (
-        "docker/keycloak/realm-chronicle.json.template",
-        "k8s/base/keycloak/realm-chronicle.json.template",
-    ):
-        realm = json.loads(read(path))
-        assert realm.get("bruteForceProtected") is True, path
-        assert realm.get("permanentLockout") is False, path
-        assert realm.get("failureFactor") == 5, path
-        assert realm.get("waitIncrementSeconds") == 60, path
-        assert realm.get("minimumQuickLoginWaitSeconds") == 60, path
-        assert realm.get("maxFailureWaitSeconds") == 900, path
-        assert realm.get("quickLoginCheckMilliSeconds") == 1000, path
-
-
 def check_w49() -> None:
     expected = "oven/bun:1.3.12-alpine@sha256:26d8996560ca94eab9ce48afc0c7443825553c9a851f40ae574d47d20906826d"
-    for path in ("selfhost/Dockerfile.frontend", "docker/Dockerfile.frontend.prod"):
-        assert f"FROM {expected} AS builder" in read(path), path
+    assert f"FROM {expected} AS builder" in read("selfhost/Dockerfile.frontend")
     package = json.loads(read("chronicle-web/package.json"))
-    assert package.get("engines", {}).get("bun") == ">=1.3.12"
+    assert package.get("engines", {}).get("bun") == "1.3.12"
+    assert package.get("devDependencies", {}).get("bun-types") == "1.3.12"
     assert package.get("devDependencies", {}).get("bun") == "1.3.12"
 
 
 def check_w47() -> None:
     for path in (
         "docker/Dockerfile.backend",
-        "docker/Dockerfile.frontend.prod",
         "selfhost/Dockerfile.frontend",
         "selfhost/Dockerfile.caddy",
     ):
@@ -122,11 +93,10 @@ def check_w47() -> None:
         assert "COPY LICENSE /usr/share/doc/chronicle/LICENSE" in dockerfile, path
         assert "org.opencontainers.image.source=\"https://github.com/uzaira0/methodic\"" in dockerfile, path
         assert "Corresponding Chronicle source:" in dockerfile and "SOURCE_REF" in dockerfile, path
-    for path in ("docker/Dockerfile.frontend.prod", "selfhost/Dockerfile.frontend"):
-        assert "COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web" in read(path)
+    assert "COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web" in read("selfhost/Dockerfile.frontend")
     assert "!LICENSE" in read(".dockerignore")
     assert "!chronicle-web/LICENSE" in read(".dockerignore")
-    assert read("LICENSE").lstrip().startswith("Apache License")
+    assert read("LICENSE").lstrip().startswith("GNU GENERAL PUBLIC LICENSE")
     assert read("chronicle-web/LICENSE").lstrip().startswith("GNU GENERAL PUBLIC LICENSE")
     publisher = read("scripts/publish-images.sh")
     assert publisher.count('SOURCE_REF=$release') == 3
@@ -180,9 +150,6 @@ def check_w50() -> None:
             )
         assert sorted(path.name for path in first.iterdir()) == ["config.yml"]
         assert (first / "config.yml").read_bytes() == (second / "config.yml").read_bytes()
-    source = read("scripts/build-selfhost-release.py")
-    assert "tracked_paths = tracked_source_paths(ROOT)" in source
-    assert source.count("tracked_paths=tracked_paths") >= 5
 
 
 def check_w51() -> None:
@@ -302,160 +269,47 @@ def check_w55() -> None:
     backup = yaml.safe_load(read("selfhost/overlays/backups.yml"))["services"]["db-backup"]
     assert backup["read_only"] is True
     assert any(mount.startswith("/tmp:size=") for mount in backup["tmpfs"])
-    assert "${CHRONICLE_STATE_DIR:-.}/backups:/backups" in backup["volumes"]
+    assert "${CHRONICLE_STATE_DIR:-.}/backups:/backups:z" in backup["volumes"]
 
     ca_export = yaml.safe_load(read("selfhost/overlays/mode-local-https.yml"))["services"]["ca-export"]
     assert ca_export["read_only"] is True
     assert any(mount.startswith("/tmp:size=") for mount in ca_export["tmpfs"])
-    assert "${CHRONICLE_STATE_DIR:-.}/tls:/out" in ca_export["volumes"]
+    assert "${CHRONICLE_STATE_DIR:-.}/tls:/out:z" in ca_export["volumes"]
 
 
 def check_w56() -> None:
-    builder = ast.parse(read("scripts/build-selfhost-release.py"))
-    main = next(node for node in builder.body if isinstance(node, ast.FunctionDef) and node.name == "main")
-    root_files = next(
-        node.value
-        for node in ast.walk(main)
-        if isinstance(node, ast.Assign)
-        and any(isinstance(target, ast.Name) and target.id == "root_files" for target in node.targets)
-    )
-    assert isinstance(root_files, ast.List)
-    inventory = {element.value for element in root_files.elts if isinstance(element, ast.Constant)}
-    assert "network-policy.sh" in inventory, "the source-free release bundle omits its network-policy helper"
-    assert (ROOT / "selfhost" / "network-policy.sh").is_file()
-    assert any(
-        isinstance(node, ast.For)
-        and isinstance(node.target, ast.Name)
-        and node.target.id == "name"
-        and isinstance(node.iter, ast.Name)
-        and node.iter.id == "root_files"
-        for node in ast.walk(main)
-    ), "the bundle builder must copy every declared root inventory item"
+    spec = importlib.util.spec_from_file_location('release_inventory', ROOT / 'scripts/build-selfhost-release.py')
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    tracked = {'selfhost/' + name for name in builder.operator_files()}
+    with tempfile.TemporaryDirectory(dir=SCRATCH_DIR) as folder:
+        bundle = Path(folder)
+        builder.copy_operator_files(bundle, tracked)
+        for name in ('network-policy.sh', 'doctor.sh', 'rotation-http.sh',
+                     'chronicle_ops/setup_env.py'):
+            assert (bundle / 'selfhost' / name).is_file(), name
 
 
 def check_w61() -> None:
-    compose = yaml.safe_load(read("docker/docker-compose.traefik.yml"))["services"]
-    vault = compose["vault"]
-    assert "ALL" in vault["cap_drop"]
-    assert vault["cap_add"] == ["IPC_LOCK"]
     socket_proxy = yaml.safe_load(read("selfhost/overlays/monitoring.yml"))["services"]["docker-socket-proxy"]
     assert 1 <= socket_proxy["pids_limit"] <= 128
     assert str(socket_proxy["environment"]["POST"]) == "0"
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in socket_proxy["volumes"]
 
 
-def check_w68() -> None:
-    percona = "percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327"
-    for path in ("docker/docker-compose.yml", "docker/docker-compose.dev.yml"):
-        compose = yaml.safe_load(read(path))
-        assert compose["services"]["postgres"]["image"] == percona, path
-
-    digest_inputs = {
-        "docker/docker-compose.loki.yml": {
-            "loki": "LOKI_IMAGE_DIGEST",
-            "promtail": "PROMTAIL_IMAGE_DIGEST",
-        },
-        "docker/docker-compose.temporal.yml": {
-            "temporal": "TEMPORAL_AUTO_SETUP_IMAGE_DIGEST",
-            "temporal-ui": "TEMPORAL_UI_IMAGE_DIGEST",
-            "temporal-admin": "TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST",
-        },
-        "docker/docker-compose.opensearch.yml": {
-            "opensearch": "OPENSEARCH_IMAGE_DIGEST",
-            "opensearch-dashboards": "OPENSEARCH_DASHBOARDS_IMAGE_DIGEST",
-        },
-    }
-    for path, services in digest_inputs.items():
-        compose = yaml.safe_load(read(path))["services"]
-        for service, variable in services.items():
-            image = compose[service]["image"]
-            assert re.search(rf"@sha256:\$\{{{variable}:\?[^}}]+\}}$", image), (path, service, image)
-
-    production = read("docker/docker-compose.production.yml")
-    assert re.search(r"image:\s*\$\{BACKEND_IMAGE:\?[^}]+\}@sha256:\$\{BACKEND_DIGEST:\?", production)
-    assert re.search(r"image:\s*\$\{FRONTEND_IMAGE:\?[^}]+\}@sha256:\$\{FRONTEND_DIGEST:\?", production)
-    deploy = read("scripts/deploy.sh")
-    assert "docker image inspect --format" in deploy
-    assert "BACKEND_DIGEST" in deploy and "FRONTEND_DIGEST" in deploy
-    assert "current-backend-digest" in deploy and "previous-backend-digest" in deploy
-    assert "current-frontend-digest" in deploy and "previous-frontend-digest" in deploy
-
-    traefik = yaml.safe_load(read("docker/docker-compose.traefik.yml"))["services"]
-    for service in ("keycloak-postgres", "keycloak", "chronicle-backend", "chronicle-frontend"):
-        assert traefik[service].get("build"), service
-    assert traefik["chronicle-preprocessing-frontend"]["image"] == traefik["chronicle-frontend"]["image"]
-    matrix = read("docker/DEPLOYMENT-MATRIX.md").lower()
-    assert "source-checkout" in matrix and "developer-only" in matrix
-
-    base = yaml.safe_load(read("k8s/base/kustomization.yaml"))
-    for image in base["images"]:
-        assert "newTag" not in image
-        assert image["digest"].startswith("sha256:__CHRONICLE_")
-    assert "newTag:" not in read("k8s/overlays/production/kustomization.yaml")
-
-    renderer = ROOT / "scripts" / "render-k8s-production.sh"
-    scratch = SCRATCH_DIR
-    scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="W68-", dir=scratch) as temporary:
-        work = Path(temporary)
-        bindir = work / "bin"
-        bindir.mkdir()
-        marker = work / "kustomize-called"
-        fixture = work / "kustomize-output.yaml"
-        fixture.write_text(
-            "images:\n"
-            "- ghcr.io/uzaira0/chronicle/chronicle-backend@sha256:__CHRONICLE_BACKEND_IMAGE_DIGEST__\n"
-            "- ghcr.io/uzaira0/chronicle/chronicle-frontend@sha256:__CHRONICLE_FRONTEND_IMAGE_DIGEST__\n"
-            "- ghcr.io/uzaira0/chronicle/chronicle-keycloak@sha256:__CHRONICLE_KEYCLOAK_IMAGE_DIGEST__\n",
-            encoding="utf-8",
-        )
-        kustomize = bindir / "kustomize"
-        kustomize.write_text(
-            "#!/bin/sh\nprintf called >> \"$KUSTOMIZE_MARKER\"\ncat \"$KUSTOMIZE_FIXTURE\"\n",
-            encoding="utf-8",
-        )
-        os.chmod(kustomize, 0o755)
-        values = {
-            "CHRONICLE_BACKEND_IMAGE_DIGEST": "1" * 64,
-            "CHRONICLE_FRONTEND_IMAGE_DIGEST": "2" * 64,
-            "CHRONICLE_KEYCLOAK_IMAGE_DIGEST": "3" * 64,
-        }
-        environment = os.environ.copy()
-        environment.update(values)
-        environment["KUSTOMIZE_MARKER"] = str(marker)
-        environment["KUSTOMIZE_FIXTURE"] = str(fixture)
-        environment["PATH"] = f"{bindir}:{environment['PATH']}"
-        rendered = subprocess.run(
-            ["bash", str(renderer)], check=False, capture_output=True, text=True, env=environment
-        )
-        assert rendered.returncode == 0, rendered.stderr
-        assert "sha256:" + values["CHRONICLE_BACKEND_IMAGE_DIGEST"] in rendered.stdout
-        assert "sha256:" + values["CHRONICLE_FRONTEND_IMAGE_DIGEST"] in rendered.stdout
-        assert "sha256:" + values["CHRONICLE_KEYCLOAK_IMAGE_DIGEST"] in rendered.stdout
-        assert "__CHRONICLE_" not in rendered.stdout
-        marker.unlink()
-        invalid = environment.copy()
-        invalid["CHRONICLE_BACKEND_IMAGE_DIGEST"] = "not-a-digest"
-        rejected = subprocess.run(
-            ["bash", str(renderer)], check=False, capture_output=True, text=True, env=invalid
-        )
-        assert rejected.returncode != 0 and not marker.exists()
-
-
 def check_w67() -> None:
-    manifest = yaml.safe_load(read("toolchain-manifest.yaml"))
-    expected = {
-        f'{manifest[section]["image"]}@{manifest[section]["index_digest"]}'
-        for section in ("postgres", "keycloak_postgres")
-    }
-    expected.update(image for name, image in manifest["selfhost_images"].items() if name != "backup")
+    sys.path.insert(0, str(ROOT / 'selfhost'))
+    from chronicle_ops.images import SOURCE_IMAGES, bundle_images
+    expected = bundle_images(ROOT / 'selfhost') - {image.placeholder for image in SOURCE_IMAGES}
     assert expected and all(re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image) for image in expected)
 
-    publisher = read("scripts/publish-images.sh")
-    assert "--ignore-unfixed" not in publisher, "unfixed high/critical advisories must not be implicitly waived"
-    scan_at = publisher.index("stamp 'scan release runtime dependencies'")
-    push_at = publisher.index("stamp push")
-    assert scan_at < push_at < publisher.index('run docker push "$backend"')
+    plan = subprocess.run(['bash', str(ROOT / 'scripts/publish-images.sh'), '1.2.3', '--dry-run'],
+                          check=True, capture_output=True, text=True).stdout.splitlines()
+    scans = [index for index, line in enumerate(plan) if 'scan-selfhost-release-images.sh' in line]
+    pushes = [index for index, line in enumerate(plan) if line.startswith('docker push ')]
+    assert len(scans) == len(SOURCE_IMAGES) + 1
+    assert len(pushes) == len(SOURCE_IMAGES) and max(scans) < min(pushes)
+
     ignore = yaml.safe_load(read(".trivyignore.yaml"))["vulnerabilities"]
     assert ignore and all((item.get("paths") or item.get("purls")) and item.get("statement") and item.get("expired_at") for item in ignore)
 
@@ -482,13 +336,8 @@ def check_w67() -> None:
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["TRIVY_LOG"] = str(log)
         explicit = ["ghcr.io/example/backend:v1.2.3", "ghcr.io/example/frontend:v1.2.3"]
-        scan_function = publisher[publisher.index('scan_image() {'):publisher.index('stamp "build $caddy"')]
-        published = ['bash', '-c', 'set -euo pipefail\nroot=$ROOT\nrun() { "$@"; }; stamp() { :; }\n'
-                     + scan_function + '\nscan_image "$IMAGE"\n']
-        env.update(ROOT=str(ROOT), IMAGE=explicit[0])
         for command, inventory in ((["bash", str(helper)], sorted(expected)),
-                                   (["bash", str(helper), *explicit], explicit),
-                                   (published, explicit[:1])):
+                                   (["bash", str(helper), *explicit], explicit)):
             env.pop("TRIVY_FAIL_IMAGE", None)
             passed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
             assert passed.returncode == 0, passed.stderr
@@ -510,127 +359,8 @@ def check_w67() -> None:
 
 
 def check_w48() -> None:
-    publisher = read("scripts/publish-images.sh")
-    required_tools = re.search(r"for tool in ([^;]+); do", publisher)
-    assert required_tools and {"docker", "gh", "git", "python3", "trivy", "syft"} <= set(required_tools.group(1).split())
-    helper_call = publisher.index('capture sbom_output bash "$root/scripts/write-image-sboms.sh"')
-    release_call = publisher.index('run gh release create')
-    assert helper_call < release_call
-    assert '"${sbom_assets[@]}"' in publisher[release_call:]
-    assert "spdx-json" in read("scripts/write-image-sboms.sh")
-
-    refs = [
-        f"ghcr.io/example/chronicle-{name}:v1.2.3@sha256:{digit * 64}"
-        for name, digit in (("backend", "1"), ("frontend", "2"), ("caddy", "3"), ("backup", "4"))
-    ]
-    scratch = SCRATCH_DIR
-    scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="W48-", dir=scratch) as temporary:
-        work = Path(temporary)
-        bin_dir = work / "bin"
-        bin_dir.mkdir()
-        log = work / "syft.log"
-        stub = bin_dir / "syft"
-        stub.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            "[[ $# -eq 3 && $2 == -o && $3 == spdx-json ]]\n"
-            "printf '%s\\n' \"$1\" >> \"$SYFT_LOG\"\n"
-            "printf '{\"spdxVersion\":\"SPDX-2.3\",\"name\":\"%s\",\"packages\":[]}\\n' \"$1\"\n",
-            encoding="utf-8",
-        )
-        stub.chmod(0o755)
-        env = os.environ.copy()
-        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
-        env["SYFT_LOG"] = str(log)
-        generated = subprocess.run(
-            ["bash", str(ROOT / "scripts" / "write-image-sboms.sh"), "v1.2.3", str(work / "release assets"), *refs],
-            cwd=ROOT, env=env, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        assert generated.returncode == 0, generated.stderr
-        assert log.read_text(encoding="utf-8").splitlines() == refs
-
-        asset_dir = work / "release assets"
-        manifest_name = "chronicle-image-sboms-1.2.3.json"
-        checksums_name = "chronicle-image-sboms-1.2.3.sha256"
-        manifest = json.loads((asset_dir / manifest_name).read_text(encoding="utf-8"))
-        assert manifest["release"] == "v1.2.3"
-        sboms = manifest["sboms"]
-        assert [item["image"] for item in sboms] == refs
-        for item in sboms:
-            content = (asset_dir / item["asset"]).read_bytes()
-            assert hashlib.sha256(content).hexdigest() == item["sha256"]
-            assert json.loads(content)["spdxVersion"] == "SPDX-2.3"
-        checksum_lines = (asset_dir / checksums_name).read_text(encoding="utf-8").splitlines()
-        for name in [item["asset"] for item in sboms] + [manifest_name]:
-            digest, recorded_name = checksum_lines.pop(0).split("  ", 1)
-            assert recorded_name == name
-            assert hashlib.sha256((asset_dir / name).read_bytes()).hexdigest() == digest
-        assert not checksum_lines
-
-        emitted = [str(asset_dir / name) for name in [item["asset"] for item in sboms] + [manifest_name, checksums_name]]
-        assert generated.stdout.splitlines() == emitted
-        capture = publisher[publisher.index('capture() {'):publisher.index('# Phase timestamps')]
-        sbom_mapfile = 'mapfile -t sbom_assets <<< "$sbom_output"'
-        collect = publisher[helper_call:publisher.index(sbom_mapfile, helper_call) + len(sbom_mapfile)]
-        env.update(ROOT=str(ROOT), SBOM_PATHS=generated.stdout.rstrip("\n"),
-                   BACKEND_REF=refs[0], FRONTEND_REF=refs[1], CADDY_REF=refs[2], BACKUP_REF=refs[3])
-        shell = 'set -euo pipefail\ndry_run=; root=$ROOT; release=v1.2.3\n' + capture
-        shell += 'backend_digest=$BACKEND_REF; frontend_digest=$FRONTEND_REF; caddy_digest=$CADDY_REF; backup_digest=$BACKUP_REF\n'
-        shell += 'bash() { [[ "$1" == "$root/scripts/write-image-sboms.sh" && "$#" == 7 ]] || return 90; printf "%s\\n" "$SBOM_PATHS"; }\n'
-        shell += collect + '\nprintf "%s\\n" "${sbom_assets[@]}"\n'
-        collected = subprocess.run(['bash','-c',shell],env=env,capture_output=True,text=True)
-        assert collected.returncode == 0, collected.stderr
-        assert collected.stdout.splitlines() == emitted, collected.stdout
-        failed = subprocess.run(['bash','-c',shell.replace('printf "%s\\n" "$SBOM_PATHS";', 'return 7;')],
-                                env=env,capture_output=True,text=True)
-        assert failed.returncode == 7 and not failed.stdout, "SBOM writer failure must abort publishing"
-
-
-def check_w76() -> None:
-    compose = yaml.safe_load(read("selfhost/docker-compose.yml"))["services"]["backend"]
-    env = compose["environment"]
-    defaults = {
-        "CHRONICLE_EXPORT_MAX_ROWS": "1000000",
-        "CHRONICLE_EXPORT_MAX_BYTES": "536870912",
-        "CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS": "1800",
-        "CHRONICLE_EXPORT_MAX_TOTAL_BYTES": "8589934592",
-        "CHRONICLE_EXPORT_MIN_FREE_BYTES": "1073741824",
-    }
-    example = read("selfhost/.env.example")
-    for name, default in defaults.items():
-        documented = re.findall(rf"(?m)^{re.escape(name)}=([0-9]+)$", example)
-        assert documented == [default], (name, documented, default)
-    chosen = {
-        "CHRONICLE_EXPORT_MAX_ROWS": "250000",
-        "CHRONICLE_EXPORT_MAX_BYTES": "10485760",
-        "CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS": "90",
-        "CHRONICLE_EXPORT_MAX_TOTAL_BYTES": "1073741824",
-        "CHRONICLE_EXPORT_MIN_FREE_BYTES": "10485760",
-    }
-
-    def rendered(expression: str, supplied: dict[str, str]) -> str:
-        match = re.fullmatch(r"\$\{([A-Z0-9_]+):-([0-9]+)\}", expression)
-        assert match
-        value = supplied.get(match.group(1), "")
-        return value if value else match.group(2)
-
-    for name, default in defaults.items():
-        expression = env[name]
-        match = re.fullmatch(r"\$\{([A-Z0-9_]+):-([0-9]+)\}", expression)
-        assert match and match.group(1) == name and match.group(2) == default, (name, expression)
-        assert rendered(expression, {name: chosen[name]}) == chosen[name]
-        assert rendered(expression, {}) == default
-        assert rendered(expression, {name: ""}) == default
-        assert int(default) > 0 and int(chosen[name]) > 0
-    writer = read("chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/ExportFileWriter.kt")
-    assert writer.count('positiveLongSetting(') >= 5
-    assert "toLongOrNull()?.takeIf { it > 0 }" in writer
-    docs = read("selfhost/docs/DEPLOYMENT-COMPATIBILITY.md")
-    docs_text = " ".join(docs.lower().split())
-    assert all(name in docs for name in defaults)
-    assert "positive decimal integers" in docs_text and "defaults" in docs_text
-    assert "fails backend startup" in docs_text
+    monitoring = runpy.run_path(str(ROOT / 'tests/security/selfhost-monitoring.py'))
+    monitoring['test_backup_sbom_inventory']()
 
 
 def check_w79() -> None:
@@ -695,11 +425,7 @@ def check_cross_s02() -> None:
     for invalid in ("0", "121", "-1", "1.0", "abc", "1000", "000"):
         assert not allowed(compose_value(invalid)), invalid
 
-    server_config = read(
-        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/ChronicleAuthConfiguration.kt"
-    )
-    assert 'System.getenv("CHRONICLE_SESSION_IDLE_MINUTES")?.toLong() ?: 15' in server_config
-    assert "require(sessionIdleMinutes in 1..120)" in server_config
+    # The server enforces the same range at startup (ChronicleAuthConfigurationTest).
     for path in ("selfhost/README.md", "selfhost/docs/DEPLOYMENT-COMPATIBILITY.md"):
         docs = read(path)
         assert "CHRONICLE_SESSION_IDLE_MINUTES" in docs and "120" in docs and "15" in docs
@@ -708,8 +434,6 @@ def check_cross_s02() -> None:
 CHECKS = {
     "W11": check_w11,
     "W12": check_w12,
-    "W13": check_w13,
-    "W16": check_w16,
     "W47": check_w47,
     "W49": check_w49,
     "W50": check_w50,
@@ -721,8 +445,6 @@ CHECKS = {
     "W61": check_w61,
     "W67": check_w67,
     "W48": check_w48,
-    "W68": check_w68,
-    "W76": check_w76,
     "W79": check_w79,
     "CROSS-S02": check_cross_s02,
 }

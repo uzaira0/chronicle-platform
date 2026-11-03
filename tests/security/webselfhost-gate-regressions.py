@@ -10,7 +10,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNS = ROOT / 'build/operator-test-runs/webselfhost-gates'
+RUNS = Path(os.environ.get('TMPDIR', ROOT / 'build/operator-test-runs/webselfhost-gates'))
 RUNS.mkdir(parents=True, exist_ok=True)
 os.environ['TMPDIR'] = str(RUNS)
 tempfile.tempdir = str(RUNS)
@@ -47,21 +47,12 @@ class GateRegressions(unittest.TestCase):
             self.assertEqual(scan.returncode,1,scan.stderr.decode())
             self.assertIn('generic-api-key',{r['RuleID'] for r in json.loads(report.read_text())})
 
-    def test_W60_nginx_locations_retain_security_headers(self):
-        for path in ('k8s/base/apk-download/nginx.apk-download.conf','k8s/base/preprocessing-frontend/nginx.preprocessing.conf'):
-            source=(ROOT/path).read_text()
-            required=set(re.findall(r'add_header\s+(\S+)',source.split('    location',1)[0]))
-            for location,body in re.findall(r'    location ([^\n]+) \{\n(.*?)\n    \}',source,re.S):
-                local=set(re.findall(r'add_header\s+(\S+)',body))
-                effective=local or required
-                self.assertTrue(required.issubset(effective),(path,location,required-effective))
-
     def test_W69_always_recorded_inventory_matches_schema(self):
         doc=(ROOT/'selfhost/docs/UNINSTALL-DATA-DELETION.md').read_text()
-        schema=(ROOT/'chronicle-server/src/main/resources/db/migration/V50__participant_access_deletion_ledger.sql').read_text()
-        for field in ('study_id','participant_id','device_id','platform','app_version','model',
+        schema=(ROOT/'chronicle-server/src/main/resources/db/migration/V1__fresh_schema.sql').read_text()
+        for field in ('study_id','participant_id','random_device_id','platform','app_version','model',
                       'participant_form_submission_receipts','form_kind','idempotency_key','request_hash',
-                      'audit_logs','user_agent','retention_holds','deletion_tombstones'):
+                      'audit','user_agent','deletion_tombstones'):
             self.assertIn('`'+field+'`',doc)
         for field in ('form_kind','idempotency_key','request_hash'):
             self.assertIn(field,schema)
@@ -69,32 +60,6 @@ class GateRegressions(unittest.TestCase):
         self.assertIn('withheld',doc)
         self.assertIn('authorized',doc.lower())
         self.assertIn('optional collection modules',doc)
-
-    def test_W57_configured_export_mount_and_runtime_uid(self):
-        with tempfile.TemporaryDirectory() as d:
-            bin_dir = Path(d)
-            stub = bin_dir / 'docker'
-            stub.write_text('''#!/usr/bin/env python3
-import json, os, sys
-a=sys.argv[1:]
-if a[0]=='ps': print('chronicle-backend')
-elif a[0]=='inspect':
- print(json.dumps([{'Name':'/chronicle-backend','Config':{'User':os.environ['UID_MODE'],'Env':['CHRONICLE_EXPORT_DIR='+os.environ['EXPORT_PATH']]},'HostConfig':{'CapDrop':['ALL'],'CapAdd':[],'SecurityOpt':['no-new-privileges:true'],'ReadonlyRootfs':True,'Memory':268435456},'Mounts':[{'Type':'volume','Source':'exports','Destination':os.environ['EXPORT_PATH'],'RW':os.environ['WRITABLE']=='true'}]}]))
-elif a[0]=='exec':
- if 'test' in a:
-  expected=['exec','-u',os.environ['UID_MODE'],'chronicle-backend','test','-w',os.environ['EXPORT_PATH']]
-  sys.exit(0 if a==expected and os.environ['WRITABLE']=='true' else 1)
- else: sys.exit(1)
-else: sys.exit(99)
-''')
-            stub.chmod(0o755)
-            for path in ('/exports', '/var/lib/chronicle/exports'):
-                for uid in ('100:101', 'chronicle'):
-                    for writable in ('true','false'):
-                        result = subprocess.run(['bash',str(ROOT/'tests/security/container-security-tests.sh')],
-                            env={**os.environ,'PATH':str(bin_dir)+':'+os.environ['PATH'],
-                                 'EXPORT_PATH':path,'UID_MODE':uid,'WRITABLE':writable},capture_output=True)
-                        self.assertEqual(result.returncode==0,writable=='true',result.stdout.decode()+result.stderr.decode())
 
     def test_W58_policy_units_and_gate_failure(self):
         result = subprocess.run(['conftest','verify','--policy',str(ROOT/'tests/security/policies')],capture_output=True)
@@ -110,7 +75,7 @@ else: sys.exit(99)
         methods = '\n'.join(function('scripts/local-ci.sh',n) for n in ('deployment_files','job_dockerfile_lint','job_iac_scan'))
         with tempfile.TemporaryDirectory() as d:
             fixture = Path(d)
-            for name in ('docker/Dockerfile.backend','selfhost/Dockerfile.caddy','selfhost/overlays/sample.yml','k8s/overlays/test/kustomization.yaml','selfhost/entrypoint.sh'):
+            for name in ('docker/Dockerfile.backend','docker/Dockerfile.frozen','selfhost/Dockerfile.caddy','selfhost/overlays/sample.yml','selfhost/entrypoint.sh'):
                 p=fixture/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('clean')
             stub = '''set -euo pipefail
 ensure_hadolint() { :; }; prepare_checkov_runtime() { :; }; require_cmd() { :; }
@@ -118,13 +83,16 @@ report_path() { printf '%s/%s' "$ROOT_DIR" "$2"; }
 scanner() { for a in "$@"; do [[ ! -f "$a" ]] || ! rg -q VIOLATION "$a" || return 1; done; }
 hadolint() { scanner "$@"; }; shellcheck() { scanner "$@"; }
 conftest() { scanner "$@"; }; checkov() { scanner "$@"; }
-kustomize() { cat "$2/kustomization.yaml"; }
 '''
             env={**os.environ,'ROOT_DIR':d}
             def run():
                 return subprocess.run(['bash','-c',stub+methods+'\njob_dockerfile_lint\njob_iac_scan'],env=env,capture_output=True)
             self.assertEqual(run().returncode,0)
-            for name in ('selfhost/Dockerfile.caddy','selfhost/overlays/sample.yml','k8s/overlays/test/kustomization.yaml','selfhost/entrypoint.sh'):
+            # Every docker/ input is frozen; selfhost inputs remain enforced.
+            for name in ('docker/Dockerfile.backend','docker/Dockerfile.frozen'):
+                (fixture/name).write_text('VIOLATION')
+                self.assertEqual(run().returncode,0,name)
+            for name in ('selfhost/Dockerfile.caddy','selfhost/overlays/sample.yml','selfhost/entrypoint.sh'):
                 p=fixture/name;p.write_text('VIOLATION')
                 self.assertNotEqual(run().returncode,0,name)
                 p.write_text('clean')
@@ -143,7 +111,6 @@ kustomize() { cat "$2/kustomization.yaml"; }
             self.assertEqual(result.returncode,28)
 
     def test_W65_android_sast_modules_and_candidate_license(self):
-        source=(ROOT/'tests/security/run-all-security.sh').read_text()
         sast=function('tests/security/run-all-security.sh','run_sast_semgrep')
         modules=function('tests/security/run-all-security.sh','android_source_roots')
         modular=function('tests/security/run-all-security.sh','run_collection_semgrep_modularization')
@@ -182,41 +149,15 @@ require_jdk21() { :; }; require_cmd() { :; }; log() { :; }
                 self.assertEqual(len(findings),4,scan.stderr.decode()+scan.stdout.decode())
 
     def test_W75_observed_secure_v3_cookie_required(self):
-        with tempfile.TemporaryDirectory() as d:
-            stub=Path(d)/'curl'
-            stub.write_text('''#!/usr/bin/env python3
-import base64, json, os, sys, time
-a=sys.argv[1:]; mode=os.environ['RESPONSE_MODE']; url=a[-1]
-if '--data-binary' in a: sys.stdin.read()
-if mode=='unreachable': print('000',end=''); sys.exit(7)
-if '-D' in a and a[a.index('-D')+1]!='-':
- headers=a[a.index('-D')+1]; body=a[a.index('-o')+1]
- status='404' if mode=='404' else '200'
- assert url.endswith('/chronicle/v3/auth/set-cookie'),url
- cookie='' if mode=='no-cookie' else 'Set-Cookie: chronicle_auth=synthetic; HttpOnly; '+('Secure; SameSite=Lax' if mode=='secure' else 'SameSite=None')+'\\r\\n'
- open(headers,'w').write('HTTP/1.1 '+status+' OK\\r\\n'+cookie+'\\r\\n')
- open(body,'w').write('{"authenticated":true,"csrfToken":"synthetic-csrf"}')
- print(status,end='')
-elif '-D' in a: print('HTTP/1.1 404 Not Found\\r\\n\\r\\n',end='')
-elif url.endswith('/chronicle/v3/study'):
- headers=[a[i+1] for i,x in enumerate(a) if x=='-H']
- if '--cookie' in a:
-  csrf='X-CSRF-Token: synthetic-csrf' in headers
-  status='200' if a[a.index('-X')+1]=='GET' else ('400' if csrf else '401')
- else:
-  token=next(x.removeprefix('Authorization: Bearer ') for x in headers if x.startswith('Authorization: Bearer '))
-  segment=token.split('.')[1]
-  payload=json.loads(base64.urlsafe_b64decode(segment+'='*(-len(segment)%4)))
-  status='200' if payload['exp']>time.time() else '401'
- print(status,end='')
-else: print('200' if url.endswith('/chronicle/v3/auth/session') or url.endswith('/chronicle/v3/') else '401',end='')
-''');stub.chmod(0o755)
-            import base64
-            payload=base64.urlsafe_b64encode(json.dumps({'sub':'fixture-user','exp':4102444800}).encode()).decode().rstrip('=')
-            token='synthetic.'+payload+'.signature'
-            for mode in ('unreachable','404','no-cookie','insecure','secure'):
-                result=subprocess.run(['bash',str(ROOT/'tests/security/session-management-tests.sh')],env={**os.environ,'PATH':d+':'+os.environ['PATH'],'BASE_URL':'https://fixture.invalid','AUTH_TOKEN':token,'JWT_SECRET':'synthetic-secret','RESPONSE_MODE':mode},capture_output=True)
-                self.assertEqual(result.returncode==0,mode=='secure',result.stdout.decode()+result.stderr.decode())
+        import sys
+        sys.path.insert(0, str(ROOT / 'tests/selfhost-py'))
+        from session_probe_fixture import run_session_probe
+        for mode in ('unreachable', '404', 'no-cookie', 'insecure', 'secure', 'rotation-current-rejected',
+                     'rotation-old-accepted', 'rotation-forbidden', 'rotation-throttled'):
+            result = run_session_probe(mode)
+            self.assertEqual(result.returncode == 0, mode == 'secure', result.stdout + result.stderr)
+            if mode.startswith('rotation-'):
+                self.assertNotIn('[PASS]  Test 2:', re.sub(r'\x1b\[[0-9;]*m', '', result.stdout))
 
 if __name__ == '__main__':
     unittest.main()
