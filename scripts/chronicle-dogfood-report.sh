@@ -97,9 +97,8 @@ echo
 psql_report <<'SQL'
 \echo '== Device Inventory =='
 SELECT
-  device_id,
+  random_device_id,
   device_type,
-  source_device_id,
   source_device ->> 'manufacturer' AS manufacturer,
   source_device ->> 'model' AS model,
   source_device ->> 'os' AS os,
@@ -107,7 +106,7 @@ SELECT
 FROM devices
 WHERE study_id = :'study_id'::uuid
   AND participant_id = :'participant_id'
-ORDER BY device_id;
+ORDER BY random_device_id;
 
 \echo '== Upload Buffer =='
 SELECT
@@ -188,12 +187,10 @@ ORDER BY rows DESC, sensor_type;
 
 \echo '== Sensor Availability =='
 SELECT
-  device_id,
-  source_device_id,
+  random_device_id,
   reported_at,
   array_length(available_sensors, 1) AS available_count,
-  available_sensors,
-  unavailable_sensors
+  available_sensors
 FROM android_device_sensor_availability
 WHERE study_id = :'study_id'::uuid
   AND participant_id = :'participant_id'
@@ -202,15 +199,16 @@ ORDER BY reported_at DESC;
 \echo '== Sensor Availability Matrix (modeled Chronicle sensors) =='
 -- Cross-joins the full modeled AndroidSensorType inventory against the latest
 -- reported availability so every modeled sensor shows present/absent/unknown.
+-- The phone checks every modeled type and lists the ones the device has.
 WITH modeled(sensor) AS (
   VALUES
     ('accelerometer'), ('gyroscope'), ('magnetometer'), ('gravity'),
     ('linearAcceleration'), ('rotationVector'), ('stepCounter'), ('light'),
     ('proximity'), ('significantMotion'), ('tiltDetector'),
-    ('screenOrientation'), ('samsungGripWifi'), ('samsungMotion')
+    ('screenOrientation')
 ),
 latest AS (
-  SELECT available_sensors, unavailable_sensors
+  SELECT available_sensors
   FROM android_device_sensor_availability
   WHERE study_id = :'study_id'::uuid
     AND participant_id = :'participant_id'
@@ -222,8 +220,7 @@ SELECT
   CASE
     WHEN l.available_sensors IS NULL THEN 'unknown_no_report'
     WHEN m.sensor = ANY (l.available_sensors) THEN 'available'
-    WHEN m.sensor = ANY (l.unavailable_sensors) THEN 'unavailable'
-    ELSE 'not_reported'
+    ELSE 'unavailable'
   END AS status
 FROM modeled m
 LEFT JOIN latest l ON true
@@ -391,8 +388,7 @@ LIMIT 50;
 
 \echo '== App Version / Device Inventory =='
 SELECT
-  device_id,
-  source_device_id,
+  random_device_id,
   source_device ->> 'manufacturer' AS manufacturer,
   source_device ->> 'model' AS model,
   source_device ->> 'os' AS os,
@@ -402,5 +398,5 @@ SELECT
 FROM devices
 WHERE study_id = :'study_id'::uuid
   AND participant_id = :'participant_id'
-ORDER BY device_id;
+ORDER BY random_device_id;
 SQL

@@ -7,6 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=tests/security/security-runner-lib.sh
 source "$SCRIPT_DIR/security-runner-lib.sh"
+# shellcheck source=tests/security/lib/selfhost-python.sh
+source "$SCRIPT_DIR/lib/selfhost-python.sh"
 
 prepare_checkov_runtime() {
   if checkov --version >/dev/null 2>&1; then
@@ -46,7 +48,9 @@ run_checkov_scan() {
   command -v checkov >/dev/null 2>&1 || return 127
   prepare_checkov_runtime || return 2
   mkdir -p "$output_dir"
-  checkov -d "$ROOT_DIR/docker" \
+  local -a dockerfiles=()
+  mapfile -d '' -t dockerfiles < <(discover_dockerfiles)
+  checkov -f "${dockerfiles[@]}" \
     --framework dockerfile \
     --output sarif --output-file-path "$output_dir" || status=$?
   validate_sarif "$report" || return 2
@@ -63,8 +67,9 @@ run_hadolint_scan() {
   return "$status"
 }
 
+# docker/ and k8s/ are frozen and unscanned.
 discover_dockerfiles() {
-  python3 - "$ROOT_DIR/docker" <<'PY'
+  python3 - "$ROOT_DIR/selfhost" <<'PY'
 import os
 import sys
 
@@ -123,7 +128,7 @@ run_crypto_semgrep() {
 }
 
 android_source_roots() {
-  find "$ROOT_DIR/chronicle" -mindepth 3 -maxdepth 3 -type d -path '*/src/main' -print | sort
+  find "$ROOT_DIR/chronicle" -mindepth 3 -maxdepth 3 -type d -path '*/src/*' ! -iname '*test*' -print | sort
 }
 
 run_deployment_semgrep() {
@@ -133,8 +138,8 @@ run_deployment_semgrep() {
   semgrep scan --jobs 2 --error --disable-version-check --metrics off --no-git-ignore \
     --include '*.sh' --include '*.conf' --include '*.yml' --include '*.yaml' --include 'Dockerfile*' \
     --config "$ROOT_DIR/tests/security/deployment-rules" \
-    --exclude 'docker/hetzner' --exclude '.env*' --exclude '*.pem' \
-    --sarif -o "$report" "$ROOT_DIR/selfhost" "$ROOT_DIR/docker" "$ROOT_DIR/scripts" || status=$?
+    --exclude '.env*' --exclude '*.pem' \
+    --sarif -o "$report" "$ROOT_DIR/selfhost" "$ROOT_DIR/scripts" || status=$?
   validate_sarif "$report" || return 2
   return "$status"
 }
@@ -150,6 +155,7 @@ run_sast_semgrep() {
   semgrep scan --quiet --config "$ROOT_DIR/tests/security/rules/" \
     --sarif -o "$report" \
     "$ROOT_DIR/chronicle-server/src" "$ROOT_DIR/chronicle-api/src" \
+    "$ROOT_DIR/chronicle-models/src" "$ROOT_DIR/rhizome/src" "$ROOT_DIR/rhizome-client/src" \
     "$ROOT_DIR/chronicle-web/src" "${android_roots[@]}" || status=$?
   validate_sarif "$report" || return 2
   python3 - "$report" "$count_report" <<'PY'
@@ -192,22 +198,56 @@ run_bun_audit() {
   local status=0
   command -v bun >/dev/null 2>&1 || return 127
   [ -f "$ROOT_DIR/chronicle-web/package.json" ] || return 2
+  # bun 1.3 --json ignores --audit-level (exits 1 for any advisory), so the report decides: high or critical fails.
   (cd "$ROOT_DIR/chronicle-web" && bun audit --audit-level=high --json) >"$report" || status=$?
-  python3 - "$report" <<'PY' || return 2
+  python3 - "$report" "$status" <<'PY'
 import json
 import sys
-with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    json.load(handle)
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as handle:
+        report = json.load(handle)
+except (OSError, ValueError):
+    sys.exit(2)
+if not isinstance(report, dict) or any(not isinstance(advisories, list) for advisories in report.values()):
+    sys.exit(2)
+if any(not isinstance(advisory, dict) or advisory.get("severity") not in ("info", "low", "moderate", "high", "critical")
+       for advisories in report.values() for advisory in advisories):
+    sys.exit(2)
+blocking = []
+for name, advisories in report.items():
+    for advisory in advisories:
+        line = f"{name}: {advisory['severity']} {advisory.get('url')}"
+        if advisory["severity"] in ("high", "critical"):
+            blocking.append(line)
+        else:
+            print(f"[info] below the high-severity bar: {line}")
+if blocking:
+    print("\n".join(blocking))
+    sys.exit(1)
+# No advisories and a failed bun run is a scanner error, not a pass.
+sys.exit(2 if not any(report.values()) and sys.argv[2] != "0" else 0)
 PY
-  return "$status"
 }
 
 run_gitleaks_scan() {
-  local report="$REPORT_DIR/gitleaks.sarif"
+  local report="$REPORT_DIR/gitleaks.sarif" canary ignore
   local status=0
   command -v gitleaks >/dev/null 2>&1 || return 127
+  # Positive control: a config without rules reports "no leaks" for anything, so it must find a planted token.
+  canary="$(mktemp -d "$REPORT_DIR/gitleaks-canary.XXXXXX")" || return 2
+  printf 'token = "%s"\n' "ghp""_Zx9Qw3Er7Ty1Ui5Op2As6Df8Gh4Jk0Lm3Nb7" > "$canary/canary.txt"
+  if gitleaks dir "$canary" --config "$ROOT_DIR/tests/security/gitleaks.toml" --no-banner >/dev/null 2>&1; then
+    rm -r -- "$canary"
+    echo "gitleaks config found no planted GitHub token; it has no detection rules" >&2
+    return 2
+  fi
+  rm -r -- "$canary"
+  # Reviewed history findings are fingerprinted privately; the public mirror has its own history.
+  ignore="$ROOT_DIR/tests/security/gitleaks-ignore/methodic-root.gitleaksignore"
+  [[ -f "$ignore" ]] || ignore=/dev/null
   gitleaks detect --source "$ROOT_DIR" \
     --config "$ROOT_DIR/tests/security/gitleaks.toml" \
+    --gitleaks-ignore-path "$ignore" \
     --report-format sarif --report-path "$report" \
     --no-banner || status=$?
   validate_sarif "$report" || return 2
@@ -227,7 +267,7 @@ run_compliance_scan() {
   [ -d "$ROOT_DIR/tests/security/policies" ] || return 2
   conftest verify --policy "$ROOT_DIR/tests/security/policies/" \
     >"$REPORT_DIR/compliance-policy-tests.log" 2>&1 || return $?
-  conftest test "$ROOT_DIR/docker/docker-compose.traefik.yml" \
+  conftest test "$ROOT_DIR/selfhost/docker-compose.yml" "$ROOT_DIR"/selfhost/overlays/*.yml \
     --policy "$ROOT_DIR/tests/security/policies/" \
     --output json >"$report" 2>&1 || status=$?
   python3 - "$report" <<'PY' || return 2
@@ -319,230 +359,7 @@ run_collection_ast_grep() {
   [ "$count" -eq 0 ] || return 1
 }
 
-security_runner_main() {
-  if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <layer> <report-dir>" >&2
-    return 2
-  fi
-  LAYER="$1"
-  REPORT_DIR="$2"
-  security_runner_init "$LAYER" "$REPORT_DIR"
-  trap 'security_runner_exit_trap $?' EXIT
-
-case "$LAYER" in
-  selfhost-topology)
-    run_security_step "deploy.selfhost-topology" "Deploy: real remote TLS, enrollment and uploads" "guardrail" \
-      "selfhost-topology.txt" "" -- bash "$ROOT_DIR/tests/deployment/selfhost-topology.sh" "${SELFHOST_TOPOLOGY_SOURCE:-$ROOT_DIR/selfhost}"
-    ;;
-  sast)
-    run_security_step "sast.semgrep" "SAST: Semgrep repository rules" "scanner" \
-      "semgrep.log" "semgrep.sarif" -- run_sast_semgrep
-    run_security_step "sast.rls" "SAST: focused RLS guardrails" "guardrail" \
-      "rls-guardrails.txt" "" -- "$ROOT_DIR/tests/security/run-rls-guardrails.sh" "$REPORT_DIR"
-    for rule in room-migrations-single-owner entity-tags-single-owner notification-post-single-owner foreground-service-single-owner exact-alarm-single-owner usage-access-single-owner sensor-registration-single-owner health-connect-client-single-owner health-connect-read-single-owner notification-listener-access-single-owner media-session-single-owner accessibility-access-single-owner receiver-registration-single-owner activity-recognition-single-owner battery-exemption-single-owner work-stop-reason-single-owner package-label-single-owner network-usage-single-owner pending-intent-mutability-single-owner; do
-      run_security_step "sast.ast-grep.${rule}" \
-        "SAST: ast-grep $rule" "scanner" \
-        "collection-${rule}.log" "collection-${rule}.sarif" -- \
-        run_collection_ast_grep "$rule"
-    done
-    run_security_step "sast.single-owner-fixtures" "SAST: single-owner negative fixtures" "guardrail" \
-      "single-owner-fixtures.log" "" -- bash "$ROOT_DIR/tests/security/single-owner-fixtures.sh"
-    echo "SAST scan complete"
-    ;;
-
-  sca)
-    run_security_step "sca.supply-chain" "SCA: supply-chain reproducibility guardrails" "guardrail" \
-      "supply-chain-guardrails.txt" "supply-chain" -- \
-      "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" "$REPORT_DIR/supply-chain"
-    run_security_step "sca.bun-install" "SCA: Bun frozen-lockfile install" "build" \
-      "bun-install.log" "" -- run_bun_frozen_install
-    run_security_step "sca.bun-audit" "SCA: Bun high-severity audit" "scanner" \
-      "bun-audit.log" "bun-audit.json" -- run_bun_audit
-    echo "SCA scan complete"
-    ;;
-
-  secrets)
-    run_security_step "secrets.gitleaks" "Secrets: Gitleaks" "scanner" \
-      "gitleaks.log" "gitleaks.sarif" -- run_gitleaks_scan
-    echo "Secrets scan complete"
-    ;;
-
-  iac)
-    run_security_step \
-      "iac.checkov" "IaC: Checkov Dockerfile scan" "scanner" \
-      "checkov.log" "checkov-output/results_sarif.sarif" -- run_checkov_scan
-
-    dockerfile_list="$REPORT_DIR/dockerfiles.nul"
-    discover_dockerfiles >"$dockerfile_list"
-    dockerfile_count=0
-    while IFS= read -r -d '' df; do
-      dockerfile_count=$((dockerfile_count + 1))
-      report_name="$(dockerfile_report_name "$df")"
-      relative_df="${df#"$ROOT_DIR"/}"
-      step_suffix="$(printf '%s' "$relative_df" | tr '/.' '--')"
-      run_security_step \
-        "iac.hadolint.${step_suffix}" "IaC: Hadolint $relative_df" "scanner" \
-        "${report_name%.sarif}.log" "$report_name" -- \
-        run_hadolint_scan "$df" "$REPORT_DIR/$report_name"
-    done <"$dockerfile_list"
-    if [ "$dockerfile_count" -eq 0 ]; then
-      record_security_blocked \
-        "iac.hadolint.discovery" "IaC: recursive Dockerfile discovery" \
-        "No Dockerfiles were discovered under docker/"
-    fi
-    echo "IaC scan complete"
-    ;;
-
-  sso)
-    run_security_step \
-      "sso.hardening" "SSO: Keycloak broker hardening guardrails" "guardrail" \
-      "sso-hardening.txt" "" -- \
-      python3 "$ROOT_DIR/tests/security/sso-hardening-tests.py"
-    echo "SSO hardening scan complete"
-    ;;
-
-  deploy)
-    run_security_step "deploy.gate-regressions" "Deploy: gate coverage and failure propagation regressions" "build" \
-      "gate-regressions.txt" "" -- python3 "$ROOT_DIR/chronicle/scripts/test-gate-regressions.py"
-    run_security_step "deploy.selfhost-python" "Deploy: complete self-host Python regression suite" "build" \
-      "selfhost-python.txt" "" -- env PATH="/usr/bin:/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 \
-      PYTHONPATH="$ROOT_DIR/selfhost:$ROOT_DIR/tests/selfhost-py" \
-      python3 -m unittest discover -s "$ROOT_DIR/tests/selfhost-py"
-    for suite in selfhost-cert-init selfhost-backup-selfcheck selfhost-deployment-audit selfhost-release-source \
-                 selfhost-audit-regressions selfhost-web-lint-W62 gitleaks-history-regression; do
-      run_security_step "deploy.$suite" "Deploy: $suite regressions" "guardrail" \
-        "$suite.txt" "" -- bash "$ROOT_DIR/tests/security/$suite.sh"
-    done
-    for suite in "$ROOT_DIR"/tests/security/selfhost-operator-W*.sh; do
-      name="$(basename "$suite" .sh)"
-      run_security_step "deploy.$name" "Deploy: $name regressions" "guardrail" \
-        "$name.txt" "" -- bash "$suite"
-    done
-    run_security_step "deploy.semgrep" "Deploy: Bash/nginx/Docker/Compose Semgrep" "scanner" \
-      "deployment-semgrep.log" "deployment-semgrep.sarif" -- run_deployment_semgrep
-    run_security_step "deploy.public-tree-privacy" "Deploy: public-tree privacy guardrails" "guardrail" \
-      "public-tree-privacy-guardrails.txt" "" -- python3 "$ROOT_DIR/tests/security/public-tree-privacy-guardrails.py"
-    run_security_step "deploy.runner-self-test" "Deploy: security runner capture-all self-test" "build" \
-      "security-runner-self-test.txt" "" -- "$ROOT_DIR/tests/security/security-runner-self-test.sh"
-    run_security_step "deploy.production" "Deploy: production deployment guardrails" "guardrail" \
-      "deploy-guardrails.txt" "" -- "$ROOT_DIR/tests/security/deploy-guardrails.sh" "$REPORT_DIR"
-    run_security_step "deploy.public-distribution-integration" "Deploy: public distribution integration contract" "guardrail" \
-      "public-distribution-integration.txt" "" -- "$ROOT_DIR/tests/security/public-distribution-integration-guardrails.sh"
-    run_security_step "deploy.db-secret-transport" "Deploy: database client secret-transport contract" "guardrail" \
-      "db-secret-transport.txt" "" -- "$ROOT_DIR/tests/security/db-secret-transport-guardrails.sh"
-    run_security_step "deploy.schema" "Deploy: schema/source-of-truth guardrails" "guardrail" \
-      "schema-guardrails.txt" "" -- "$ROOT_DIR/tests/security/schema-guardrails.sh"
-    run_security_step "deploy.kubernetes" "Deploy: Kubernetes production guardrails" "guardrail" \
-      "kubernetes-guardrails.txt" "kubernetes" -- "$ROOT_DIR/tests/security/kubernetes-guardrails.sh" "$REPORT_DIR/kubernetes"
-    run_security_step "deploy.cue-k8s" "Deploy: CUE/Kubernetes profile guardrails" "guardrail" \
-      "cue-k8s-guardrails.txt" "cue-k8s" -- "$ROOT_DIR/tests/security/cue-k8s-guardrails.sh" "$REPORT_DIR/cue-k8s"
-    run_security_step "deploy.backup-artifacts" "Deploy: backup/recovery artifact guardrails" "guardrail" \
-      "backup-artifact-guardrails.txt" "backup-artifacts" -- "$ROOT_DIR/tests/security/backup-artifact-guardrails.sh" "$REPORT_DIR/backup-artifacts"
-    run_security_step "deploy.selfhost-restore-failclosed" "Deploy: self-host restore fail-closed contract" "guardrail" \
-      "selfhost-restore-failclosed.txt" "" -- "$ROOT_DIR/tests/security/selfhost-restore-failclosed.sh"
-    run_security_step "deploy.selfhost-restore-continuity" "Deploy: self-host withdrawal continuity across restore" "guardrail" \
-      "selfhost-restore-continuity.txt" "" -- "$ROOT_DIR/tests/security/selfhost-restore-continuity.sh"
-    run_security_step "deploy.selfhost-restore-orchestration" "Deploy: self-host restore orchestration contract" "guardrail" \
-      "selfhost-restore-orchestration.txt" "" -- "$ROOT_DIR/tests/security/selfhost-restore-orchestration.sh"
-    run_security_step "deploy.selfhost-monitoring-timeout" "Deploy: self-host monitoring cannot block operator commands" "guardrail" \
-      "selfhost-monitoring-timeout.txt" "" -- "$ROOT_DIR/tests/security/selfhost-monitoring-timeout.sh"
-    run_security_step "deploy.selfhost-upgrade-failclosed" "Deploy: self-host upgrade quiescence and recovery contract" "guardrail" \
-      "selfhost-upgrade-failclosed.txt" "" -- "$ROOT_DIR/tests/security/selfhost-upgrade-failclosed.sh"
-    run_security_step "deploy.legacy-restore-failclosed" "Deploy: legacy production restore fail-closed contract" "guardrail" \
-      "legacy-restore-failclosed.txt" "" -- "$ROOT_DIR/tests/security/legacy-restore-failclosed.sh"
-    run_security_step "deploy.selfhost-backup-readiness" "Deploy: self-host backup restart readiness contract" "guardrail" \
-      "selfhost-backup-readiness.txt" "" -- "$ROOT_DIR/tests/security/selfhost-backup-readiness.sh"
-    run_security_step "deploy.selfhost-setup-secrets" "Deploy: self-host setup secret-custody contract" "guardrail" \
-      "selfhost-setup-secrets.txt" "" -- "$ROOT_DIR/tests/security/selfhost-setup-secrets.sh"
-    run_security_step "deploy.selfhost-mobile-signing-defaults" "Deploy: self-host public mobile-signing defaults" "guardrail" \
-      "selfhost-mobile-signing-defaults.txt" "" -- "$ROOT_DIR/tests/security/selfhost-mobile-signing-defaults.sh"
-    run_security_step "deploy.mobile-secret-flow" "Deploy: age-sealed mobile secret custody contract" "guardrail" \
-      "mobile-secret-flow.txt" "" -- "$ROOT_DIR/tests/security/mobile-secret-flow.sh"
-    run_security_step "deploy.selfhost-verify-secrets" "Deploy: self-host verify secret-custody contract" "guardrail" \
-      "selfhost-verify-secrets.txt" "" -- "$ROOT_DIR/tests/security/selfhost-verify-secrets.sh"
-    run_security_step "deploy.selfhost-secret-rotation" "Deploy: self-host secret rotation and rollback contract" "guardrail" \
-      "selfhost-secret-rotation.txt" "" -- "$ROOT_DIR/tests/security/selfhost-secret-rotation.sh"
-    run_security_step "deploy.selfhost-deletion-status" "Deploy: self-host deletion status secret-custody contract" "guardrail" \
-      "selfhost-deletion-status.txt" "" -- "$ROOT_DIR/tests/security/selfhost-deletion-status.sh"
-    run_security_step "deploy.selfhost-combination-matrix" "Deploy: declared self-host combination matrix" "guardrail" \
-      "selfhost-combination-matrix.txt" "" -- "$ROOT_DIR/tests/security/selfhost-combination-matrix.sh"
-    run_security_step "deploy.selfhost-release-bundle" "Deploy: source-free self-host release bundle contract" "guardrail" \
-      "selfhost-release-bundle.txt" "" -- "$ROOT_DIR/tests/security/selfhost-release-bundle.sh"
-    run_security_step "deploy.selfhost-update-command" "Deploy: self-host update command contract" "guardrail" \
-      "selfhost-update-command.txt" "" -- "$ROOT_DIR/tests/security/selfhost-update-command.sh"
-    run_security_step "deploy.selfhost-cli-surface" "Deploy: self-host operator CLI and edge-guard contract" "guardrail" \
-      "selfhost-cli-surface.txt" "" -- "$ROOT_DIR/tests/security/selfhost-cli-surface.sh"
-    run_security_step "deploy.selfhost-adopt-command" "Deploy: self-host adopt command contract" "guardrail" \
-      "selfhost-adopt-command.txt" "" -- "$ROOT_DIR/tests/security/selfhost-adopt-command.sh"
-    run_security_step "deploy.failure-propagation" "Deploy: failure propagation guardrails" "guardrail" \
-      "failure-propagation-guardrails.txt" "" -- "$ROOT_DIR/tests/security/failure-propagation-guardrails.sh"
-    run_security_step "deploy.observability" "Deploy: observability fallback guardrails" "guardrail" \
-      "observability-guardrails.txt" "observability" -- "$ROOT_DIR/tests/security/observability-guardrails.sh" "$REPORT_DIR/observability"
-    run_security_step "deploy.operator-access" "Deploy: operator access and secret custody guardrails" "guardrail" \
-      "operator-access-guardrails.txt" "operator-access" -- "$ROOT_DIR/tests/security/operator-access-guardrails.sh" "$REPORT_DIR/operator-access"
-    run_security_step "deploy.vulnerability-evidence" "Deploy: vulnerability scan evidence guardrails" "guardrail" \
-      "vulnerability-evidence-guardrails.txt" "vulnerability-evidence" -- "$ROOT_DIR/tests/security/vulnerability-evidence-guardrails.sh" "$REPORT_DIR/vulnerability-evidence"
-    run_security_step "deploy.database-evidence" "Deploy: database evidence guardrails" "guardrail" \
-      "database-evidence-guardrails.txt" "database-evidence" -- "$ROOT_DIR/tests/security/database-evidence-guardrails.sh" "$REPORT_DIR/database-evidence"
-    run_security_step "deploy.vault-tde" "Deploy: Vault/TDE guardrails" "guardrail" \
-      "vault-tde-guardrails.txt" "vault-tde" -- "$ROOT_DIR/tests/security/vault-tde-guardrails.sh" "$REPORT_DIR/vault-tde"
-    echo "Deploy guardrails complete"
-    ;;
-
-  mobile)
-    run_security_step "mobile.upload" "Mobile: upload signing/activityClass guardrails" "guardrail" \
-      "mobile-upload-guardrails.txt" "" -- "$ROOT_DIR/tests/security/mobile-upload-guardrails.sh" "$REPORT_DIR"
-    run_security_step "mobile.dogfood" "Mobile: dogfood lifecycle tooling guardrails" "guardrail" \
-      "dogfood-tooling-guardrails.txt" "" -- "$ROOT_DIR/tests/security/dogfood-tooling-guardrails.sh" "$REPORT_DIR"
-    echo "Mobile upload guardrails complete"
-    ;;
-
-  auth)
-    # Passed by name to run_security_step.
-    # shellcheck disable=SC2329
-    auth_static_guardrails() {
-      local auth_failures=0
-      echo "=== Auth: JWT/session pattern check ==="
-      echo "=== Auth: diagnostic JWT lifetime guardrails ==="
-      rm -f "$REPORT_DIR/diagnostic.jwt" "$REPORT_DIR/oversized-diagnostic.jwt"
-      if ! JWT_SECRET="auth-guardrail-secret-not-for-production" "$ROOT_DIR/docker/generate-jwt.sh" \
-        --output "$REPORT_DIR/diagnostic.jwt"; then
-        echo "generate-jwt.sh failed to produce a diagnostic token"
-        auth_failures=$((auth_failures + 1))
-      fi
-      if ! python3 - "$REPORT_DIR/diagnostic.jwt" <<'PY'
-import base64
-import json
-import sys
-
-token_path = sys.argv[1]
-token = open(token_path, "r", encoding="utf-8").read().strip()
-payload_segment = token.split(".")[1]
-payload_segment += "=" * (-len(payload_segment) % 4)
-payload = json.loads(base64.urlsafe_b64decode(payload_segment.encode()))
-ttl = int(payload["exp"]) - int(payload["iat"])
-if ttl <= 0 or ttl > 3600:
-    raise SystemExit(f"diagnostic JWT lifetime is unsafe: {ttl}s")
-print(f"Diagnostic JWT lifetime: {ttl}s")
-PY
-      then
-        echo "Diagnostic JWT could not be decoded or had an unsafe lifetime"
-        auth_failures=$((auth_failures + 1))
-      fi
-    if JWT_SECRET="auth-guardrail-secret-not-for-production" JWT_TTL_SECONDS=7200 \
-      "$ROOT_DIR/docker/generate-jwt.sh" --output "$REPORT_DIR/oversized-diagnostic.jwt" \
-      >/dev/null 2>&1; then
-      echo "generate-jwt.sh accepted an oversized diagnostic token TTL"
-      auth_failures=$((auth_failures + 1))
-    fi
-    rm -f "$REPORT_DIR/diagnostic.jwt" "$REPORT_DIR/oversized-diagnostic.jwt"
-
-    if grep -Eq '30[[:space:]]*\*[[:space:]]*86400|7[[:space:]]*\*[[:space:]]*86400|2592000|604800' \
-      "$ROOT_DIR/docker/generate-jwt.sh"; then
-      echo "generate-jwt.sh must not hard-code week/month-long diagnostic JWT lifetimes"
-      auth_failures=$((auth_failures + 1))
-    fi
-
+auth_api_guardrails() {
     if grep -Eiq 'blocklist check failed.*allowing request|fail[s]? open' \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/filters/JwtBlocklistFilter.kt"; then
       echo "JwtBlocklistFilter must fail closed when token revocation state cannot be checked"
@@ -566,7 +383,7 @@ PY
       auth_failures=$((auth_failures + 1))
     fi
 
-    if grep -Eq 'Invalid API key from IP|study \{\}|participant \{\}|participantId" to participantId|deviceId" to deviceId' \
+    if grep -Eq 'Invalid API key from IP|study \{\}|participant \{\}|participantId" to participantId|randomDeviceId" to randomDeviceId' \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/apikeys/ApiKeyService.kt" \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/filters/ApiKeyAuthenticationFilter.kt"; then
       echo "API key logs/audit metadata must use stable refs instead of raw identifiers"
@@ -581,13 +398,6 @@ PY
     if ! grep -Eq '\.header\("X-Chronicle-Signature",[[:space:]]*computeSignature\(claim\.payload,[[:space:]]*claim\.secretHash\)\)' \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt"; then
       echo "Webhook deliveries must include an authenticated signature header"
-      auth_failures=$((auth_failures + 1))
-    fi
-    if ! grep -Eq 'A valid global HMAC must never be accepted as a replacement for that key' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/MobileApiSignatureFilter.kt" ||
-       ! grep -Eq 'ApiKeyAuthenticationFilter binds it to study, participant, and device' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/servlet/ChronicleServerSecurityPod.kt"; then
-      echo "Mobile HMAC must remain documented as non-identity and post-enrollment access must stay device-key bound"
       auth_failures=$((auth_failures + 1))
     fi
     if grep -Eq '\.setAllowedOrigins[[:space:]]*\([[:space:]]*"\*"' \
@@ -606,13 +416,9 @@ PY
       auth_failures=$((auth_failures + 1))
     fi
 
-    if grep -Eq 'SSRF violation detected.*URL:|req\.requestURL|request\.requestURL|sanitizeLogValue\(req\.remoteAddr\)|sanitizeLogValue\(request\.remoteAddr\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/ChronicleServerExceptionHandler.kt" \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/GlobalExceptionHandler.kt"; then
-      echo "Exception handlers must not log raw SSRF targets, full request URLs, or raw client IPs"
-      auth_failures=$((auth_failures + 1))
-    fi
+}
 
+auth_export_guardrails() {
     if grep -Eq 'Database error .*Message: \{\}".*e\.message|e\.message,[[:space:]]*e' \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/ChronicleServerExceptionHandler.kt"; then
       echo "SQL exception logs must sanitize database error messages"
@@ -632,43 +438,38 @@ PY
       auth_failures=$((auth_failures + 1))
     fi
 
-    if grep -Eq 'downloadToken[[:space:]]*=[[:space:]]*rs\.getString|downloadToken[[:space:]]*=[[:space:]]*token|Boolean\(job\.downloadToken\)|generateToken\(\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/ExportService.kt" \
-      "$ROOT_DIR/chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx"; then
-      echo "Export jobs must not expose or require persisted bearer download tokens"
-      auth_failures=$((auth_failures + 1))
-    fi
 
-    if [ ! -f "$ROOT_DIR/chronicle-server/src/main/resources/db/migration/V46__clear_export_download_tokens.sql" ]; then
-      echo "Export download-token removal must include a migration that clears legacy plaintext tokens"
-      auth_failures=$((auth_failures + 1))
-    fi
 
-    if grep -R -Eiq 'googletagmanager|google-analytics|gtag\(|G-WJ7BQMLPEK' \
-      "$ROOT_DIR/chronicle-web/index.html" \
-      "$ROOT_DIR/chronicle-web/src" \
-      "$ROOT_DIR/chronicle-web/scripts" \
-      "$ROOT_DIR/docker"; then
+}
+
+auth_browser_guardrails() {
+    local analytics_pattern='googletagmanager|google-analytics|gtag\(|G-WJ7BQMLPEK'
+    if rg -i -q -e "$analytics_pattern" "$ROOT_DIR/chronicle-web/index.html" \
+      "$ROOT_DIR/chronicle-web/src" "$ROOT_DIR/chronicle-web/scripts"; then
       echo "Browser-delivered Chronicle assets must not include third-party analytics beacons"
       auth_failures=$((auth_failures + 1))
     fi
 
-    if grep -R -Eiq 'Referrer-Policy[[:space:]]+"strict-origin-when-cross-origin"|referrerPolicy[=:][[:space:]]*strict-origin-when-cross-origin|name="referrer"[[:space:]]+content="(origin|strict-origin|strict-origin-when-cross-origin)"' \
-      "$ROOT_DIR/chronicle-web/index.html" \
-      "$ROOT_DIR/chronicle-web/src/index.html" \
-      "$ROOT_DIR/docker" \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/SecurityHardeningConfig.kt"; then
-      echo "Browser surfaces with participant identifiers must use no-referrer"
+    local referrer_pattern='Referrer-Policy[[:space:]]+"strict-origin-when-cross-origin"|referrerPolicy[=:][[:space:]]*strict-origin-when-cross-origin|name="referrer"[[:space:]]+content="(origin|strict-origin|strict-origin-when-cross-origin)"'
+    if rg -i -q -e "$referrer_pattern" "$ROOT_DIR/chronicle-web/index.html" \
+      "$ROOT_DIR/chronicle-web/src/index.html"; then
+      echo "Browser surfaces with participant identifiers must not send their origin to other sites"
       auth_failures=$((auth_failures + 1))
     fi
+    # same-origin, as the edge header: no referrer leaves for other sites, and native download POSTs keep
+    # their real Origin (no-referrer sends Origin: null, which CorsValidationFilter rejects).
     if ! grep -Eq 'name="referrer"|name='\''referrer'\''' "$ROOT_DIR/chronicle-web/index.html" ||
-      ! grep -Eq 'content="no-referrer"|content='\''no-referrer'\''' "$ROOT_DIR/chronicle-web/index.html" ||
+      ! grep -Eq 'content="same-origin"|content='\''same-origin'\''' "$ROOT_DIR/chronicle-web/index.html" ||
       ! grep -Eq 'name="referrer"|name='\''referrer'\''' "$ROOT_DIR/chronicle-web/src/index.html" ||
-      ! grep -Eq 'content="no-referrer"|content='\''no-referrer'\''' "$ROOT_DIR/chronicle-web/src/index.html"; then
-      echo "Chronicle HTML entrypoints must declare meta referrer=no-referrer"
+      ! grep -Eq 'content="same-origin"|content='\''same-origin'\''' "$ROOT_DIR/chronicle-web/src/index.html" ||
+      ! grep -Eq 'Referrer-Policy[[:space:]]+"same-origin"' "$ROOT_DIR/selfhost/caddy/snippets.caddy"; then
+      echo "Chronicle HTML entrypoints and the edge must declare referrer policy same-origin"
       auth_failures=$((auth_failures + 1))
     fi
 
+}
+
+auth_log_guardrails() {
     if grep -Eq 'MDC\.put\("studyId",[[:space:]]*studyMatcher\.group\(1\)\)|MDC\.put\("participantId",[[:space:]]*LogSanitizer\.sanitize\(rawId|MDC\.put\("httpPath",[[:space:]]*LogSanitizer\.sanitizeUri\(path\)\)' \
       "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/ObservabilityFilter.kt"; then
       echo "ObservabilityFilter must log stable refs and route-shaped paths instead of raw request identifiers"
@@ -707,53 +508,183 @@ PY
       auth_failures=$((auth_failures + 1))
     fi
     if grep -Eq 'path[[:space:]]*=[[:space:]]*req\.requestURI|val path[[:space:]]*=[[:space:]]*request\.requestURI|sanitizeLogValue\((req|request)\.requestURI\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/ChronicleServerExceptionHandler.kt" \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/GlobalExceptionHandler.kt"; then
+      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/ChronicleServerExceptionHandler.kt"; then
       echo "Exception handlers must not echo or log raw request paths"
       auth_failures=$((auth_failures + 1))
     fi
-    if grep -Eq 'writeToLogFile\(entry\)|return getCurrentRequest\(\)\?\.requestURI[[:space:]]*$' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/audit/AuditService.kt" \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/audit/AuditRequestContext.kt"; then
-      echo "Audit events must be sanitized before log-file/DB persistence"
-      auth_failures=$((auth_failures + 1))
-    fi
-    # eventQueue.offer(entry) is valid only in the failed-batch retry path: every
-    # queued entry has already passed through sanitizedEntry below. Assert the
-    # actual ingress boundary instead of rejecting that safe requeue operation.
-    if ! grep -Eq 'val sanitizedEntry[[:space:]]*=[[:space:]]*sanitizeForPersistence\(entry\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/audit/AuditService.kt" ||
-       ! grep -Eq 'writeToLogFile\(sanitizedEntry\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/audit/AuditService.kt" ||
-       ! grep -Eq 'eventQueue\.offer\(sanitizedEntry\)' \
-      "$ROOT_DIR/chronicle-server/src/main/kotlin/com/openlattice/chronicle/audit/AuditService.kt"; then
-      echo "AuditService must sanitize audit entries before log-file and DB-queue persistence"
-      auth_failures=$((auth_failures + 1))
-    fi
 
-      if [ "$auth_failures" -gt 0 ]; then
-        echo "Auth static guardrails found $auth_failures violation(s)"
-        return 1
-      fi
-      return 0
-    }
+}
+auth_static_guardrails() {
+  local auth_failures=0
+  auth_api_guardrails
+  auth_export_guardrails
+  auth_browser_guardrails
+  auth_log_guardrails
+  if [ "$auth_failures" -gt 0 ]; then
+    echo "Auth static guardrails found $auth_failures violation(s)"
+    return 1
+  fi
+  return 0
+}
 
+run_auth_behavior_tests() {
+  local server_dir="$ROOT_DIR/chronicle-server"
+  python3 -s "$ROOT_DIR/tests/security/lib/auth-test-results.py" "$server_dir/build/test-results/test" "$server_dir" \
+    "$ROOT_DIR/gradles" "$ROOT_DIR/build.gradle.kts" "$ROOT_DIR/settings.gradle.kts" \
+    "$ROOT_DIR/chronicle-models" "$ROOT_DIR/chronicle-api" "$ROOT_DIR/rhizome" "$ROOT_DIR/rhizome-client"
+}
+
+run_security_layer_selfhost_topology() {
+    run_security_step "deploy.selfhost-topology" "Deploy: real remote TLS, enrollment and uploads" "guardrail" \
+      "selfhost-topology.txt" "" -- bash "$ROOT_DIR/tests/deployment/selfhost-topology.sh" "${SELFHOST_TOPOLOGY_SOURCE:-$ROOT_DIR/selfhost}"
+}
+
+run_security_layer_sast() {
+    run_security_step "sast.semgrep" "SAST: Semgrep repository rules" "scanner" \
+      "semgrep.log" "semgrep.sarif" -- run_sast_semgrep
+    run_security_step "sast.rls" "SAST: focused RLS guardrails" "guardrail" \
+      "rls-guardrails.txt" "" -- "$ROOT_DIR/tests/security/run-rls-guardrails.sh" "$REPORT_DIR"
+    for rule in room-migrations-single-owner entity-tags-single-owner notification-post-single-owner foreground-service-single-owner exact-alarm-single-owner usage-access-single-owner sensor-registration-single-owner health-connect-client-single-owner health-connect-read-single-owner notification-listener-access-single-owner media-session-single-owner accessibility-access-single-owner receiver-registration-single-owner activity-recognition-single-owner battery-exemption-single-owner work-stop-reason-single-owner package-label-single-owner network-usage-single-owner pending-intent-mutability-single-owner; do
+      run_security_step "sast.ast-grep.${rule}" \
+        "SAST: ast-grep $rule" "scanner" \
+        "collection-${rule}.log" "collection-${rule}.sarif" -- \
+        run_collection_ast_grep "$rule"
+    done
+    run_security_step "sast.single-owner-fixtures" "SAST: single-owner negative fixtures" "guardrail" \
+      "single-owner-fixtures.log" "" -- bash "$ROOT_DIR/tests/security/single-owner-fixtures.sh"
+    run_security_step "sast.semgrep-rule-fixtures" "SAST: Semgrep rule positive/negative fixtures" "guardrail" \
+      "semgrep-rule-fixtures.log" "" -- \
+      semgrep --test --disable-version-check --metrics off \
+        --config "$ROOT_DIR/tests/security/rules/" "$ROOT_DIR/tests/security/rules/"
+    echo "SAST scan complete"
+}
+
+run_security_layer_sca() {
+    run_security_step "sca.supply-chain" "SCA: supply-chain reproducibility guardrails" "guardrail" \
+      "supply-chain-guardrails.txt" "supply-chain" -- \
+      "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" "$REPORT_DIR/supply-chain"
+    run_security_step "sca.bun-install" "SCA: Bun frozen-lockfile install" "build" \
+      "bun-install.log" "" -- run_bun_frozen_install
+    run_security_step "sca.bun-audit" "SCA: Bun high-severity audit" "scanner" \
+      "bun-audit.log" "bun-audit.json" -- run_bun_audit
+    echo "SCA scan complete"
+}
+
+run_security_layer_secrets() {
+    run_security_step "secrets.gitleaks" "Secrets: Gitleaks" "scanner" \
+      "gitleaks.log" "gitleaks.sarif" -- run_gitleaks_scan
+    run_security_step "secrets.publish-gate" "Secrets: public mirror push gate fails closed" "guardrail" \
+      "publish-gate.txt" "" -- python3 -s "$ROOT_DIR/tests/security/test_publish_gate.py"
+    echo "Secrets scan complete"
+}
+
+run_security_layer_iac() {
+    run_security_step "iac.gate-evidence" "IaC: gate jobs fail closed on scanner failures and stale evidence" "guardrail" \
+      "gate-evidence.txt" "" -- python3 -s "$ROOT_DIR/tests/security/test_gate_evidence.py"
+    run_security_step \
+      "iac.checkov" "IaC: Checkov Dockerfile scan" "scanner" \
+      "checkov.log" "checkov-output/results_sarif.sarif" -- run_checkov_scan
+
+    dockerfile_list="$REPORT_DIR/dockerfiles.nul"
+    discover_dockerfiles >"$dockerfile_list"
+    dockerfile_count=0
+    while IFS= read -r -d '' df; do
+      dockerfile_count=$((dockerfile_count + 1))
+      report_name="$(dockerfile_report_name "$df")"
+      relative_df="${df#"$ROOT_DIR"/}"
+      step_suffix="$(printf '%s' "$relative_df" | tr '/.' '--')"
+      run_security_step \
+        "iac.hadolint.${step_suffix}" "IaC: Hadolint $relative_df" "scanner" \
+        "${report_name%.sarif}.log" "$report_name" -- \
+        run_hadolint_scan "$df" "$REPORT_DIR/$report_name"
+    done <"$dockerfile_list"
+    if [ "$dockerfile_count" -eq 0 ]; then
+      record_security_blocked \
+        "iac.hadolint.discovery" "IaC: recursive Dockerfile discovery" \
+        "No shipped Dockerfiles were discovered"
+    fi
+    echo "IaC scan complete"
+}
+
+run_deploy_operations() {
+    run_security_step "deploy.selfhost-combination-matrix" "Deploy: declared self-host combination matrix" "guardrail" \
+      "selfhost-combination-matrix.txt" "" -- "$ROOT_DIR/tests/security/selfhost-combination-matrix.sh"
+    run_security_step "deploy.selfhost-release-bundle" "Deploy: source-free self-host release bundle contract" "guardrail" \
+      "selfhost-release-bundle.txt" "" -- "$ROOT_DIR/tests/security/selfhost-release-bundle.sh"
+    run_security_step "deploy.failure-propagation" "Deploy: failure propagation guardrails" "guardrail" \
+      "failure-propagation-guardrails.txt" "" -- "$ROOT_DIR/tests/security/failure-propagation-guardrails.sh"
+    echo "Deploy guardrails complete"
+}
+
+run_deploy_guardrails() {
+    run_security_step "deploy.selfhost-restore-failclosed" "Deploy: self-host restore fail-closed contract" "guardrail" \
+      "selfhost-restore-failclosed.txt" "" -- "$ROOT_DIR/tests/security/selfhost-restore-failclosed.sh"
+    run_security_step "deploy.selfhost-restore-orchestration" "Deploy: self-host restore orchestration contract" "guardrail" \
+      "selfhost-restore-orchestration.txt" "" -- "$ROOT_DIR/tests/security/selfhost-restore-orchestration.sh"
+    run_security_step "deploy.selfhost-backup-readiness" "Deploy: self-host backup restart readiness contract" "guardrail" \
+      "selfhost-backup-readiness.txt" "" -- "$ROOT_DIR/tests/security/selfhost-backup-readiness.sh"
+    run_security_step "deploy.selfhost-setup-secrets" "Deploy: self-host setup secret-custody contract" "guardrail" \
+      "selfhost-setup-secrets.txt" "" -- "$ROOT_DIR/tests/security/selfhost-setup-secrets.sh"
+    run_security_step "deploy.mobile-secret-flow" "Deploy: age-sealed mobile secret custody contract" "guardrail" \
+      "mobile-secret-flow.txt" "" -- "$ROOT_DIR/tests/security/mobile-secret-flow.sh"
+    run_security_step "deploy.selfhost-verify-secrets" "Deploy: self-host verify secret-custody contract" "guardrail" \
+      "selfhost-verify-secrets.txt" "" -- "$ROOT_DIR/tests/security/selfhost-verify-secrets.sh"
+    run_security_step "deploy.selfhost-secret-rotation" "Deploy: self-host secret rotation and rollback contract" "guardrail" \
+      "selfhost-secret-rotation.txt" "" -- "$ROOT_DIR/tests/security/selfhost-secret-rotation.sh"
+    run_security_step "deploy.selfhost-deletion-status" "Deploy: self-host deletion status secret-custody contract" "guardrail" \
+      "selfhost-deletion-status.txt" "" -- "$ROOT_DIR/tests/security/selfhost-deletion-status.sh"
+    run_deploy_operations
+}
+
+run_security_layer_deploy() {
+    run_security_step "deploy.gate-regressions" "Deploy: gate coverage and failure propagation regressions" "build" \
+      "gate-regressions.txt" "" -- python3 "$ROOT_DIR/chronicle/scripts/test-gate-regressions.py"
+    run_security_step "deploy.selfhost-python" "Deploy: complete self-host Python regression suite" "build" \
+      "selfhost-python.txt" "" -- run_selfhost_python_suite discover -s "$ROOT_DIR/tests/selfhost-py"
+    for suite in selfhost-cert-init selfhost-backup-selfcheck selfhost-deployment-audit selfhost-release-source \
+                 selfhost-audit-regressions selfhost-web-lint gitleaks-history-regression; do
+      run_security_step "deploy.$suite" "Deploy: $suite regressions" "guardrail" \
+        "$suite.txt" "" -- bash "$ROOT_DIR/tests/security/$suite.sh"
+    done
+    for suite in "$ROOT_DIR"/tests/security/selfhost-operator-*.sh; do
+      name="$(basename "$suite" .sh)"
+      run_security_step "deploy.$name" "Deploy: $name regressions" "guardrail" \
+        "$name.txt" "" -- bash "$suite"
+    done
+    run_security_step "deploy.semgrep" "Deploy: Bash/nginx/Docker/Compose Semgrep" "scanner" \
+      "deployment-semgrep.log" "deployment-semgrep.sarif" -- run_deployment_semgrep
+    run_security_step "deploy.public-tree-privacy" "Deploy: public-tree privacy guardrails" "guardrail" \
+      "public-tree-privacy-guardrails.txt" "" -- python3 "$ROOT_DIR/tests/security/public-tree-privacy-guardrails.py"
+    run_security_step "deploy.runner-self-test" "Deploy: security runner capture-all self-test" "build" \
+      "security-runner-self-test.txt" "" -- "$ROOT_DIR/tests/security/security-runner-self-test.sh"
+    run_security_step "deploy.production" "Deploy: production deployment guardrails" "guardrail" \
+      "deploy-guardrails.txt" "" -- "$ROOT_DIR/tests/security/deploy-guardrails.sh" "$REPORT_DIR"
+    run_security_step "deploy.db-secret-transport" "Deploy: database client secret-transport contract" "guardrail" \
+      "db-secret-transport.txt" "" -- "$ROOT_DIR/tests/security/db-secret-transport-guardrails.sh"
+    run_security_step "deploy.schema" "Deploy: schema/source-of-truth guardrails" "guardrail" \
+      "schema-guardrails.txt" "" -- "$ROOT_DIR/tests/security/schema-guardrails.sh"
+    run_deploy_guardrails
+}
+
+run_security_layer_auth() {
     run_security_step "auth.static" "Auth: JWT/session static guardrails" "guardrail" \
       "auth-static-guardrails.txt" "" -- auth_static_guardrails
+    run_security_step "auth.behavior" "Auth: mobile identity and request privacy behavior" "build" \
+      "auth-behavior.log" "" -- run_auth_behavior_tests
     # Semgrep is deliberately independent so a static guardrail finding cannot
     # suppress the scanner report.
     run_security_step "auth.semgrep" "Auth: hardcoded-secret and JWT patterns" "scanner" \
       "auth-semgrep.log" "auth-patterns.sarif" -- run_auth_semgrep
     echo "Auth scan complete"
-    ;;
+}
 
-  injection)
+run_security_layer_injection() {
     run_security_step "injection.semgrep" "Injection: Semgrep injection rules" "scanner" \
       "injection-semgrep.log" "injection.sarif" -- run_injection_semgrep
     echo "Injection scan complete"
-    ;;
+}
 
-  upload)
+run_security_layer_upload() {
     run_security_step "upload.input-validation" "Upload: enrolled-device input validation probes" "guardrail" \
       "file-upload-tests.txt" "" -- bash "$ROOT_DIR/tests/security/file-upload-tests.sh"
     run_security_step "upload.load-smoke" "Upload: load smoke test" "guardrail" \
@@ -761,21 +692,21 @@ PY
     run_security_step "upload.races" "Upload: enrollment, nonce, deletion and settings races" "guardrail" \
       "race-conditions.txt" "race-summary.json" -- env STUDY_ID="${TEST_STUDY_ID:-}" \
       k6 run --summary-export "$REPORT_DIR/race-summary.json" "$ROOT_DIR/tests/security/k6-race-conditions.js"
-    ;;
+}
 
-  crypto)
+run_security_layer_crypto() {
     run_security_step "crypto.semgrep" "Crypto: weak crypto patterns" "scanner" \
       "crypto-semgrep.log" "crypto.sarif" -- run_crypto_semgrep
     echo "Crypto scan complete"
-    ;;
+}
 
-  license)
+run_security_layer_license() {
     run_security_step "license.gradle" "License: Gradle license report" "build" \
       "license.log" "license.json" -- run_license_report
     echo "License scan complete"
-    ;;
+}
 
-  collection)
+run_security_layer_collection() {
     run_security_step "collection.semgrep-modularization" \
       "Collection: Semgrep modularization rules" "scanner" \
       "collection-semgrep-modularization.log" "collection-semgrep-modularization.sarif" -- \
@@ -799,26 +730,46 @@ PY
         run_collection_ast_grep "$rule"
     done
 
-    run_security_step "collection.upload-validation" \
-      "Collection: upload batch-validation shell guardrail" "guardrail" \
-      "collection-upload-validation.log" "" -- \
-      "$ROOT_DIR/tests/security/collection-upload-validation-guardrail.sh" "$REPORT_DIR"
     run_security_step "collection.fixture-self-check" \
       "Collection: guardrail fixture self-check" "guardrail" \
       "collection-guardrail-fixtures.log" "" -- \
       "$ROOT_DIR/tests/security/collection-guardrail-fixtures.sh" "$REPORT_DIR"
     echo "Collection guardrails complete"
-    ;;
+}
 
-  compliance)
+run_security_layer_compliance() {
     run_security_step "compliance.conftest" "Compliance: Conftest OPA policies" "scanner" \
       "compliance.log" "compliance.json" -- run_compliance_scan
     echo "Compliance scan complete"
-    ;;
+}
 
+security_runner_main() {
+  if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <layer> <report-dir>" >&2
+    return 2
+  fi
+  LAYER="$1"
+  REPORT_DIR="$2"
+  security_runner_init "$LAYER" "$REPORT_DIR"
+  trap 'security_runner_exit_trap $?' EXIT
+
+case "$LAYER" in
+  selfhost-topology) run_security_layer_selfhost_topology ;;
+  sast) run_security_layer_sast ;;
+  sca) run_security_layer_sca ;;
+  secrets) run_security_layer_secrets ;;
+  iac) run_security_layer_iac ;;
+  deploy) run_security_layer_deploy ;;
+  auth) run_security_layer_auth ;;
+  injection) run_security_layer_injection ;;
+  upload) run_security_layer_upload ;;
+  crypto) run_security_layer_crypto ;;
+  license) run_security_layer_license ;;
+  collection) run_security_layer_collection ;;
+  compliance) run_security_layer_compliance ;;
   *)
     echo "ERROR: Unknown layer: $LAYER"
-    echo "Valid layers: sast, sca, secrets, iac, sso, deploy, selfhost-topology, mobile, auth, injection, upload, crypto, license, compliance, collection"
+    echo "Valid layers: sast, sca, secrets, iac, deploy, selfhost-topology, auth, injection, upload, crypto, license, compliance, collection"
     exit 1
     ;;
 esac

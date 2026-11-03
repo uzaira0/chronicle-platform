@@ -190,7 +190,7 @@ if [[ "$RUN_HMAC_SMOKE" == "1" ]]; then
     HOST_HEADER="$HOST_HEADER" \
     TEST_STUDY_ID="$STUDY_ID" \
     TEST_PARTICIPANT_ID="$PARTICIPANT_ID" \
-    TEST_DEVICE_ID="remote-tablet-preflight" \
+    TEST_RANDOM_DEVICE_ID="remote-tablet-preflight" \
     "$ROOT_DIR/tests/security/test-hmac-enforcement.sh"
 fi
 
@@ -239,15 +239,7 @@ one_time_invitation=loaded securely (URL and credential intentionally not printe
    The HTTPS invitation opens in the browser without printing its credential. Review the
    study details there, then tap Open Chronicle to hand off to the installed Play app.
 
-6. Optional (debug package only): shorten sync cadence and run one sync immediately:
-   ${adb_prefix} shell am broadcast -n ${PACKAGE}/com.openlattice.chronicle.debug.DebugSyncConfigReceiver \\
-     -a com.openlattice.chronicle.debug.SET_SYNC_CONFIG \\
-     --es strategy coordinated_collect_then_upload \\
-     --el interval_minutes 15 \\
-     --ez run_now true \\
-     --ez reschedule true
-
-7. Optional: collect a redacted debug bundle after testing:
+6. Optional: collect a redacted debug bundle after testing:
    CHRONICLE_REMOTE_SERVER_URL='${SERVER_URL}' scripts/android-debug-bundle.sh \\
      --package ${PACKAGE} \\
      --study-id ${STUDY_ID} \\

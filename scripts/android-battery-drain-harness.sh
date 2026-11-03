@@ -8,7 +8,7 @@ PACKAGE="${CHRONICLE_ANDROID_PACKAGE:-com.bcm.chronicle.debug}"
 MAIN_ACTIVITY="${CHRONICLE_ANDROID_MAIN_ACTIVITY:-com.openlattice.chronicle.MainActivity}"
 DURATION_SECONDS="${CHRONICLE_BATTERY_TEST_SECONDS:-7200}"
 SAMPLE_SECONDS="${CHRONICLE_BATTERY_SAMPLE_SECONDS:-60}"
-OUTPUT_DIR="${CHRONICLE_BATTERY_OUTPUT_DIR:-/tmp}"
+OUTPUT_DIR="${CHRONICLE_BATTERY_OUTPUT_DIR:-$ROOT_DIR/build/battery-drain}"
 ALLOW_CHARGING=0
 RESET_BATTERYSTATS=0
 KEEP_SCREEN_ON=0
@@ -27,7 +27,7 @@ Options:
   --package PACKAGE         Android app id
   --duration SECONDS        total sample duration, default 7200
   --sample SECONDS          battery sample interval, default 60
-  --output-dir DIR          artifact directory, default /tmp
+  --output-dir DIR          artifact directory, default build/battery-drain
   --allow-charging          allow plugged-in diagnostic runs
   --reset-batterystats      reset Android batterystats before sampling
   --keep-screen-on          keep the screen awake during the run

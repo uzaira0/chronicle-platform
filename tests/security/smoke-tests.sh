@@ -255,17 +255,12 @@ done
 section "2. Backend Service (chronicle-backend)"
 
 if require_required_container "$BE_CONTAINER" "Backend checks"; then
-  # 2a. Backend API reachability via Traefik
-  if curl -sf --max-time 10 "http://${DOMAIN}/chronicle/v3/auth/session" -o /dev/null 2>/dev/null; then
+  # 2a. Keep HTTP responses separate from transport failures.
+  http_code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null) || http_code=000
+  if [[ "$http_code" == 200 ]]; then
     pass "Backend API responds via Traefik (/chronicle/v3/auth/session)"
   else
-    # Try direct — 401 is acceptable (means backend is alive)
-    http_code=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null || echo "000")
-    if [[ "$http_code" =~ ^(200|301|302|401|403|429) ]]; then
-      pass "Backend responds via Traefik (HTTP $http_code — service is alive)"
-    else
-      fail "Backend API not reachable via Traefik (HTTP $http_code)"
-    fi
+    fail "Backend API not reachable via Traefik (HTTP $http_code)"
   fi
 
   # 2b. Liveness proves the process can serve requests without depending on
@@ -617,7 +612,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
     UNION ALL SELECT 'tde_candidates|' || COALESCE(pg_tde_is_encrypted('candidates'::regclass)::text, 'error')
     UNION ALL SELECT 'tde_study_participants|' || COALESCE(pg_tde_is_encrypted('study_participants'::regclass)::text, 'error')
     UNION ALL SELECT 'tde_devices|' || COALESCE(pg_tde_is_encrypted('devices'::regclass)::text, 'error')
-    UNION ALL SELECT 'tde_sensor_data|' || COALESCE(pg_tde_is_encrypted('sensor_data'::regclass)::text, 'error')
+    UNION ALL SELECT 'tde_ios_screen_time_usage|' || COALESCE(pg_tde_is_encrypted('ios_screen_time_usage'::regclass)::text, 'error')
     UNION ALL SELECT 'tde_audit|' || COALESCE(pg_tde_is_encrypted('audit'::regclass)::text, 'error');
   " 2>/dev/null || echo "")
 
@@ -680,7 +675,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4n. Key TDE tables are encrypted
-  for tde_table in candidates study_participants devices sensor_data audit; do
+  for tde_table in candidates study_participants devices ios_screen_time_usage audit; do
     tde_check="${tde_results[$tde_table]:-error}"
     if [ "$tde_check" = "t" ] || [ "$tde_check" = "true" ]; then
       pass "PostgreSQL TDE: table '$tde_table' is encrypted"
@@ -1138,12 +1133,13 @@ except: print('unknown')
     skip "Vault seal status unknown"
   fi
 
-  # 7o. Vault IPC_LOCK capability (uses prefetched data)
+  # 7o. Vault keeps no added capability (uses prefetched data). The compose service runs
+  # `vault server -dev`, whose built-in config sets disable_mlock = true, so IPC_LOCK is unused.
   vault_caps=$(_get capadd "$VAULT_CONTAINER")
   if echo "$vault_caps" | grep -q "IPC_LOCK"; then
-    pass "Vault has IPC_LOCK capability (memory locking)"
+    fail "Vault retains an unused IPC_LOCK capability"
   else
-    fail "Vault missing IPC_LOCK capability"
+    pass "Vault runs without added capabilities"
   fi
 fi
 
@@ -1182,13 +1178,13 @@ for mon_container in "$VM_CONTAINER" "$VLOGS_CONTAINER" "$FLUENT_BIT_CONTAINER" 
   fi
 done
 
-# 8d. Traefik is on expected ports (80, 443) (uses prefetched data)
+# 8d. Traefik is on expected ports (unprivileged 8080 published as host 80, 443) (uses prefetched data)
 if [ "$(_get running "$TRAEFIK_CONTAINER")" = "true" ]; then
   traefik_ports=$(_get ports "$TRAEFIK_CONTAINER")
-  if echo "$traefik_ports" | grep -q '"80/tcp"'; then
-    pass "Traefik listening on port 80"
+  if echo "$traefik_ports" | grep -q '"8080/tcp"'; then
+    pass "Traefik listening on port 8080"
   else
-    fail "Traefik not listening on port 80"
+    fail "Traefik not listening on port 8080"
   fi
   if echo "$traefik_ports" | grep -q '"443/tcp"'; then
     pass "Traefik listening on port 443"
@@ -1224,7 +1220,7 @@ done
 section "10. End-to-End Connectivity"
 
 # 10a. Frontend accessible via Traefik
-fe_via_traefik=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/" 2>/dev/null || echo "000")
+fe_via_traefik=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/" 2>/dev/null) || fe_via_traefik=000
 if [ "$fe_via_traefik" = "200" ]; then
   pass "Frontend accessible via Traefik at /chronicle/ (HTTP 200)"
 elif [ "$fe_via_traefik" != "000" ]; then
@@ -1234,17 +1230,15 @@ else
 fi
 
 # 10b. Backend API accessible via Traefik
-be_via_traefik=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null || echo "000")
-if [ "$be_via_traefik" = "200" ] || [ "$be_via_traefik" = "401" ] || [ "$be_via_traefik" = "403" ] || [ "$be_via_traefik" = "429" ]; then
-  pass "Backend API accessible via Traefik (HTTP $be_via_traefik)"
-elif [ "$be_via_traefik" != "000" ]; then
-  pass "Backend API accessible via Traefik (HTTP $be_via_traefik — service alive)"
+be_via_traefik=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/chronicle/v3/auth/session" 2>/dev/null) || be_via_traefik=000
+if [ "$be_via_traefik" = "200" ]; then
+  pass "Backend session handler responds via Traefik (HTTP 200)"
 else
-  fail "Backend API not accessible via Traefik"
+  fail "Backend session handler is unproved (HTTP $be_via_traefik)"
 fi
 
 # 10c. Grafana accessible via Traefik
-gf_via_traefik=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/grafana/api/health" 2>/dev/null || echo "000")
+gf_via_traefik=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/grafana/api/health" 2>/dev/null) || gf_via_traefik=000
 if [ "$gf_via_traefik" = "200" ]; then
   pass "Grafana accessible via Traefik at /grafana/ (HTTP 200)"
 elif [ "$gf_via_traefik" != "000" ]; then
@@ -1255,19 +1249,19 @@ fi
 
 # 10d. Both the retired servlet alias and the historical nested spelling stay blocked.
 for blocked_path in /datastore/ /chronicle/datastore/; do
-  blocked_code=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}${blocked_path}" 2>/dev/null || echo "000")
-  if [ "$blocked_code" = "404" ] || [ "$blocked_code" = "403" ] || [ "$blocked_code" = "429" ] || [ "$blocked_code" = "000" ]; then
-    pass "Blocked route $blocked_path returns $blocked_code (not directly accessible)"
-  elif [ "$blocked_code" = "200" ]; then
-    fail "Blocked route $blocked_path returns 200 (should be blocked)"
+  blocked_code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}${blocked_path}" 2>/dev/null) || blocked_code=000
+  if [ "$blocked_code" = "404" ] || [ "$blocked_code" = "403" ]; then
+    pass "Blocked route $blocked_path returns $blocked_code"
   else
-    pass "Blocked route $blocked_path returns $blocked_code (not 200)"
+    fail "Blocked route $blocked_path is unproved (HTTP $blocked_code)"
   fi
 done
 
 # 10e. Authenticated backend metrics endpoint not exposed externally
-metrics_ext=$(curl -sf --max-time 5 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/prometheus/" 2>/dev/null || echo "000")
-if [ "$metrics_ext" = "200" ]; then
+metrics_ext=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/prometheus/" 2>/dev/null) || metrics_ext=000
+if [ "$metrics_ext" = "000" ]; then
+  fail "Backend metrics probe failed (transport error)"
+elif [ "$metrics_ext" = "200" ]; then
   fail "Backend metrics externally accessible at /prometheus/ (should be blocked)"
 else
   pass "Backend metrics not externally accessible (HTTP $metrics_ext)"

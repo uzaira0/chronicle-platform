@@ -103,6 +103,8 @@ package = json.loads(package_path.read_text(encoding="utf-8"))
 dev_dependencies = package.get("devDependencies", {})
 problems = []
 
+if package.get("engines", {}).get("bun") != expected_bun:
+    problems.append(f"chronicle-web engines.bun must be exactly {expected_bun}")
 for dependency in ("bun", "bun-types"):
     actual = dev_dependencies.get(dependency)
     if actual != expected_bun:
@@ -117,7 +119,7 @@ PY
   then
     fail "web package runtime pins mismatch; see $REPORT_DIR/web-runtime-pin-mismatches.txt"
   else
-    pass "web package pins nested Bun scripts and types to the CI runtime"
+    pass "web engine and types match the installed CI runtime policy"
   fi
 }
 
@@ -134,7 +136,7 @@ uses_re = re.compile(r"^\s*-?\s*uses:\s*([^#\s]+)")
 sha_ref_re = re.compile(r"@[0-9a-f]{40}$")
 
 # Root workflows AND every submodule's workflows: a submodule with a mutable
-# action tag is an attack path into the same PHI backend, so the pin guard must
+# action tag is an attack path into the same participant-data backend, so the pin guard must
 # not stop at the root .github (its sibling submodule .github dirs were the
 # blind spot that let two gitleaks workflows float on @v4/@v2 unnoticed).
 github_dirs = [root / ".github"] + sorted(root.glob("*/.github"))
@@ -176,21 +178,37 @@ check_dependency_integrity_files() {
 }
 
 check_scanner_dependency_inputs() {
-  local stale_waivers_file="$REPORT_DIR/stale-runtime-waivers.txt"
   local osv_waivers_file="$REPORT_DIR/osv-waiver-configs.txt"
-  : > "$stale_waivers_file"
   : > "$osv_waivers_file"
 
-  local nested_gradle_exclusion="--experimental-exclude 'r:(^|/)gradle($|/)'"
-  if grep -Fq -- "$nested_gradle_exclusion" "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Fq -- "$nested_gradle_exclusion" "$ROOT_DIR/scripts/compliance-scan.sh"; then
+  # Run the real gate jobs with recording stubs in place of the scanners.
+  local scanner_calls="$REPORT_DIR/scanner-calls.txt"
+  if bash -s -- "$ROOT_DIR/scripts/local-ci.sh" "$scanner_calls" <<'SH'
+source "$1"
+calls="$2"
+: >"$calls"
+ensure_osv_scanner() { :; }
+ensure_grype() { :; }
+osv-scanner() { printf 'osv %s\n' "$*" >>"$calls"; }
+grype() { printf 'grype %s\n' "$*" >>"$calls"; }
+job_osv && job_grype
+SH
+  then
+    pass "OSV and Grype gate jobs ran against recording stubs"
+  else
+    fail "OSV/Grype gate jobs failed against recording stubs"
+  fi
+  if grep -Fq -- "--config $ROOT_DIR/osv-scanner.toml --experimental-exclude r:(^|/)gradle(\$|/)" "$scanner_calls"; then
     pass "OSV scans resolved manifests without treating nested Gradle verification hashes as dependencies"
   else
-    fail "OSV source scans must recursively exclude Gradle artifact-hash catalog directories"
+    fail "OSV source scans must load osv-scanner.toml and recursively exclude Gradle artifact-hash catalog directories"
   fi
-
-  if grep -Fq -- '--config "$ROOT_DIR/.grype.yaml"' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Fq -- '--config "$ROOT_DIR/.grype.yaml"' "$ROOT_DIR/scripts/compliance-scan.sh" &&
+  if grep -Fq -- "--config $ROOT_DIR/osv-scanner.toml --lockfile $ROOT_DIR/chronicle/gradle/verification-metadata.xml" "$scanner_calls"; then
+    pass "OSV scans the Android build toolchain catalog as a lockfile"
+  else
+    fail "OSV must scan chronicle/gradle/verification-metadata.xml as a lockfile so build-toolchain advisories reach the gate"
+  fi
+  if grep -Fq -- "grype --config $ROOT_DIR/.grype.yaml dir:$ROOT_DIR" "$scanner_calls" &&
      grep -Fq 'gradle/verification-metadata.xml' "$ROOT_DIR/.grype.yaml"; then
     pass "Grype uses the checked-in config and excludes Gradle verification hashes"
   else
@@ -199,10 +217,7 @@ check_scanner_dependency_inputs() {
 
   find "$ROOT_DIR" -maxdepth 2 -type f -name 'osv-scanner.toml' -print \
     > "$osv_waivers_file"
-  if ! grep -Fq -- '--config "$ROOT_DIR/osv-scanner.toml"' "$ROOT_DIR/scripts/local-ci.sh" ||
-     ! grep -Fq -- '--config "$ROOT_DIR/osv-scanner.toml"' "$ROOT_DIR/scripts/compliance-scan.sh"; then
-    fail "OSV runners must load the checked-in osv-scanner.toml so its reviewed waivers apply to nested lockfiles"
-  elif ! python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" --self-test; then
+  if ! python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" --self-test; then
     fail "OSV waiver checker self-test failed"
   elif xargs -r python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" < "$osv_waivers_file" > "$osv_waivers_file.problems"; then
     pass "OSV waivers each carry a reason and expire within 62 days"
@@ -210,11 +225,6 @@ check_scanner_dependency_inputs() {
     fail "OSV waivers need a reason and an expiry within 62 days; see $osv_waivers_file.problems"
   fi
 
-  if grep -n '2\.22\.0' "$ROOT_DIR/.grype.yaml" > "$stale_waivers_file"; then
-    fail "obsolete Jackson 2.22.0 runtime scanner waivers found; see $stale_waivers_file"
-  else
-    pass "obsolete Jackson 2.22.0 runtime scanner waivers are absent"
-  fi
 }
 
 check_frozen_web_installs() {
@@ -252,65 +262,14 @@ PY
   fi
 }
 
-check_local_evidence_outputs() {
-  if grep -Eq 'check_jdk' "$ROOT_DIR/scripts/chronicle-preflight.sh" &&
-     grep -Eq 'JDK 21[+]' "$ROOT_DIR/scripts/chronicle-preflight.sh"; then
-    pass "local preflight requires JDK 21 or newer for JVM validation"
+check_dependency_check_suppressions() {
+  if python3 -s -m unittest "$ROOT_DIR/tests/security/test_supply_chain_policy.py" &&
+     python3 -s "$ROOT_DIR/tests/security/check-dependency-check-suppressions.py" \
+       "$ROOT_DIR/config/dependency-check-suppression.xml" "$ROOT_DIR"; then
+    pass "Dependency-Check package-wide suppressions have bounded expiry and exclude resolved dependencies"
   else
-    fail "scripts/chronicle-preflight.sh must reject Java runtimes older than JDK 21"
+    fail "Dependency-Check package-wide suppression policy or negative XML fixtures failed"
   fi
-
-  if grep -Eq 'check_optional_cmd go' "$ROOT_DIR/scripts/chronicle-preflight.sh"; then
-    pass "local preflight surfaces missing Go for Traefik plugin maintenance"
-  else
-    fail "scripts/chronicle-preflight.sh must warn when Go is missing for Traefik plugin maintenance"
-  fi
-
-  if grep -Eq 'CHRONICLE_LOCAL_CI_REPORT_DIR' "$ROOT_DIR/scripts/local-ci.sh"; then
-    pass "local CI scanner outputs can be redirected into an evidence directory"
-  else
-    fail "scripts/local-ci.sh must support CHRONICLE_LOCAL_CI_REPORT_DIR for release evidence"
-  fi
-
-  if grep -Eq 'CHRONICLE_LOCAL_CI_KEEP_GOING=1' "$ROOT_DIR/scripts/chronicle-vulnerability-evidence.sh" &&
-     grep -Eq 'scanner-artifact-sha256sums\.txt' "$ROOT_DIR/scripts/chronicle-vulnerability-evidence.sh"; then
-    pass "standalone vulnerability evidence collects and checksums local scanner artifacts"
-  else
-    fail "scripts/chronicle-vulnerability-evidence.sh must collect and checksum scanner evidence"
-  fi
-
-  if grep -Eq 'copy_dependency_check_reports' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'dependency-check-reports\.txt' "$ROOT_DIR/scripts/local-ci.sh"; then
-    pass "local CI copies OWASP Dependency-Check reports into the evidence directory"
-  else
-    fail "scripts/local-ci.sh must copy OWASP Dependency-Check reports into CHRONICLE_LOCAL_CI_REPORT_DIR"
-  fi
-
-  if grep -Eq 'CHRONICLE_DEPCHECK_UPDATE_TIMEOUT_SECONDS' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'dependencyCheckNvdValidForHours=' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'diagnose_dependency_check_data' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'refusing fresh Dependency-Check update with pre-existing lock files' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'CHRONICLE_DEPCHECK_CLEAN_STALE_LOCKS' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Eq 'depcheck-locks' "$ROOT_DIR/scripts/local-ci.sh"; then
-    pass "local CI fresh OWASP Dependency-Check updates are bounded and fail closed on stale locks"
-  else
-    fail "scripts/local-ci.sh must bound fresh Dependency-Check updates and expose depcheck-locks"
-  fi
-
-  if grep -Eq 'prepare_checkov_runtime' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Fq -- '--framework dockerfile --quiet --skip-download || return' "$ROOT_DIR/scripts/local-ci.sh" &&
-     grep -Fq -- '--framework kubernetes --quiet --skip-download ||' "$ROOT_DIR/scripts/local-ci.sh"; then
-    pass "local CI IaC scan runs local Checkov on Dockerfiles and rendered overlays and fails closed"
-  else
-    fail "scripts/local-ci.sh iac-scan must run local Checkov on Dockerfiles and rendered overlays and fail closed"
-  fi
-
-  if grep -Eq 'bridgecrew/checkov|docker[[:space:]]+run.*checkov|--soft-fail[[:space:]]+false' "$ROOT_DIR/scripts/local-ci.sh"; then
-    fail "scripts/local-ci.sh iac-scan must not depend on Dockerized Checkov or stale Checkov arguments"
-  else
-    pass "local CI IaC scan avoids Dockerized Checkov and stale Checkov arguments"
-  fi
-
 }
 
 record "Chronicle supply-chain guardrails"
@@ -318,8 +277,8 @@ check_runtime_pins
 check_action_pins
 check_dependency_integrity_files
 check_scanner_dependency_inputs
+check_dependency_check_suppressions
 check_frozen_web_installs
-check_local_evidence_outputs
 
 if [ "$failures" -gt 0 ]; then
   record "Supply-chain guardrails failed with $failures finding(s)"

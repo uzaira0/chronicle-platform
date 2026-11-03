@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=lib/api-client.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/api-client.sh"
 
 # ---------------------------------------------------------------------------
 # Session Management Security Tests for Chronicle
@@ -61,6 +63,25 @@ http_status() {
     printf '%s' "$status"
 }
 
+# Preserve the real fixture identity, issuer, audience and custom claims.
+token_payload() {
+    AUTH_TOKEN="$AUTH_TOKEN" python3 - <<'PY_CLAIMS'
+import base64, json, os
+segment = os.environ['AUTH_TOKEN'].split('.')[1]
+print(json.dumps(json.loads(base64.urlsafe_b64decode(segment + '=' * (-len(segment) % 4)))))
+PY_CLAIMS
+}
+
+# A rejection counts only when the otherwise identical control succeeds.
+differential_probe() {
+    local label="$1" positive="$2" negative="$3"
+    if [[ "$positive" == 200 && "$negative" == 401 ]]; then
+        pass "$label: valid control accepted and single-variable variant rejected"
+    else
+        fail "$label: expected valid=200 and rejected=401; got $positive/$negative (throttling is inconclusive)"
+    fi
+}
+
 # Create an HS256-signed JWT with the given payload JSON and secret.
 # Usage: make_jwt <payload_json> <secret>
 make_jwt() {
@@ -106,28 +127,20 @@ header "Test 1: Expired JWT Rejection"
 if [[ -z "$JWT_SECRET" || -z "$AUTH_TOKEN" ]]; then
     fail "Test 1: JWT_SECRET and a valid AUTH_TOKEN are required to isolate expiry"
 else
-    payloads=$(AUTH_TOKEN="$AUTH_TOKEN" python3 - <<'PY_JWT'
-import base64, json, os, time
-segment = os.environ['AUTH_TOKEN'].split('.')[1]
-payload = json.loads(base64.urlsafe_b64decode(segment + '=' * (-len(segment) % 4)))
+    payloads=$(token_payload | python3 -c '
+import json, sys, time
+payload = json.load(sys.stdin)
 now = int(time.time())
-payload['iat'] = now - 180
+payload["iat"] = now - 180
 for expiration in (now + 3600, now - 120):
-    print(json.dumps(dict(payload, exp=expiration), separators=(',', ':')))
-PY_JWT
-)
+    print(json.dumps(dict(payload, exp=expiration), separators=(",", ":")))
+')
     valid_token=$(make_jwt "${payloads%%$'\n'*}" "$JWT_SECRET")
     expired_token=$(make_jwt "${payloads#*$'\n'}" "$JWT_SECRET")
     protected_url="${BASE_URL}/chronicle/v3/study"
     valid_status=$(http_status GET "$protected_url" -H "Authorization: Bearer ${valid_token}")
     expired_status=$(http_status GET "$protected_url" -H "Authorization: Bearer ${expired_token}")
-    if [[ "$valid_status" == 429 || "$expired_status" == 429 ]]; then
-        fail "Test 1: throttling makes expiry evidence inconclusive; rerun on a quiet fixture"
-    elif [[ "$valid_status" == 200 && "$expired_status" == 401 ]]; then
-        pass "Test 1: otherwise identical signed tokens isolate expiration"
-    else
-        fail "Test 1: expected valid=200 and expired=401; got $valid_status/$expired_status"
-    fi
+    differential_probe "Test 1: expiration" "$valid_status" "$expired_status"
 fi
 
 # ---------------------------------------------------------------------------
@@ -135,44 +148,19 @@ fi
 # ---------------------------------------------------------------------------
 header "Test 2: JWT After Secret Rotation"
 
-# Auto-derive OLD_JWT_SECRET (a random wrong key) if not provided but JWT_SECRET is available
-if [[ -z "$OLD_JWT_SECRET" && -n "$JWT_SECRET" ]]; then
-    OLD_JWT_SECRET="wrong-secret-$(date +%s)-rotation-test"
-    log "Auto-generated OLD_JWT_SECRET (random wrong key) to test secret rotation."
-fi
-if [[ -z "$NEW_JWT_SECRET" && -n "$JWT_SECRET" ]]; then
-    NEW_JWT_SECRET="$JWT_SECRET"
-    log "Auto-set NEW_JWT_SECRET from JWT_SECRET."
-fi
-
-if [[ -n "$OLD_JWT_SECRET" && -n "$NEW_JWT_SECRET" ]]; then
-    log "OLD_JWT_SECRET and NEW_JWT_SECRET provided -- testing secret rotation."
-    rotation_payload=$(python3 -c "
-import json, time
-print(json.dumps({
-    'sub': 'rotation-test-user',
-    'iat': int(time.time()),
-    'exp': int(time.time()) + 3600,
-    'email': 'rotation@example.com'
-}))
-")
-    old_token=$(make_jwt "$rotation_payload" "$OLD_JWT_SECRET")
-
-    status=$(http_status GET "${BASE_URL}/chronicle/v3/studies" \
-        -H "Authorization: Bearer ${old_token}")
-
-    if [[ "$status" == "401" || "$status" == "403" ]]; then
-        pass "Test 2: Token signed with OLD_JWT_SECRET rejected (HTTP ${status})"
-    elif [[ "$status" == "429" ]]; then
-        pass "Test 2: Request rate-limited by CrowdSec (HTTP 429) -- wrong-secret JWT not accepted (security goal met)"
-    else
-        fail "Test 2: Token signed with OLD_JWT_SECRET accepted (HTTP ${status}) -- secret rotation not enforced"
-    fi
+NEW_JWT_SECRET="${NEW_JWT_SECRET:-$JWT_SECRET}"
+if [[ -z "$AUTH_TOKEN" || -z "$OLD_JWT_SECRET" || -z "$NEW_JWT_SECRET" ]]; then
+    fail "Test 2: a valid AUTH_TOKEN and explicit retired/current signing keys are required"
+elif [[ "$OLD_JWT_SECRET" == "$NEW_JWT_SECRET" ]]; then
+    fail "Test 2: retired and current signing keys must differ"
 else
-    skip "Test 2: OLD_JWT_SECRET and/or NEW_JWT_SECRET not set"
-    log "To test secret rotation, provide both OLD_JWT_SECRET and NEW_JWT_SECRET env vars."
-    log "OLD_JWT_SECRET: the previous signing key (token signed with this should be rejected)."
-    log "NEW_JWT_SECRET: the current signing key the backend is configured with."
+    rotation_payload=$(token_payload)
+    current_token=$(make_jwt "$rotation_payload" "$NEW_JWT_SECRET")
+    old_token=$(make_jwt "$rotation_payload" "$OLD_JWT_SECRET")
+    protected_url="${BASE_URL}/chronicle/v3/study"
+    current_status=$(http_status GET "$protected_url" -H "Authorization: Bearer ${current_token}")
+    retired_status=$(http_status GET "$protected_url" -H "Authorization: Bearer ${old_token}")
+    differential_probe "Test 2: retired signing key" "$current_status" "$retired_status"
 fi
 
 # ---------------------------------------------------------------------------
@@ -228,7 +216,7 @@ else
     protected_url="${BASE_URL}/chronicle/v3/study"
     positive=$(http_status GET "$protected_url" --cookie "$session_work/cookies" -H "X-CSRF-Token: $csrf_token")
     # Invalid study JSON deliberately exercises deserialization without creating data.
-    valid=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H "X-CSRF-Token: $csrf_token" -H 'Content-Type: application/json' --data '{}')
+    valid=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H "X-CSRF-Token: $csrf_token" -H "$(idempotency_key_header)" -H 'Content-Type: application/json' --data '{}')
     missing=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H 'Content-Type: application/json' --data '{}')
     mismatch=$(http_status POST "$protected_url" --cookie "$session_work/cookies" -H 'X-CSRF-Token: mismatched-fixture' -H 'Content-Type: application/json' --data '{}')
     # The resolver rejects a missing/mismatched CSRF header by withholding the cookie JWT.
@@ -248,13 +236,13 @@ test_token="${AUTH_TOKEN:-dummy.jwt.token}"
 log "Sending request with token as query parameter ?token=..."
 
 url_token_status=$(http_status GET \
-    "${BASE_URL}/chronicle/v3/studies?token=${test_token}")
+    "${BASE_URL}/chronicle/v3/study?token=${test_token}")
 
 if [[ "$url_token_status" == "401" || "$url_token_status" == "403" ]]; then
     pass "Test 5: Token in URL query parameter rejected (HTTP ${url_token_status})"
 elif [[ "$url_token_status" == "200" ]]; then
     # Verify it was the query param that authenticated (not a coincidence like a public endpoint)
-    no_token_status=$(http_status GET "${BASE_URL}/chronicle/v3/studies")
+    no_token_status=$(http_status GET "${BASE_URL}/chronicle/v3/study")
     if [[ "$no_token_status" == "200" ]]; then
         log "Endpoint returns 200 with or without token -- likely a public endpoint."
         skip "Test 5: Endpoint is publicly accessible -- cannot determine if URL token was used"

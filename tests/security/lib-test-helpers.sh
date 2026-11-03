@@ -12,7 +12,7 @@ _PROJECT_ROOT="$(cd "$_LIB_DIR/../.." && pwd)"
 
 # --- ANSI colors (shared across all test scripts) ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[1;36m'; BOLD='\033[1m'; RESET='\033[0m'
+CYAN='\033[1;36m'; RESET='\033[0m'
 
 # --- Test counters ---
 PASS_COUNT=0; FAIL_COUNT=0; SKIP_COUNT=0
@@ -71,8 +71,6 @@ detect_pg_password() {
 # Run SQL against chronicle database
 run_sql() {
     local sql="$1"
-    local pg_pass
-    pg_pass=$(detect_pg_password)
     docker exec chronicle-postgres psql -U chronicle -d chronicle -tAc "$sql" 2>/dev/null
 }
 

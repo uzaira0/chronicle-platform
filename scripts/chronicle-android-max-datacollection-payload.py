@@ -77,18 +77,6 @@ def module_setting(module_id: str, required: bool) -> OrderedDict:
             ("enabled", True),
             ("required", required),
             ("collectionCadence", OrderedDict((("intervalSeconds", 900), ("jitterSeconds", 0)))),
-            ("uploadCadence", OrderedDict((("intervalSeconds", 900), ("jitterSeconds", 0)))),
-            (
-                "batteryPolicy",
-                OrderedDict(
-                    (
-                        ("minLevelPercent", 15),
-                        ("stopBelowCriticalPercent", 5),
-                        ("degradeInPowerSave", True),
-                    )
-                ),
-            ),
-            ("networkPolicy", OrderedDict((("requireUnmetered", False), ("requireConnected", True)))),
         )
     )
 
@@ -111,7 +99,7 @@ def module_setting(module_id: str, required: bool) -> OrderedDict:
                 ("gridCols", 4),
                 ("captureClicks", True),
                 ("captureScrolls", True),
-                ("captureExactPosition", True),
+                ("captureElementPosition", True),
             )
         )
 

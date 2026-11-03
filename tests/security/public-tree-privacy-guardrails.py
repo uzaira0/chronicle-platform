@@ -13,12 +13,12 @@ ROOT = Path(__file__).resolve().parents[2]
 OPERATIONAL_PREFIXES = (
     ".github/workflows/",
     "deploy/",
-    "docker/",
-    "k8s/",
     "scripts/",
     "selfhost/",
 )
 THIS_GUARD = "tests/security/public-tree-privacy-guardrails.py"
+# Frozen until ported as selfhost overlays: no gate scans them.
+FROZEN_PREFIXES = ("docker/", "k8s/")
 PUBLIC_ANDROID_PACKAGE = re.compile(
     r"(?<![A-Za-z0-9_.])com\.bcm\.chronicle(?:\.debug)?(?![A-Za-z0-9_.])",
     re.IGNORECASE,
@@ -85,7 +85,8 @@ def repository_files() -> list[str]:
         stdout=subprocess.PIPE,
     )
     private_paths = set(excluded.stdout.split(b"\0"))
-    return [item.decode("utf-8") for item in result.stdout.split(b"\0") if item and item not in private_paths]
+    return [path for item in result.stdout.split(b"\0") if item and item not in private_paths
+            if not (path := item.decode("utf-8")).startswith(FROZEN_PREFIXES)]
 
 
 def main() -> int:

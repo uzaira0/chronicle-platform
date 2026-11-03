@@ -191,8 +191,8 @@ printf 'Chronicle post-deploy smoke: %s\n' "$BASE_URL"
 check_status "backend auth/session reachable" "/chronicle/v3/auth/session" "200,401,403,429"
 check_status "blocked keycloak admin route" "/keycloak/admin" "403,404,429"
 check_prometheus_not_exposed
-check_body_absent "auth/session body redacted" "/chronicle/v3/auth/session" 'stack[ _-]?trace|org\.springframework|java\.[a-z]|kotlin\.[a-z]|Exception[":[:space:]]|password[":=]|token[":=]|api[_-]?key[":=]|authorization[":=]|Bearer[[:space:]]+|participantId|participant_id|sourceDevice|source_device|deviceId|device_id|MOBILE_SIGNING_SECRET|PGPASSWORD'
-check_body_absent "keycloak/admin body redacted" "/keycloak/admin" 'stack[ _-]?trace|org\.springframework|java\.[a-z]|kotlin\.[a-z]|Exception[":[:space:]]|password[":=]|token[":=]|api[_-]?key[":=]|authorization[":=]|Bearer[[:space:]]+|participantId|participant_id|sourceDevice|source_device|deviceId|device_id|MOBILE_SIGNING_SECRET|PGPASSWORD'
+check_body_absent "auth/session body redacted" "/chronicle/v3/auth/session" 'stack[ _-]?trace|org\.springframework|java\.[a-z]|kotlin\.[a-z]|Exception[":[:space:]]|password[":=]|token[":=]|api[_-]?key[":=]|authorization[":=]|Bearer[[:space:]]+|participantId|participant_id|sourceDevice|source_device|randomDeviceId|random_device_id|MOBILE_SIGNING_SECRET|PGPASSWORD'
+check_body_absent "keycloak/admin body redacted" "/keycloak/admin" 'stack[ _-]?trace|org\.springframework|java\.[a-z]|kotlin\.[a-z]|Exception[":[:space:]]|password[":=]|token[":=]|api[_-]?key[":=]|authorization[":=]|Bearer[[:space:]]+|participantId|participant_id|sourceDevice|source_device|randomDeviceId|random_device_id|MOBILE_SIGNING_SECRET|PGPASSWORD'
 check_header "security nosniff header" "/chronicle/v3/auth/session" 'x-content-type-options:[[:space:]]*nosniff'
 check_header "security frame deny header" "/chronicle/v3/auth/session" 'x-frame-options:[[:space:]]*deny'
 check_header "security referrer policy" "/chronicle/v3/auth/session" 'referrer-policy:[[:space:]]*no-referrer'

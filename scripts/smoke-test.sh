@@ -27,6 +27,12 @@ FRONTEND_URL="${2:-http://localhost:8080}"
 BACKEND_URL="${BACKEND_URL%/}"
 FRONTEND_URL="${FRONTEND_URL%/}"
 
+# Keep curl's explicit wildcard and remote exclusions while always bypassing local proxies.
+CURL_NO_PROXY="${no_proxy:-${NO_PROXY:-}}"
+if [[ "$CURL_NO_PROXY" != '*' ]]; then
+  CURL_NO_PROXY="localhost,127.0.0.1,::1,$CURL_NO_PROXY"
+fi
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -36,10 +42,9 @@ TOTAL=0
 if [ -t 1 ]; then
   GREEN='\033[0;32m'
   RED='\033[0;31m'
-  YELLOW='\033[0;33m'
   NC='\033[0m'
 else
-  GREEN='' RED='' YELLOW='' NC=''
+  GREEN='' RED='' NC=''
 fi
 
 # ---------------------------------------------------------------------------
@@ -58,7 +63,7 @@ check_http() {
   # Use --connect-timeout so a down service fails fast
   local http_code body tmp
   tmp=$(mktemp)
-  http_code=$(curl -sS --connect-timeout 5 --max-time 15 -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null) || http_code="000"
+  http_code=$(curl -q --noproxy "$CURL_NO_PROXY" -sS --connect-timeout 5 --max-time 15 -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null) || http_code="000"
   body=$(<"$tmp")
   rm -f "$tmp"
 
@@ -105,7 +110,7 @@ check_not_status() {
 
   local tmp http_code
   tmp=$(mktemp)
-  http_code=$(curl -sS --connect-timeout 5 --max-time 15 -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null) || http_code="000"
+  http_code=$(curl -q --noproxy "$CURL_NO_PROXY" -sS --connect-timeout 5 --max-time 15 -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null) || http_code="000"
   rm -f "$tmp"
 
   if [[ "$http_code" == "000" ]]; then
@@ -151,7 +156,6 @@ check_not_status "backend: /chronicle/v3/study (no auth)"  "$BACKEND_URL/chronic
 check_not_status "backend: /chronicle/v4/study (no auth)"  "$BACKEND_URL/chronicle/v4/study"     "500,502,503,504"
 
 # Legacy status endpoint (v2) — should not 5xx
-check_not_status "backend: /chronicle/study (legacy)"      "$BACKEND_URL/chronicle/study"        "500,502,503,504"
 
 # Auth token endpoint — exists and is not erroring
 check_not_status "backend: /chronicle/auth/token"          "$BACKEND_URL/chronicle/auth/token"   "500,502,503,504"

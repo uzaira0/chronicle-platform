@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-RUN_DIR=$(mktemp -d /tmp/chronicle-gitleaks-history.XXXXXX)
+RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/chronicle-gitleaks-history.XXXXXX")
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 # The ignore list covers private history and is not published; curated public history passes without it.
 IGNORE="$ROOT_DIR/tests/security/gitleaks-ignore/methodic-root.gitleaksignore"
@@ -13,9 +13,10 @@ gitleaks git --no-banner --redact "${ignore_args[@]}" \
 mkdir "$RUN_DIR/fixture"
 python3 - "$RUN_DIR/fixture/credential.conf" <<'PY'
 from pathlib import Path
-import secrets
+import hashlib
 import sys
-Path(sys.argv[1]).write_text('api_key = "' + secrets.token_hex(20) + '"\n')
+# Fixed synthetic input keeps the entropy-sensitive detector control deterministic.
+Path(sys.argv[1]).write_text('api_key = "' + hashlib.sha256(b'gitleaks-regression-control').hexdigest() + '"\n')
 PY
 status=0
 gitleaks dir --no-banner --redact --report-format json --report-path "$RUN_DIR/injected.json" \

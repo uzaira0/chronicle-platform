@@ -12,16 +12,16 @@ strict = os.environ['STRICT'] == '1'
 secret = os.environ.get('MOBILE_SIGNING_SECRET')
 path = os.environ.get('HMAC_TEST_PATH')
 body = os.environ.get('MOBILE_ENROLLMENT_BODY')
-if not secret or not path or not body or not os.environ.get('TEST_DEVICE_ID'):
+if not secret or not path or not body or not os.environ.get('TEST_RANDOM_DEVICE_ID'):
     if strict:
-        raise SystemExit('Strict mode requires MOBILE_SIGNING_SECRET, TEST_DEVICE_ID, HMAC_TEST_PATH and valid MOBILE_ENROLLMENT_BODY from an enrollment fixture')
+        raise SystemExit('Strict mode requires MOBILE_SIGNING_SECRET, TEST_RANDOM_DEVICE_ID, HMAC_TEST_PATH and valid MOBILE_ENROLLMENT_BODY from an enrollment fixture')
     print('HMAC live probe needs a valid signing/enrollment fixture')
     raise SystemExit(0)
 if not path.startswith('/chronicle/') or '?' in path:
     raise SystemExit('HMAC_TEST_PATH must be a Chronicle path without a query')
 json.loads(body)
 url = os.environ.get('BASE_URL', 'http://127.0.0.1').rstrip('/') + path
-headers = {'Content-Type': 'application/json', 'X-Chronicle-Device-Id': os.environ['TEST_DEVICE_ID']}
+headers = {'Content-Type': 'application/json', 'X-Chronicle-Random-Device-Id': os.environ['TEST_RANDOM_DEVICE_ID']}
 if os.environ.get('HOST_HEADER'):
     headers['Host'] = os.environ['HOST_HEADER']
 timestamp, nonce = str(int(time.time())), str(uuid.uuid4())
@@ -33,7 +33,8 @@ def probe(request_headers):
         with urllib.request.urlopen(urllib.request.Request(url, body.encode(), request_headers, method='POST'), timeout=10) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as response:
-        return response.code, response.read()
+        with response:
+            return response.code, response.read()
 def rejection(result, message):
     status, payload = result
     return status == 401 and json.loads(payload).get('error') == message

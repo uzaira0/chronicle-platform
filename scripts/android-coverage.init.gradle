@@ -1,0 +1,51 @@
+// AGP unit coverage, including Robolectric's instrumented class loader.
+allprojects {
+    ['com.android.application', 'com.android.library'].each { id ->
+        pluginManager.withPlugin(id) {
+            android.buildTypes.debug.enableUnitTestCoverage = true
+            def shared = new File(rootProject.projectDir.parentFile, 'gradles/chronicle.gradle').text
+            def pin = shared =~ /ext\.jacoco_tool_version\s*=\s*['"]([^'"]+)['"]/
+            if (!pin.find()) throw new GradleException('Missing shared JaCoCo version')
+            def jacocoVersion = pin.group(1)
+            android.testCoverage.jacocoVersion = jacocoVersion
+            plugins.withId('jacoco') {
+                jacoco.toolVersion = jacocoVersion
+            }
+        }
+    }
+}
+gradle.projectsEvaluated {
+    allprojects {
+        tasks.withType(Test).configureEach { task ->
+            task.doFirst {
+                def jacoco = task.extensions.findByName('jacoco')
+                if (jacoco == null) {
+                    throw new GradleException("Missing unit-test coverage agent on ${task.path}")
+                }
+                jacoco.includeNoLocationClasses = true
+                jacoco.excludes = ['jdk.internal.*']
+            }
+        }
+    }
+}
+// App unit tests also exercise library code that has no tests of its own (collection-lifecycle's module
+// tests need the app's serializer and fakes). AGP reports only a module's own classes, so this report
+// measures every library module's classes with the app tests' execution data. diff-coverage merges it
+// with the per-module reports; it sits under the build root, so any change in the repository stales it.
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    def app = root.findProject(':app')
+    if (app == null) return
+    def libraries = root.subprojects.findAll { it.plugins.hasPlugin('com.android.library') }
+    root.pluginManager.apply('jacoco')
+    root.jacoco.toolVersion = app.android.testCoverage.jacocoVersion
+    root.tasks.register('libraryCoverageFromAppTests', JacocoReport) { report ->
+        report.executionData(['testOpenDebugUnitTest', 'testResearchDebugUnitTest', 'testAmazonDebugUnitTest']
+            .collect { app.tasks.named(it).get() } as Task[])
+        libraries.each { library ->
+            report.classDirectories.from(library.tasks.named('compileDebugKotlin').map { it.destinationDirectory })
+            report.sourceDirectories.from(library.files('src/main/java'))
+        }
+        report.reports { xml.required = true; html.required = false }
+    }
+}

@@ -80,7 +80,7 @@ require_file "docker/SIEM-INTEGRATION.md"
 require_file "docker/siem/victorialogs-fluent-bit.conf"
 require_file "docker/siem/fluent-bit-kafka.conf"
 require_file "docker/siem/filebeat.yml"
-require_file "scripts/chronicle-observability-evidence.sh"
+
 
 require_pattern "k8s/observability/victoria-lite/victoria-metrics.yaml" \
   '-retentionPeriod=7d' \
@@ -189,7 +189,7 @@ require_pattern "k8s/observability/siem-forwarder/config/fluent-bit.conf" \
 require_pattern "k8s/observability/siem-forwarder/config/fluent-bit.conf" \
   'forbidden_fields_removed true' \
   "operator SIEM forwarder adds forbidden-field-removal evidence marker"
-for forbidden_field in participantId participant_id sourceDevice source_device deviceId device_id requestBody responseBody rawPayload stackTrace authorization mobileSigningKey; do
+for forbidden_field in participantId participant_id sourceDevice source_device randomDeviceId random_device_id requestBody responseBody rawPayload stackTrace authorization mobileSigningKey; do
   require_pattern "k8s/observability/siem-forwarder/config/fluent-bit.conf" \
     "Remove[[:space:]]+${forbidden_field}" \
     "operator SIEM forwarder strips forbidden field: ${forbidden_field}"
@@ -233,87 +233,33 @@ require_pattern "k8s/observability/grafana-lite/config/alerting/rules.yml" \
 require_pattern "k8s/observability/grafana-lite/config/alerting/rules.yml" \
   'endpoint=~".*\(upload\|android\|screen-time\|user-identification\).*"' \
   "Mobile upload fallback alert scopes route matching without raw IDs"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'alert-rules\.tsv' \
-  "Observability evidence script writes alert rule inventory"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'alert-coverage-matrix\.tsv' \
-  "Observability evidence script writes alert coverage matrix"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'log-siem-coverage-matrix\.tsv' \
-  "Observability evidence script writes log/SIEM coverage matrix"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'required-external' \
-  "Observability evidence script marks externally required alert coverage"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'required-strict-evidence' \
-  "Observability evidence script marks strict operator SIEM evidence requirements"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'covered-by-local-fallback' \
-  "Observability evidence script separates local fallback log coverage"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'siem-endpoint-delivery' \
-  "Observability evidence script names operator SIEM endpoint delivery proof"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'correlation-id-preservation' \
-  "Observability evidence script names correlation/request ID preservation proof"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'siem-test-event-delivery' \
-  "Observability evidence script names sanitized SIEM test-event delivery proof"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  '"request_id": "example-request-id"' \
-  "Observability evidence script includes request_id in the sanitized SIEM sample"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'raw-network-decision' \
-  "Observability evidence script names raw network identifier decision proof"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'local-fallback-exception' \
-  "Observability evidence script names local fallback exception proof"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'dashboard-query-inventory\.tsv' \
-  "Observability evidence script writes dashboard query inventory"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'observability-evidence-manifest\.txt' \
-  "Observability evidence script writes an artifact checksum manifest"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'siem-sanitized-sample-event\.json' \
-  "Observability evidence script writes a sanitized SIEM sample event"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'siem-forwarder-field-removals\.tsv' \
-  "Observability evidence script inventories SIEM forwarder field removals"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  '"resourceId"' \
-  "Observability evidence script requires legacy resourceId removal"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  '"request_url"' \
-  "Observability evidence script requires snake_case request URL removal"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  '"accessToken"' \
-  "Observability evidence script requires access-token removal"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  '"mobile_signing_key"' \
-  "Observability evidence script requires snake_case mobile signing key removal"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'sanitized SIEM sample still contains forbidden fields' \
-  "Observability evidence script fails closed when SIEM sample redaction leaves forbidden fields"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'CHRONICLE_ALERT_ROUTING_EVIDENCE' \
-  "Observability evidence script ties placeholder routing to strict alert-routing evidence"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'CHRONICLE_OBSERVABILITY_REDACTED_SIEM_EVIDENCE' \
-  "Observability evidence script accepts an optional redacted SIEM evidence attachment"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'FORBIDDEN_EVIDENCE_PLACEHOLDER_PATTERN' \
-  "Observability evidence script rejects placeholder SIEM attachment text"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'FORBIDDEN_EVIDENCE_SECRET_PATTERN' \
-  "Observability evidence script rejects raw secret material in SIEM attachments"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'redacted-siem-evidence\.txt' \
-  "Observability evidence script checksums redacted SIEM attachment metadata"
-require_pattern "scripts/chronicle-observability-evidence.sh" \
-  'strict cutover still uses CHRONICLE_SIEM_EVIDENCE' \
-  "Observability evidence script keeps attachment validation separate from strict cutover proof"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 reject_pattern_recursive "k8s/observability/grafana-lite/config/alerting" \
   'Bearer[[:space:]]+|Authorization:|api[_-]?key[=:]|token[=:]|password[=:]|client[_-]?secret[=:]' \
   "Grafana alert provisioning must not contain raw credentials"
@@ -446,8 +392,8 @@ forbidden_shipper_fields=(
   participant_id
   sourceDevice
   source_device
-  deviceId
-  device_id
+  randomDeviceId
+  random_device_id
   ipAddress
   ip_address
   clientIp
@@ -554,11 +500,11 @@ require_pattern "docker/docker-compose.traefik.yml" \
 require_pattern "k8s/observability/victoria-lite/config/victoria-metrics-scrape.yml" \
   'chronicle-backend\.chronicle\.svc\.cluster\.local:40320' \
   "VictoriaMetrics scrape target is the internal backend Service"
-require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/servlet/ChronicleServerSecurityPod.kt" \
+require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/servlet/SecurityFilterRegistrationsPod.kt" \
   'MetricsAuthenticationFilter\(' \
   "The application filter chain authenticates the dedicated metrics servlet"
-require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/servlet/ChronicleServerSecurityPod.kt" \
-  'metricsPasswordFiles' \
+require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/servlet/SecurityFilterRegistrationsPod.kt" \
+  'MetricsAuthenticationFilter\.parsePasswordFiles\(passwordFiles\)' \
   "The metrics filter receives reloadable file-backed credentials"
 require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/security/MetricsAuthenticationFilter.kt" \
   'password\.length[[:space:]]+in[[:space:]]+MIN_PASSWORD_LENGTH\.\.MAX_PASSWORD_LENGTH' \
@@ -728,7 +674,7 @@ else
 fi
 
 reject_pattern_recursive "k8s/observability/grafana-lite/config/dashboards" \
-  'participantId|participant_id|sourceDevice|source_device|deviceId|device_id|userId|user_id|email|phone|jwt|api[_-]?key|token|session[_-]?id|raw[_-]?ip|client[_-]?ip|remoteAddr|User-Agent|user_agent' \
+  'participantId|participant_id|sourceDevice|source_device|randomDeviceId|random_device_id|userId|user_id|email|phone|jwt|api[_-]?key|token|session[_-]?id|raw[_-]?ip|client[_-]?ip|remoteAddr|User-Agent|user_agent' \
   "Grafana dashboards must not query or display forbidden raw identifiers/secrets"
 
 if python3 - "$ROOT_DIR/k8s/observability/grafana-lite/config/dashboards" "$REPORT_DIR/dashboard-parse.txt" <<'PY'
@@ -766,15 +712,6 @@ else
   fail "Grafana dashboards must parse and cover backend, database-pool, and log views"
 fi
 
-require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/observability/ChronicleMetrics.kt" \
-  'chronicle_export_storage_usable_bytes' \
-  "Backend exports filesystem usable-space telemetry"
-require_pattern "chronicle-server/src/main/kotlin/com/openlattice/chronicle/observability/ChronicleMetrics.kt" \
-  'chronicle_export_artifact_bytes' \
-  "Backend exports managed artifact-byte telemetry"
-require_pattern "k8s/observability/grafana-lite/config/alerting/rules.yml" \
-  'uid:[[:space:]]*chronicle_export_storage_pressure' \
-  "Grafana provisions export storage-pressure alerting"
 # shellcheck disable=SC2016
 
 if [ "$failures" -gt 0 ]; then

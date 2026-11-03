@@ -1,6 +1,11 @@
 title = "Chronicle gitleaks config"
 
-[allowlist]
+# Default rules plus the allowlist below; without [extend] this file has no rules and finds nothing.
+# Reviewed findings in history are fingerprinted in tests/security/gitleaks-ignore/ (private only).
+[extend]
+useDefault = true
+
+[[allowlists]]
 description = "Global allowlist"
 paths = [
   '''bun\.lock''',

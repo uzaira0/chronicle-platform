@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
+# shellcheck source=lib/api-client.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/api-client.sh"
 
 # ---------------------------------------------------------------------------
 # API & HTTP Header Security Tests for Chronicle
@@ -191,9 +193,9 @@ check_security_headers() {
 header "1. Security Headers — Public endpoint /chronicle/v3/auth/session"
 check_security_headers "auth/session" "${BACKEND_URL}/chronicle/v3/auth/session"
 
-header "1. Security Headers — Protected endpoint /chronicle/v3/studies (with auth)"
+header "1. Security Headers — Protected endpoint /chronicle/v3/study (with auth)"
 if [ -n "${AUTH_TOKEN:-}" ]; then
-    check_security_headers "studies" "${BACKEND_URL}/chronicle/v3/studies" \
+    check_security_headers "studies" "${BACKEND_URL}/chronicle/v3/study" \
         -H "Authorization: Bearer ${AUTH_TOKEN}"
 else
     for h in X-Content-Type-Options X-Frame-Options Content-Type Server-leak HSTS Referrer-Policy; do
@@ -207,8 +209,8 @@ fi
 header "2. Authentication Tests"
 
 # 2a. No auth on protected endpoint → 401
-log "Testing: no auth on /chronicle/v3/studies"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies")
+log "Testing: no auth on /chronicle/v3/study"
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study")
 if [ "$status" = "401" ] || [ "$status" = "403" ]; then
     pass "No auth → $status on protected endpoint"
 elif [ "$status" = "000" ]; then
@@ -239,7 +241,7 @@ if [ -n "${JWT_SECRET:-}" ]; then
     now=$(date +%s)
     exp=$((now + 3600))
     bad_token=$(make_jwt "{\"sub\":\"local-admin\",\"iat\":$now,\"exp\":$exp}" "wrong-secret-definitely-invalid")
-    status=$(http_status "${BACKEND_URL}/chronicle/v3/studies" \
+    status=$(http_status "${BACKEND_URL}/chronicle/v3/study" \
         -H "Authorization: Bearer ${bad_token}")
     if [ "$status" = "401" ] || [ "$status" = "403" ]; then
         pass "Invalid signature → $status (rejected)"
@@ -259,7 +261,7 @@ if [ -n "${JWT_SECRET:-}" ]; then
     iat=$((now - 86400))
     exp=$((now - 3600))  # expired 1 hour ago
     expired_token=$(make_jwt "{\"sub\":\"local-admin\",\"iss\":\"https://localhost/\",\"aud\":\"dummy-client-id\",\"iat\":$iat,\"exp\":$exp}" "$JWT_SECRET")
-    status=$(http_status "${BACKEND_URL}/chronicle/v3/studies" \
+    status=$(http_status "${BACKEND_URL}/chronicle/v3/study" \
         -H "Authorization: Bearer ${expired_token}")
     if [ "$status" = "401" ] || [ "$status" = "403" ]; then
         pass "Expired token → $status (rejected)"
@@ -377,7 +379,7 @@ fi
 
 # 4c. SQL injection in query param
 log "Testing: SQL injection in query param"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies?id=1%20OR%201%3D1")
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study?id=1%20OR%201%3D1")
 if [ "$status" = "500" ]; then
     fail "SQL injection attempt caused server error 500"
 else
@@ -386,7 +388,7 @@ fi
 
 # 4d. SQL injection in path segment
 log "Testing: SQL injection in path segment"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies/1%27%20OR%20%271%27%3D%271")
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study/1%27%20OR%20%271%27%3D%271")
 if [ "$status" = "500" ]; then
     fail "SQL injection in path → server error 500"
 else
@@ -395,7 +397,7 @@ fi
 
 # 4e. XSS in query param — response should not reflect it
 log "Testing: XSS in query param"
-body=$(http_body "${BACKEND_URL}/chronicle/v3/studies?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
+body=$(http_body "${BACKEND_URL}/chronicle/v3/study?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
 if echo "$body" | grep -q '<script>alert(1)</script>'; then
     fail "XSS reflected in response body"
 else
@@ -422,7 +424,7 @@ fi
 
 # 4g. TRACE method → 405 or 404
 log "Testing: TRACE method disabled"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies" -X TRACE)
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study" -X TRACE)
 if [ "$status" = "405" ] || [ "$status" = "404" ] || [ "$status" = "403" ] || [ "$status" = "401" ]; then
     pass "TRACE method → rejected (got $status)"
 elif [ "$status" = "200" ]; then
@@ -446,7 +448,7 @@ fi
 
 # 4i. OPTIONS returns CORS headers or proper response
 log "Testing: OPTIONS method returns proper response"
-hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/studies" -X OPTIONS)
+hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/study" -X OPTIONS)
 status_line=$(echo "$hdrs" | head -1)
 if echo "$status_line" | grep -qE "200|204|405|401"; then
     pass "OPTIONS method → valid response ($status_line)"
@@ -458,8 +460,8 @@ fi
 
 # 4j. Malformed JSON body
 log "Testing: malformed JSON body on POST"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies" \
-    -X POST -H "Content-Type: application/json" \
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study" \
+    -X POST -H "Content-Type: application/json" -H "$(idempotency_key_header)" \
     -H "Authorization: Bearer ${AUTH_TOKEN:-invalid}" \
     -d '{this is not valid json!!!}')
 if [ "$status" = "400" ] || [ "$status" = "401" ] || [ "$status" = "415" ]; then
@@ -477,8 +479,8 @@ log "Testing: oversized request body"
 _oversized_tmp=$(mktemp)
 python3 -c "print('{\"data\":\"' + 'A' * 1048576 + '\"}')" > "$_oversized_tmp" 2>/dev/null || \
     printf '{"data":"%s"}' "$(head -c 1048576 /dev/zero | tr '\0' 'A')" > "$_oversized_tmp"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies" \
-    -X POST -H "Content-Type: application/json" \
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study" \
+    -X POST -H "Content-Type: application/json" -H "$(idempotency_key_header)" \
     -H "Authorization: Bearer ${AUTH_TOKEN:-invalid}" \
     -d @"$_oversized_tmp")
 rm -f "$_oversized_tmp"
@@ -535,7 +537,7 @@ fi
 # Rapid-fire test: send many requests and check for 429
 log "Testing: rapid requests for 429 Too Many Requests"
 got_429=false
-for i in $(seq 1 30); do
+for ((i = 0; i < 30; i++)); do
     s=$(http_status "${BACKEND_URL}/chronicle/v3/auth/session")
     if [ "$s" = "429" ]; then
         got_429=true
@@ -555,7 +557,7 @@ header "6. CORS Tests"
 
 # 6a. Preflight request with Origin header
 log "Testing: CORS preflight with Origin header"
-cors_hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/studies" \
+cors_hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/study" \
     -X OPTIONS \
     -H "Origin: http://evil-site.example.com" \
     -H "Access-Control-Request-Method: GET")
@@ -629,7 +631,7 @@ header "7. Additional Security Checks"
 # 7a. Cache-Control on authenticated responses
 if [ -n "${AUTH_TOKEN:-}" ]; then
     log "Testing: Cache-Control on authenticated response"
-    auth_hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/studies" \
+    auth_hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/study" \
         -H "Authorization: Bearer ${AUTH_TOKEN}")
     cc=$(get_header "$auth_hdrs" "Cache-Control")
     if [ -n "$cc" ]; then
@@ -667,7 +669,7 @@ fi
 
 # 7d. HTTP verb tunneling via X-HTTP-Method-Override blocked
 log "Testing: X-HTTP-Method-Override does not allow verb tunneling"
-status=$(http_status "${BACKEND_URL}/chronicle/v3/studies" \
+status=$(http_status "${BACKEND_URL}/chronicle/v3/study" \
     -X GET \
     -H "X-HTTP-Method-Override: DELETE" \
     -H "Authorization: Bearer ${AUTH_TOKEN:-invalid}")

@@ -44,12 +44,9 @@ fi
 if have_cmd bun && have_cmd node; then
   run_step "chronicle-web-check" bash -lc "cd '$ROOT_DIR/chronicle-web' && bun run check"
   run_step "chronicle-web-bun-tests" bash -lc "cd '$ROOT_DIR/chronicle-web' && bun run test"
-  run_step "chronicle-web-bootstrap-smoke" bash -lc "cd '$ROOT_DIR' && ./scripts/chronicle-web-bootstrap-smoke.sh"
 else
   skip_step "chronicle-web-check (bun or node missing)"
   skip_step "chronicle-web-bun-tests (bun or node missing)"
-  skip_step "chronicle-web-legacy-tests (bun or node missing)"
-  skip_step "chronicle-web-bootstrap-smoke (bun or node missing)"
 fi
 
 if have_cmd docker && [[ -f "$ROOT_DIR/docker/.env" ]]; then

@@ -31,7 +31,8 @@ fi
 
 if [[ -n "$JAVA_BIN" ]]; then
   JAVA_BIN="$(readlink -f "$JAVA_BIN" 2>/dev/null || printf '%s' "$JAVA_BIN")"
-  export JAVA_HOME="$(cd "$(dirname "$JAVA_BIN")/.." && pwd)"
+  JAVA_HOME="$(cd "$(dirname "$JAVA_BIN")/.." && pwd)"
+  export JAVA_HOME
   export PATH="${JAVA_HOME}/bin:${PATH}"
 fi
 
