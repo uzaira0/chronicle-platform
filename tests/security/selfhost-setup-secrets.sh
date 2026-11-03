@@ -28,6 +28,7 @@ FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
 copy_selfhost_setup_fixture "$FIXTURE_SELFHOST"
+write_encrypted_storage_fixture "$COMMAND_DIR"
 
 PASSWORD='fixture-pass-123' # Exactly 16 characters; shared setup/rotation boundary fixture. gitleaks:allow (test fixture)
 GENERATED='fixture-generated-secret-value-abcdefghijklmnopqrstuvwxyz0123456789'
@@ -45,6 +46,10 @@ cat >"${COMMAND_DIR}/docker" <<'EOF'
 set -euo pipefail
 [[ -z "${SELFHOST_SETUP_TEST_PREFLIGHT_CALLS:-}" ]] ||
   printf '%s\n' "$*" >>"${SELFHOST_SETUP_TEST_PREFLIGHT_CALLS}"
+if [[ "$*" == 'info --format {{.DockerRootDir}}' ]]; then
+  printf '%s\n' /fixture/docker
+  exit 0
+fi
 if [[ "${1:-}" == network ]]; then
   [[ "${SELFHOST_SETUP_TEST_NETWORK_QUERY_FAIL:-0}" == 0 ]] || exit 98
   case "${2:-}" in
@@ -62,6 +67,9 @@ if [[ "${1:-}" == ps ]]; then
 fi
 if [[ "${1:-}" == inspect && "$*" == *NetworkSettings.Ports* ]]; then
   printf '%s\n' '{"443/tcp":[{"HostIp":"0.0.0.0","HostPort":"444"}],"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"81"}],"8081/tcp":[{"HostIp":"127.0.0.1","HostPort":"8082"}]}'
+  exit 0
+fi
+if [[ "${1:-}" == volume && "${2:-}" == ls ]]; then
   exit 0
 fi
 if [[ "${1:-}" == compose && "${2:-}" == version ]]; then
@@ -171,10 +179,16 @@ for argument in "$@"; do
   }
 done
 printf '%s\n' "$@" >"${SELFHOST_SETUP_TEST_PYTHON_ARGS}"
-# Records whether setup holds the upgrade lock while it renders .env (the /dev/fd/3 program).
-if [[ -n "${SELFHOST_SETUP_TEST_LOCK_PROBE:-}" && "${1:-}" == /dev/fd/3 ]]; then
-  if [[ -d "${SELFHOST_SETUP_TEST_LOCK_DIR}" ]]; then echo held; else echo free; fi \
-    >"${SELFHOST_SETUP_TEST_LOCK_PROBE}"
+# Records whether setup holds the shared operation lock while the installed setup command renders .env.
+if [[ -n "${SELFHOST_SETUP_TEST_LOCK_PROBE:-}" && "${1:-}" == -m && "${2:-}" == chronicle_ops && "${3:-}" == setup-env ]]; then
+  "${SELFHOST_SETUP_TEST_REAL_PYTHON}" -c '
+import fcntl, os, sys
+try:
+    fcntl.flock(os.open(sys.argv[1], os.O_RDWR), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("held")
+else:
+    print("free")' "${SELFHOST_SETUP_TEST_LOCK_FILE}" >"${SELFHOST_SETUP_TEST_LOCK_PROBE}"
 fi
 exec "${SELFHOST_SETUP_TEST_REAL_PYTHON}" "$@"
 EOF
@@ -189,7 +203,7 @@ EOF
 
 SHORT_SELFHOST="${RUN_DIR}/short-selfhost"
 copy_selfhost_setup_fixture "$SHORT_SELFHOST"
-if printf '1\nchronicle.study-host.org\n\n\n\n\n\n\n\n\n\n\n\n\n123456789012345\n123456789012345\n' |
+if write_selfhost_setup_answers 123456789012345 |
     env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
       SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
@@ -205,17 +219,7 @@ if ! (
   # Deliberately remove the caller's protection. The operator script itself must set its
   # private umask before the first generated secret or sibling publication file is created.
   umask 000
-  {
-    printf '1\n'                         # behind an institutional proxy
-    printf 'chronicle.study-host.org\n'    # hostname
-    printf '\n'                          # loopback proxy bind
-    printf '\n'                          # loopback dashboard bind
-    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
-    printf '%s\n' "$PASSWORD"
-    printf '%s\n' "$PASSWORD"
-    printf '\n'                          # public per-device-key flow; no legacy shared HMAC
-    printf 'n\n'                         # monitoring off for the focused fixture
-  } | PATH="${COMMAND_DIR}:${PATH}" \
+  write_selfhost_setup_answers "$PASSWORD" | PATH="${COMMAND_DIR}:${PATH}" \
       SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
       SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
@@ -228,11 +232,11 @@ if ! (
   fail "interactive setup fixture failed"
 fi
 
-if ! PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" - "$FIXTURE_SELFHOST" <<'PY_SANS'
+if ! PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" -s - "$FIXTURE_SELFHOST" <<'PY_SANS'
 import ipaddress, sys
 from pathlib import Path
 from urllib.parse import urlsplit
-from chronicle_ops.release import read_env,value
+from chronicle_ops.envfile import read_env,value
 settings=read_env(Path(sys.argv[1])/'.env')
 sans=value(settings,'INTERNAL_CERT_SANS').split(',')
 assert all(sans), 'fresh setup generated an empty INTERNAL_CERT_SANS entry'
@@ -283,6 +287,7 @@ assert not subnet.overlaps(ipaddress.ip_network("10.253.0.128/25"))
 
 for key in (
     "POSTGRES_PASSWORD",
+    "POSTGRES_APP_PASSWORD",
     "JWT_SECRET",
     "METRICS_PASSWORD",
     "CHRONICLE_INTERNAL_WEB_SECRET",
@@ -291,14 +296,8 @@ for key in (
     value = values.get(key, "")
     if not value or "CHANGE_ME" in value:
         raise SystemExit(f"setup did not generate {key}")
-if values.get("MOBILE_SIGNING_ENABLED") != "false":
-    raise SystemExit("setup did not default legacy mobile signing off")
-if values.get("MOBILE_SIGNING_REQUIRED") != "false":
-    raise SystemExit("setup did not default legacy mobile signing enforcement off")
-if values.get("MOBILE_SIGNING_SECRET"):
-    raise SystemExit("public-client setup generated an unnecessary deployment-wide mobile key")
-if values.get("MOBILE_SIGNING_SECRET_PREVIOUS"):
-    raise SystemExit("public-client setup retained an unnecessary previous mobile key")
+if any(key.startswith("MOBILE_SIGNING_") for key in values):
+    raise SystemExit("setup retained deployment-wide mobile signing configuration")
 if values.get("HTTP_PORT") != "8080":
     raise SystemExit("setup changed the reviewed pool port")
 if values.get("INTERNAL_PORT") != "8082":
@@ -313,8 +312,6 @@ if not values.get("DASHBOARD_PASSWORD_HASH", "").startswith("'$2"):
     raise SystemExit("setup did not store a single-quoted bcrypt hash")
 PY
 
-grep -Fq 'Legacy shared-HMAC compatibility is disabled; no deployment-wide mobile key was generated.' "$OUTPUT" \
-  || fail "setup did not explain the public per-device-key default"
 grep -Fq 'Docker network range 10.253.1.0/24 is free; using that for CHRONICLE_SUBNET.' "$OUTPUT" \
   || fail "setup did not explain its selected subnet"
 bash "${FIXTURE_SELFHOST}/guard-config.sh" --validate-compose-subnet 10.253.1.0/24 10.253.1.0/24 \
@@ -324,16 +321,7 @@ bash "${FIXTURE_SELFHOST}/guard-config.sh" --validate-compose-subnet 10.253.1.0/
 resetup_proxy() { # <output> [extra env assignments...]
   local output="$1"
   shift
-  {
-    printf 'y\n'                         # overwrite the existing .env
-    printf '1\n'                         # behind an institutional proxy
-    printf 'chronicle.study-host.org\n'    # hostname
-    printf '\n'                          # loopback proxy bind
-    printf '\n'                          # loopback dashboard bind
-    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
-    printf '\n'                          # public per-device-key flow
-    printf 'n\n'                         # monitoring off
-  } | env PATH="${COMMAND_DIR}:${PATH}" \
+  write_selfhost_setup_answers "$PASSWORD" true true --keep-retention | env PATH="${COMMAND_DIR}:${PATH}" \
       SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
       SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
@@ -343,10 +331,10 @@ resetup_proxy() { # <output> [extra env assignments...]
 }
 
 # Unasked production controls and the canonical alias survive a real blank-answer rerun.
-PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" - "$FIXTURE_SELFHOST" <<'PY_PRESERVE'
+PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" -s - "$FIXTURE_SELFHOST" <<'PY_PRESERVE'
 import shlex, sys
 from pathlib import Path
-from chronicle_ops.release import read_env
+from chronicle_ops.envfile import read_env
 path=Path(sys.argv[1])/'.env'
 settings=read_env(path)
 changed={'POSTGRES_DB':'customdb','POSTGRES_USER':'customuser','CHRONICLE_PUBLIC_BASE_URL':'https://alias.study-host.org:8443',
@@ -364,10 +352,10 @@ grep -Fqx 'COMPOSE_PROJECT_NAME=pilot-study' "${FIXTURE_SELFHOST}/.env" \
 grep -Fqx 'CHRONICLE_SUBNET=10.253.99.0/24' "${FIXTURE_SELFHOST}/.env" \
   || fail "re-setup moved the existing deployment's subnet"
 
-PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" - "$FIXTURE_SELFHOST" <<'PY_PRESERVE'
+PYTHONPATH="$FIXTURE_SELFHOST" "$REAL_PYTHON" -s - "$FIXTURE_SELFHOST" <<'PY_PRESERVE'
 import sys
 from pathlib import Path
-from chronicle_ops.release import read_env,value
+from chronicle_ops.envfile import read_env,value
 settings=read_env(Path(sys.argv[1])/'.env')
 for key,wanted in {'POSTGRES_DB':'customdb','POSTGRES_USER':'customuser','CHRONICLE_PUBLIC_BASE_URL':'https://alias.study-host.org:8443',
                    'DASHBOARD_ALLOWED_IPS':'10.242.0.0/24 fd42:242::/64','SMTP_HOST':'smtp.example.org','BACKUP_KEEP_DAYS':'3',
@@ -379,7 +367,8 @@ PY_PRESERVE
 echo 'PASS: production re-setup preserves database, ACL, SAN, SMTP, retention and public alias'
 
 # Up checks the rendered subnet before starting config-guard or any other container.
-sed -i -E 's~^(BACKEND_IMAGE|SELFHOST_FRONTEND_IMAGE|CADDY_IMAGE)=.*~\1=fixture/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~' \
+image_keys="$(selfhost_python -c 'from chronicle_ops.images import SOURCE_IMAGES; print("|".join(image.variable for image in SOURCE_IMAGES))')"
+sed -i -E "s~^(${image_keys})=.*~\1=fixture/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~" \
   "${FIXTURE_SELFHOST}/.env"
 if env PATH="${COMMAND_DIR}:${PATH}" \
     SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
@@ -391,8 +380,11 @@ if env PATH="${COMMAND_DIR}:${PATH}" \
     /bin/bash "${FIXTURE_SELFHOST}/chronicle" up >"${RUN_DIR}/subnet-preflight-output.txt" 2>&1; then
   fail "up accepted a subnet held by another Docker network"
 fi
-grep -Fq 'CHRONICLE_SUBNET 172.28.0.0/16 overlaps Docker network other_default (172.28.0.0/16); set CHRONICLE_SUBNET in .env to a free private range' \
-  "${RUN_DIR}/subnet-preflight-output.txt" || fail "up did not name the conflict and its remedy"
+if ! grep -Fq 'CHRONICLE_SUBNET 172.28.0.0/16 overlaps Docker network other_default (172.28.0.0/16); set CHRONICLE_SUBNET in .env to a free private range' \
+    "${RUN_DIR}/subnet-preflight-output.txt"; then
+  cat "${RUN_DIR}/subnet-preflight-output.txt" >&2
+  fail "up did not name the conflict and its remedy"
+fi
 ! grep -Eq '(^| )(run|up)( |$)' "${RUN_DIR}/preflight-calls" \
   || fail "up started a container before rejecting the subnet conflict"
 printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
@@ -410,10 +402,12 @@ echo "PASS: subnet selection, rerun preservation, and pre-start overlap rejectio
 # read before another operation changed .env under it.
 /bin/cp "${FIXTURE_SELFHOST}/.env" "${RUN_DIR}/env-before-locked-setup"
 /bin/mkdir "${FIXTURE_SELFHOST}/.chronicle-secret-rotation"
+printf 'prepared\n' >"${FIXTURE_SELFHOST}/.chronicle-secret-rotation/phase"
 ! resetup_proxy "${RUN_DIR}/setup-locked-output.txt" || fail "setup ran while a secret rotation was active"
 grep -Fq 'incomplete operation at' "${RUN_DIR}/setup-locked-output.txt" \
   || fail "setup did not explain the rotation interlock"
 cmp -s "${FIXTURE_SELFHOST}/.env" "${RUN_DIR}/env-before-locked-setup" || fail "locked setup changed .env"
+/bin/rm -f "${FIXTURE_SELFHOST}/.chronicle-secret-rotation/phase"
 /bin/rmdir "${FIXTURE_SELFHOST}/.chronicle-secret-rotation"
 ! resetup_proxy "${RUN_DIR}/setup-race-output.txt" \
   SELFHOST_SETUP_TEST_MUTATE_ENV="${FIXTURE_SELFHOST}/.env" || fail "setup overwrote a concurrent .env change"
@@ -421,14 +415,16 @@ grep -Fq '.env changed while setup was running' "${RUN_DIR}/setup-race-output.tx
   || fail "setup did not explain the concurrent .env change"
 grep -Fqx 'POSTGRES_PASSWORD=rotated-while-setup-waited' "${FIXTURE_SELFHOST}/.env" \
   || fail "setup discarded a value changed while it waited"
-# The final check and the .env write happen under upgrade's lock, which rotation honors.
+# The final check and the .env write happen under the operation lock that rotation, restore and update hold.
 resetup_proxy "${RUN_DIR}/setup-lock-output.txt" SELFHOST_SETUP_TEST_LOCK_PROBE="${RUN_DIR}/lock-probe" \
-  SELFHOST_SETUP_TEST_LOCK_DIR="${FIXTURE_SELFHOST}/.chronicle-upgrade.lock" \
+  SELFHOST_SETUP_TEST_LOCK_FILE="${FIXTURE_SELFHOST}/.reconcile.lock" \
   || fail "setup failed with the lock probe"
-[[ "$(cat "${RUN_DIR}/lock-probe")" == held ]] || fail "setup wrote .env without holding the upgrade lock"
-[[ ! -e "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock" ]] || fail "setup left the upgrade lock behind"
+[[ "$(cat "${RUN_DIR}/lock-probe")" == held ]] || fail "setup wrote .env without holding the operation lock"
+[[ ! -e "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock" ]] || fail "setup left an upgrade marker behind"
 /bin/mkdir "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock"
+printf '{}\n' >"${FIXTURE_SELFHOST}/.chronicle-upgrade.lock/recovery.json"
 ! resetup_proxy "${RUN_DIR}/setup-upgrade-locked.txt" || fail "setup ran while an upgrade lock was held"
+/bin/rm -f "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock/recovery.json"
 /bin/rmdir "${FIXTURE_SELFHOST}/.chronicle-upgrade.lock"
 
 FIXTURE_LOCAL_SELFHOST="${RUN_DIR}/selfhost-local"
@@ -437,14 +433,8 @@ copy_selfhost_setup_fixture "$FIXTURE_LOCAL_SELFHOST"
 LOCAL_OUTPUT="${RUN_DIR}/setup-local-output.txt"
 if ! (
   umask 000
-  {
-    printf '3\n'                         # local HTTPS trial
-    printf '192.168.50.10\n'             # exact address exposed by fake ifconfig
-    printf '%s\n' "$PASSWORD"
-    printf '%s\n' "$PASSWORD"
-    printf '\n'                          # public per-device-key flow
-    printf 'n\n'                         # monitoring off
-  } | PATH="${COMMAND_DIR}:${PATH}" \
+  write_selfhost_setup_answers "$PASSWORD" false false --mode 3 --public-host 192.168.50.10 |
+    PATH="${COMMAND_DIR}:${PATH}" \
       SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
       SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
@@ -479,7 +469,7 @@ grep -Fq 'Trial HTTPS/CA ports 444 and 81 are free; using those.' "$LOCAL_OUTPUT
   || fail "local setup did not explain its selected fallback ports"
 
 trial_project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${FIXTURE_LOCAL_SELFHOST}/.env")
-if ! printf 'y\n3\n192.168.50.10\n\nn\n' |
+if ! write_selfhost_setup_answers "$PASSWORD" true true --mode 3 --public-host '' |
     env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
       SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
@@ -495,16 +485,7 @@ done
 # a production .env: guard-config rejects it and names a variable setup never asked about.
 RESETUP_OUTPUT="${RUN_DIR}/setup-resetup-output.txt"
 if ! (
-  {
-    printf 'y\n'                         # overwrite the trial .env
-    printf '1\n'                         # behind an institutional proxy
-    printf 'chronicle.study-host.org\n'    # hostname
-    printf '\n'                          # loopback proxy bind
-    printf '\n'                          # loopback dashboard bind
-    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
-    printf '\n'                          # public per-device-key flow
-    printf 'n\n'                         # monitoring off
-  } | PATH="${COMMAND_DIR}:${PATH}" \
+  write_selfhost_setup_answers "$PASSWORD" true true | PATH="${COMMAND_DIR}:${PATH}" \
       SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
       SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
@@ -517,54 +498,6 @@ fi
 ! grep -Eq "^CHRONICLE_PUBLIC_BASE_URL=.*192\.168\.50\.10" "${FIXTURE_LOCAL_SELFHOST}/.env" \
   || fail "re-setup into production kept the trial's private-address CHRONICLE_PUBLIC_BASE_URL"
 
-FIXTURE_LEGACY_SELFHOST="${RUN_DIR}/selfhost-legacy"
-/bin/mkdir -p "$FIXTURE_LEGACY_SELFHOST"
-copy_selfhost_setup_fixture "$FIXTURE_LEGACY_SELFHOST"
-LEGACY_OUTPUT="${RUN_DIR}/setup-legacy-output.txt"
-if ! (
-  umask 000
-  {
-    printf '1\n'                         # behind an institutional proxy
-    printf 'legacy.study-host.org\n'       # hostname
-    printf '\n'                          # loopback proxy bind
-    printf '\n'                          # loopback dashboard bind
-    printf '\n%.0s' {1..10}              # saved/default public, LB and researcher settings
-    printf '%s\n' "$PASSWORD"
-    printf '%s\n' "$PASSWORD"
-    printf 'y\n'                         # explicit controlled-legacy opt-in
-    printf 'n\n'                         # monitoring off for the focused fixture
-  } | PATH="${COMMAND_DIR}:${PATH}" \
-      SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
-      SELFHOST_SETUP_TEST_GENERATED="$GENERATED" \
-      SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
-      SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" \
-      SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
-      /bin/bash "${FIXTURE_LEGACY_SELFHOST}/chronicle" setup >"$LEGACY_OUTPUT" 2>&1
-); then
-  fail "explicit legacy compatibility setup fixture failed"
-fi
-
-python3 - "${FIXTURE_LEGACY_SELFHOST}/.env" "$GENERATED" <<'PY'
-from pathlib import Path
-import sys
-
-values = {}
-for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
-    if "=" in line:
-        key, value = line.split("=", 1)
-        values[key] = value
-if values.get("MOBILE_SIGNING_ENABLED") != "true":
-    raise SystemExit("explicit legacy opt-in did not enable mobile HMAC")
-if values.get("MOBILE_SIGNING_REQUIRED") != "true":
-    raise SystemExit("explicit legacy opt-in did not require mobile HMAC")
-if values.get("MOBILE_SIGNING_SECRET") != sys.argv[2]:
-    raise SystemExit("explicit legacy opt-in did not generate its protected compatibility key")
-if values.get("MOBILE_SIGNING_SECRET_PREVIOUS"):
-    raise SystemExit("fresh legacy opt-in unexpectedly created a previous-key overlap")
-PY
-grep -Fq 'Controlled legacy HMAC compatibility is enabled' "$LEGACY_OUTPUT" \
-  || fail "explicit legacy setup did not explain the controlled compatibility boundary"
-
 echo "self-host setup secret-custody test passed"
 
 # Optional delivery destination is collected silently and only HTTPS is accepted.
@@ -574,8 +507,8 @@ for scheme in https http; do
   copy_selfhost_setup_fixture "$alert_selfhost"
   alert_output="${RUN_DIR}/alerts-${scheme}.log"
   alert_status=0
-  printf '1\nchronicle.study-host.org\n\n\n\n\n\n\n\n\n\n\n\n\n%s\n%s\n\ny\n\n\n\n%s\n' \
-    "$PASSWORD" "$PASSWORD" "${webhook/https:/$scheme:}" |
+  write_selfhost_setup_answers "$PASSWORD" false false --monitoring \
+    --alert-webhook "${webhook/https:/$scheme:}" |
     env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
       SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
@@ -588,6 +521,8 @@ for scheme in https http; do
   else
     [[ "$alert_status" != 0 ]] || fail 'setup accepted an HTTP alert destination'
     [[ ! -e "$alert_selfhost/.env" ]] || fail 'invalid destination was published'
+    grep -Fq 'error: alert webhook must be an HTTPS URL' "$alert_output" || fail 'launcher lost the uniform CLI error'
+    grep -Fq 'could not render .env' "$alert_output" || fail 'launcher lost the setup failure context'
   fi
 done
 echo 'PASS: optional HTTPS alert destination is private and validated before publication'

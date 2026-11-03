@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "$ROOT_DIR/tests/security/lib/selfhost-fixtures.sh"
 RUN_PARENT="${SELFHOST_VERIFY_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-verify-secrets}"
 REAL_PYTHON="$(command -v python3)"
 
@@ -26,8 +27,7 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 FIXTURE_SELFHOST="${RUN_DIR}/selfhost"
 COMMAND_DIR="${RUN_DIR}/commands"
 /bin/mkdir -p "$FIXTURE_SELFHOST" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "${ROOT_DIR}/selfhost/network-policy.sh" "$FIXTURE_SELFHOST/"
-/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$FIXTURE_SELFHOST/"
+copy_selfhost_setup_fixture "$FIXTURE_SELFHOST"
 /bin/chmod 0755 "${FIXTURE_SELFHOST}/chronicle"
 
 # Assert the surviving aggregate zones and their Compose environment transport.
@@ -52,15 +52,7 @@ printf '%s' "$PASSWORD" >"$PASSWORD_FILE"
 printf '%s' "$POSTGRES_SECRET" >"$POSTGRES_PASSWORD_FILE"
 /bin/chmod 0600 "$PASSWORD_FILE" "$POSTGRES_PASSWORD_FILE"
 
-cat >"${COMMAND_DIR}/findmnt" <<'EOF'
-#!/usr/bin/env bash
-printf '/dev/mapper/fixture-encrypted\n'
-EOF
-cat >"${COMMAND_DIR}/lsblk" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' '{"blockdevices":[{"type":"crypt","children":[{"type":"disk"}]}]}'
-EOF
-chmod 0755 "${COMMAND_DIR}/findmnt" "${COMMAND_DIR}/lsblk"
+write_encrypted_storage_fixture "$COMMAND_DIR"
 cat >"${FIXTURE_SELFHOST}/.env" <<'EOF'
 DOMAIN=chronicle.example.test
 COMPOSE_PROJECT_NAME=chronicle-selfhost-verify-fixture
@@ -90,7 +82,7 @@ EOF
 /bin/mkdir -p "${FIXTURE_SELFHOST}/backups/keyring" "${FIXTURE_SELFHOST}/backups/last"
 /bin/chmod 0700 "${FIXTURE_SELFHOST}/backups"
 printf 'fixture-keyring\n' >"${FIXTURE_SELFHOST}/backups/keyring/chronicle-keyring.per"
-printf '%s\n' '-- PostgreSQL database dump' '\restrict fixture' 'SELECT 1;' \
+printf '%s\n' '-- PostgreSQL database dump' '\restrict fixture' 'SET statement_timeout = 0;' \
   '\unrestrict fixture' '-- PostgreSQL database dump complete' |
   gzip -c >"${FIXTURE_SELFHOST}/backups/last/chronicle.sql.gz"
 
@@ -131,7 +123,7 @@ for argument in "$@"; do
     write_format="$argument"
   fi
   if [[ "$previous" == -H || "$previous" == --header ]]; then
-    [[ "$argument" != 'X-Chronicle-Device-Id: selfhost-verifier' ]] || device_header=true
+    [[ "$argument" != 'X-Chronicle-Random-Device-Id: selfhost-verifier' ]] || device_header=true
   fi
   if [[ "$previous" == --data || "$previous" == --data-raw || "$previous" == -d ]]; then
     request_body="$argument"
@@ -170,6 +162,7 @@ if [[ "$read_config" == true || "$read_config_fd" == true ]]; then
       [[ -z "$request_config" && "$*" == *--cookie* ]] || exit 98
       printf '%s\n' session-cookie >>"${SELFHOST_VERIFY_TEST_AUTH_MARKERS}"
       ;;
+    https://chronicle.example.test/chronicle/v4/study/*/participant/smoke-*) : ;;
     *) exit 97 ;;
   esac
 fi
@@ -179,6 +172,17 @@ if [[ "$head_request" == true ]]; then
   exit 0
 fi
 
+if [[ "$url" == *'/participant/smoke-'* ]]; then
+  "$SELFHOST_VERIFY_TEST_REAL_PYTHON" - "$SELFHOST_VERIFY_TEST_CANARY_FILE" "$url" <<'PY_CANARY_RESPONSE'
+import json
+import sys
+recipe = json.load(open(sys.argv[1]))
+name = next(name for name in ('enrollment', 'collection_ack', 'upload') if recipe[name]['url'] == sys.argv[2])
+print(json.dumps({'apiKey': recipe['credential']} if name == 'enrollment' else len(recipe[name]['body'])))
+print(200)
+PY_CANARY_RESPONSE
+  exit
+fi
 code=404
 effective_url="$url"
 case "$url" in
@@ -208,7 +212,7 @@ case "$url" in
     code=200
     effective_url=https://chronicle.example.test/chronicle/reviewer
     ;;
-  https://chronicle.example.test/chronicle/v4/study/x/upload)
+  https://chronicle.example.test/chronicle/v4/study/x/participant/x/enrollment-preview)
     count=0
     [[ ! -f "${SELFHOST_VERIFY_TEST_UPLOAD_COUNT}" ]] || count="$(cat "${SELFHOST_VERIFY_TEST_UPLOAD_COUNT}")"
     count=$((count + 1))
@@ -223,15 +227,15 @@ case "$url" in
     # The first call is the ordinary reachability probe. The later rate-limit proof only
     # receives 429 when it creates a real concurrent burst; a sequential loop is too slow
     # to exceed the edge's one-second window on a normal TLS listener.
-    if (( count == 1 || active_count < 2 )); then code=401; else code=429; fi
+    if (( active_count < 2 )); then code=401; else code=429; fi
     ;;
   https://chronicle.example.test/chronicle/study/x)
-    code=401
+    code=404
     ;;
   https://chronicle.example.test/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/reviewer/enroll)
     [[ "$device_header" == true ]] || exit 109
     [[ "$request_body" == *'"@class":"com.openlattice.chronicle.sources.AndroidDevice"'* ]] || exit 110
-    [[ "$request_body" == *'"deviceId":"selfhost-verifier"'* ]] || exit 111
+    [[ "$request_body" == *'"randomDeviceId":"selfhost-verifier"'* ]] || exit 111
     code=401
     ;;
   https://127.0.0.1:18081/health)
@@ -291,12 +295,18 @@ done
 if [[ "$*" == *'exec -T backend grep -qF'*'/server/rendered-config/cors.yaml'* ]]; then
   exit 0
 fi
-if [[ "${1:-}" == exec && "${2:-}" == "$SELFHOST_VERIFY_TEST_POSTGRES_CONTAINER_ID" &&
-      "$*" == *'has_table_privilege('* ]]; then
+# postgres_sql sends its query on stdin, never in argv.
+if [[ "${1:-}" == exec && "${2:-}" == -i && "${3:-}" == "$SELFHOST_VERIFY_TEST_POSTGRES_CONTAINER_ID" ]]; then
+  [[ "$(cat)" == *'has_table_privilege('* ]] || exit 120
   printf 't\n'
   exit 0
 fi
 
+if [[ "${1:-}" == ps || "${1:-} ${2:-}" == 'volume ls' ]]; then exit 0; fi
+if [[ "$*" == 'info --format {{.DockerRootDir}}' ]]; then
+  printf '%s\n' /fixture/docker
+  exit 0
+fi
 [[ "${1:-}" == compose ]] || exit 103
 shift
 [[ "${1:-}" == -p ]] || exit 104
@@ -319,6 +329,16 @@ else
 fi
 EOF
 /bin/chmod 0755 "${COMMAND_DIR}/docker"
+
+canary_setting=$(selfhost_python -c 'from chronicle_ops.mobile_canary import CANARY_FILE_SETTING; print(CANARY_FILE_SETTING)')
+canary_file=$(selfhost_python - "$RUN_DIR" <<'PY_CANARY_FIXTURE'
+from selfhost_fixture import mobile_canary_fixture
+import sys
+print(mobile_canary_fixture(sys.argv[1], 'https://chronicle.example.test').path)
+PY_CANARY_FIXTURE
+)
+export "$canary_setting=$canary_file"
+export SELFHOST_VERIFY_TEST_CANARY_FILE="$canary_file"
 
 OUTPUT="${RUN_DIR}/verify-output.txt"
 set +e

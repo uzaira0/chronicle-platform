@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'rand -hex 32' ]] || exit 81
+cat "${SELFHOST_ROTATION_TEST_GENERATED_FILE}"
+printf '\n'

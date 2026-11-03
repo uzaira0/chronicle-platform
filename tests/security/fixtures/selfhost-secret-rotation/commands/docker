@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+for key in DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD POSTGRES_APP_PASSWORD MOBILE_SIGNING_SECRET \
+  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET \
+  CHRONICLE_REVIEWER_ACCESS_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD OIDC_CLIENT_SECRET; do
+  [[ -z "${!key+x}" ]] || {
+    echo "secret ${key} reached Docker environment" >&2
+    exit 83
+  }
+done
+
+old_postgres="$(cat "${SELFHOST_ROTATION_TEST_OLD_POSTGRES_FILE}")"
+generated="$(cat "${SELFHOST_ROTATION_TEST_GENERATED_FILE}")"
+dashboard="$(cat "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}")"
+for argument in "$@"; do
+  for secret in "$old_postgres" "$generated" "$dashboard"; do
+    [[ "$argument" != *"$secret"* ]] || {
+      echo "secret reached Docker argv" >&2
+      exit 84
+    }
+  done
+  printf 'docker:%s\n' "$argument" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+done
+
+if [[ "${1:-}" == inspect ]]; then
+  printf 'true\n'
+  exit 0
+fi
+
+if [[ "${1:-}" == run ]]; then
+  plaintext="$(cat)"
+  [[ "$plaintext" == "$dashboard" ]] || exit 85
+  cat "${SELFHOST_ROTATION_TEST_BCRYPT_FILE}"
+  printf '\n'
+  exit 0
+fi
+
+[[ "${1:-}" == compose ]] || exit 86
+shift
+if [[ "${1:-}" == version ]]; then exit 0; fi
+if [[ "${1:-}" == -p ]]; then shift 2; fi
+record_monitoring() {
+  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" - "${SELFHOST_ROTATION_TEST_MONITORING_LOG}" "$@" <<'PYTHON'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+values = dict(line.split("=", 1) for line in Path(".env").read_text().splitlines() if "=" in line)
+credential = values["METRICS_PASSWORD"].strip("'\"")
+with Path(sys.argv[1]).open("a") as output:
+    output.write(json.dumps({"args": sys.argv[2:], "credentialHash": hashlib.sha256(credential.encode()).hexdigest()}) + "\n")
+PYTHON
+}
+case "${1:-}" in
+  ls) printf '[]\n' ;;
+  config)
+    [[ "${2:-}" == --services ]] || exit 91
+    printf '%s\n' postgres backend web db-backup victoriametrics ca-export
+    ;;
+  ps)
+    service="${!#}"
+    printf 'fixture-%s\n' "$service"
+    ;;
+  up)
+    if [[ -n "${SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE:-}" && \
+          ! -e "${SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE}" ]]; then
+      : >"${SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE}"
+      exit 87
+    fi
+    record_monitoring "$@"
+    printf 'compose-up:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    ;;
+  exec)
+    printf 'compose-exec:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    if [[ "$*" == *'pg_dump'* ]]; then
+      if [[ "${SELFHOST_ROTATION_TEST_PG_DUMP_FAIL:-false}" == true ]]; then
+        printf '%s\n' '-- truncated fixture SQL dump'
+        exit 98
+      fi
+      printf '%s\n' '-- fixture SQL dump'
+      exit 0
+    fi
+    if [[ "$*" == *'grafana wget'*'/api/v1/targets'* ]]; then
+      record_monitoring "$@"
+      printf '%s\n' '{"status":"success","data":{"activeTargets":[{"labels":{"job":"chronicle-backend"},"health":"up"}]}}'
+      exit 0
+    fi
+    if [[ "$*" == *'FROM study_participants'* ]]; then
+      # reviewer_scope_state: the scope arrives on stdin, the password from the container env.
+      IFS= read -r study_id; IFS= read -r participant_id
+      [[ "$study_id" == 00000000-0000-0000-0000-000000000001 && "$participant_id" == play-reviewer ]] || exit 91
+      printf 'ok\n'
+      exit 0
+    fi
+    IFS= read -r -d '' auth_password || exit 88
+    sql="$(cat)"
+    database_password_file="${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
+    if [[ "${!#}" == chronicle_app ]]; then
+      database_password_file="${SELFHOST_ROTATION_TEST_DB_APP_PASSWORD_FILE:?}"
+    fi
+    current="$(cat "$database_password_file")"
+    [[ "$auth_password" == "$current" ]] || exit 89
+    if [[ "$sql" == *'ALTER ROLE chronicle_app'* ]]; then
+      old_app="$(cat "${SELFHOST_ROTATION_TEST_OLD_POSTGRES_APP_FILE:?}")"
+      if [[ "$sql" == *"'$generated'"* ]]; then
+        printf '%s' "$generated" >"${SELFHOST_ROTATION_TEST_DB_APP_PASSWORD_FILE}"
+        [[ "${SELFHOST_ROTATION_TEST_LOSE_ALTER_ACK:-false}" != true ]] || exit 99
+      elif [[ "$sql" == *"'$old_app'"* ]]; then
+        printf '%s' "$old_app" >"${SELFHOST_ROTATION_TEST_DB_APP_PASSWORD_FILE}"
+      else
+        exit 90
+      fi
+    elif [[ "$sql" == *'ALTER ROLE CURRENT_USER'* ]]; then
+      if [[ "$sql" == *"'$generated'"* ]]; then
+        printf '%s' "$generated" >"${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
+        # Committed, but the acknowledgement is lost on the way back.
+        [[ "${SELFHOST_ROTATION_TEST_LOSE_ALTER_ACK:-false}" != true ]] || exit 99
+      elif [[ "$sql" == *"'$old_postgres'"* ]]; then
+        printf '%s' "$old_postgres" >"${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
+      else
+        exit 90
+      fi
+    elif [[ "$sql" == *'REVOKE_ALL_BEFORE'* ]]; then
+      printf '%s' "$sql" >"${SELFHOST_ROTATION_TEST_ARGS_LOG%/*}/session-cutoff.sql"
+      printf 'session-cutoff\n' >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    elif [[ "$sql" == *'SELECT 1;'* ]]; then
+      printf '1\n'
+    elif [[ "$sql" == *"count(*) FILTER (WHERE a.amname <> 'tde_heap')"* ]]; then
+      printf '0|7\n'
+    elif [[ "$sql" == *'pg_tde_set_key_using_database_key_provider'* ]]; then
+      key="$(printf '%s' "$sql" | sed -n \
+        "s/.*pg_tde_set_key_using_database_key_provider('\([^']*\)', 'chronicle_keyring').*/\1/p" | tail -1)"
+      [[ -n "$key" ]] || exit 96
+      printf '%s|chronicle_keyring' "$key" >"${SELFHOST_ROTATION_TEST_TDE_STATE_FILE}"
+    elif [[ "$sql" == *"key_name || '|' || provider_name"* ]]; then
+      cat "${SELFHOST_ROTATION_TEST_TDE_STATE_FILE}"
+      printf '\n'
+    fi
+    ;;
+  run)
+    if [[ "$*" == *'--rm --no-deps ca-export'* ]]; then
+      printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    elif [[ "$*" == *'--rm --no-deps monitoring-config'* ]]; then
+      record_monitoring "$@"
+      printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+    elif [[ "$*" == *'--rm --no-deps db-init'* ]]; then
+      /bin/mkdir -p "$(dirname "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}")"
+      printf 'fixture-current-live-keyring\n' >"${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
+      /bin/chmod 0600 "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
+    else
+      exit 97
+    fi
+    ;;
+  *) exit 91 ;;
+esac

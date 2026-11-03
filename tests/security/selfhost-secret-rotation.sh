@@ -2,23 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "$ROOT_DIR/tests/security/lib/selfhost-fixtures.sh"
 RUN_PARENT="${SELFHOST_ROTATION_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-secret-rotation}"
 REAL_PYTHON="$(command -v python3)"
+OLD_POSTGRES_APP="$(selfhost_python -c 'from selfhost_fixture import FIXTURE_POSTGRES_APP_PASSWORD; print(FIXTURE_POSTGRES_APP_PASSWORD)')"
 
 fail() {
   echo "self-host secret-rotation test failed: $*" >&2
   exit 1
 }
-
-! grep -Eq 'CREATE[[:space:]]+TABLE' "${ROOT_DIR}/selfhost/rotate-secret.sh" \
-  || fail "rotate-secret.sh must not create schema outside Flyway"
-TRACKING_SERVICE="${ROOT_DIR}/chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/security/SecretRotationService.kt"
-! grep -Eq 'CREATE[[:space:]]+TABLE' "$TRACKING_SERVICE" \
-  || fail "SecretRotationService must not create schema outside Flyway"
-TRACKING_MIGRATION="${ROOT_DIR}/chronicle-server/src/main/resources/db/migration/V83__own_secret_rotation_tracking.sql"
-[[ -f "$TRACKING_MIGRATION" ]] || fail "secret-rotation tracking migration is missing"
-grep -Fq 'CREATE TABLE IF NOT EXISTS secret_rotation_tracking' "$TRACKING_MIGRATION" \
-  || fail "Flyway migration does not own secret-rotation tracking"
 
 [[ "$RUN_PARENT" == /* ]] || fail "test run parent must be absolute"
 case "$RUN_PARENT" in
@@ -34,7 +26,6 @@ RUN_DIR="$(/usr/bin/mktemp -d "${RUN_PARENT}/run.XXXXXX")"
 trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 
 OLD_POSTGRES='fixture-old-postgres-password-0123456789'
-OLD_MOBILE='fixture-old-mobile-signing-secret-0123456789'
 OLD_JWT='fixture-old-jwt-signing-secret-0123456789'
 OLD_METRICS='fixture-old-metrics-password-0123456789'
 OLD_INTERNAL='fixture-old-internal-web-secret-0123456789'
@@ -66,8 +57,7 @@ setup_case() {
   FAIL_FIRST_UP_FILE="${CASE_DIR}/fail-first-up"
   KEYRING_BACKUP_FILE="${SELFHOST_DIR}/backups/keyring/chronicle-keyring.per"
   /bin/mkdir -p "$SELFHOST_DIR" "$COMMAND_DIR"
-  /bin/cp "${ROOT_DIR}/selfhost/rotate-secret.sh" "${ROOT_DIR}/selfhost/network-policy.sh" "$SELFHOST_DIR/"
-  /bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$SELFHOST_DIR/"
+  copy_selfhost_setup_fixture "$SELFHOST_DIR"
   /bin/chmod 0755 "${SELFHOST_DIR}/rotate-secret.sh"
   cat >"${SELFHOST_DIR}/chronicle" <<'EOF'
 #!/usr/bin/env bash
@@ -99,10 +89,7 @@ DASHBOARD_PASSWORD_HASH='$BCRYPT'
 POSTGRES_USER=chronicle
 POSTGRES_DB=chronicle
 POSTGRES_PASSWORD='$OLD_POSTGRES'
-MOBILE_SIGNING_ENABLED=true
-MOBILE_SIGNING_REQUIRED=true
-MOBILE_SIGNING_SECRET='$OLD_MOBILE'
-MOBILE_SIGNING_SECRET_PREVIOUS=
+POSTGRES_APP_PASSWORD='$OLD_POSTGRES_APP'
 JWT_SECRET='$OLD_JWT'
 METRICS_PASSWORD='$OLD_METRICS'
 CHRONICLE_INTERNAL_WEB_SECRET='$OLD_INTERNAL'
@@ -118,246 +105,7 @@ RELEASE_VERSION=9.8.7-test.1
 EOF
   /bin/chmod 0600 "${SELFHOST_DIR}/.env"
 
-  cat >"${COMMAND_DIR}/openssl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$*" == 'rand -hex 32' ]] || exit 81
-cat "${SELFHOST_ROTATION_TEST_GENERATED_FILE}"
-printf '\n'
-EOF
-
-  cat >"${COMMAND_DIR}/python3" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-for key in DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD MOBILE_SIGNING_SECRET \
-  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET \
-  CHRONICLE_REVIEWER_ACCESS_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD OIDC_CLIENT_SECRET; do
-  [[ -z "${!key+x}" ]] || {
-    echo "secret ${key} reached Python environment" >&2
-    exit 82
-  }
-done
-exec "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" "$@"
-EOF
-
-  cat >"${COMMAND_DIR}/docker" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-for key in DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD MOBILE_SIGNING_SECRET \
-  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET \
-  CHRONICLE_REVIEWER_ACCESS_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD OIDC_CLIENT_SECRET; do
-  [[ -z "${!key+x}" ]] || {
-    echo "secret ${key} reached Docker environment" >&2
-    exit 83
-  }
-done
-
-old_postgres="$(cat "${SELFHOST_ROTATION_TEST_OLD_POSTGRES_FILE}")"
-generated="$(cat "${SELFHOST_ROTATION_TEST_GENERATED_FILE}")"
-dashboard="$(cat "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}")"
-for argument in "$@"; do
-  for secret in "$old_postgres" "$generated" "$dashboard"; do
-    [[ "$argument" != *"$secret"* ]] || {
-      echo "secret reached Docker argv" >&2
-      exit 84
-    }
-  done
-  printf 'docker:%s\n' "$argument" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-done
-
-if [[ "${1:-}" == inspect ]]; then
-  printf 'true\n'
-  exit 0
-fi
-
-if [[ "${1:-}" == run ]]; then
-  plaintext="$(cat)"
-  [[ "$plaintext" == "$dashboard" ]] || exit 85
-  cat "${SELFHOST_ROTATION_TEST_BCRYPT_FILE}"
-  printf '\n'
-  exit 0
-fi
-
-[[ "${1:-}" == compose ]] || exit 86
-shift
-if [[ "${1:-}" == version ]]; then exit 0; fi
-if [[ "${1:-}" == -p ]]; then shift 2; fi
-record_monitoring() {
-  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" - "${SELFHOST_ROTATION_TEST_MONITORING_LOG}" "$@" <<'PYTHON'
-import hashlib
-import json
-from pathlib import Path
-import sys
-
-values = dict(line.split("=", 1) for line in Path(".env").read_text().splitlines() if "=" in line)
-credential = values["METRICS_PASSWORD"].strip("'\"")
-with Path(sys.argv[1]).open("a") as output:
-    output.write(json.dumps({"args": sys.argv[2:], "credentialHash": hashlib.sha256(credential.encode()).hexdigest()}) + "\n")
-PYTHON
-}
-case "${1:-}" in
-  ls) printf '[]\n' ;;
-  config)
-    [[ "${2:-}" == --services ]] || exit 91
-    printf '%s\n' postgres backend web db-backup victoriametrics ca-export
-    ;;
-  ps)
-    service="${@: -1}"
-    printf 'fixture-%s\n' "$service"
-    ;;
-  up)
-    if [[ -n "${SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE:-}" && \
-          ! -e "${SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE}" ]]; then
-      : >"${SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE}"
-      exit 87
-    fi
-    record_monitoring "$@"
-    printf 'compose-up:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-    ;;
-  exec)
-    printf 'compose-exec:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-    if [[ "$*" == *'pg_dump'* ]]; then
-      if [[ "${SELFHOST_ROTATION_TEST_PG_DUMP_FAIL:-false}" == true ]]; then
-        printf '%s\n' '-- truncated fixture SQL dump'
-        exit 98
-      fi
-      printf '%s\n' '-- fixture SQL dump'
-      exit 0
-    fi
-    if [[ "$*" == *'grafana wget'*'/api/v1/targets'* ]]; then
-      record_monitoring "$@"
-      printf '%s\n' '{"status":"success","data":{"activeTargets":[{"labels":{"job":"chronicle-backend"},"health":"up"}]}}'
-      exit 0
-    fi
-    IFS= read -r -d '' auth_password || exit 88
-    sql="$(cat)"
-    current="$(cat "${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}")"
-    [[ "$auth_password" == "$current" ]] || exit 89
-    if [[ "$sql" == *'ALTER ROLE CURRENT_USER'* ]]; then
-      if [[ "$sql" == *"'$generated'"* ]]; then
-        printf '%s' "$generated" >"${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
-        # Committed, but the acknowledgement is lost on the way back.
-        [[ "${SELFHOST_ROTATION_TEST_LOSE_ALTER_ACK:-false}" != true ]] || exit 99
-      elif [[ "$sql" == *"'$old_postgres'"* ]]; then
-        printf '%s' "$old_postgres" >"${SELFHOST_ROTATION_TEST_DB_PASSWORD_FILE}"
-      else
-        exit 90
-      fi
-    elif [[ "$sql" == *'SELECT 1;'* ]]; then
-      printf '1\n'
-    elif [[ "$sql" == *'FROM study_participants'* && "$sql" == *"participant_id = 'play-reviewer'"* ]]; then
-      printf 'ok\n'
-    elif [[ "$sql" == *"count(*) FILTER (WHERE a.amname <> 'tde_heap')"* ]]; then
-      printf '0|7\n'
-    elif [[ "$sql" == *'pg_tde_set_key_using_database_key_provider'* ]]; then
-      key="$(printf '%s' "$sql" | sed -n \
-        "s/.*pg_tde_set_key_using_database_key_provider('\([^']*\)', 'chronicle_keyring').*/\1/p" | tail -1)"
-      [[ -n "$key" ]] || exit 96
-      printf '%s|chronicle_keyring' "$key" >"${SELFHOST_ROTATION_TEST_TDE_STATE_FILE}"
-    elif [[ "$sql" == *"key_name || '|' || provider_name"* ]]; then
-      cat "${SELFHOST_ROTATION_TEST_TDE_STATE_FILE}"
-      printf '\n'
-    fi
-    ;;
-  run)
-    if [[ "$*" == *'--rm --no-deps ca-export'* ]]; then
-      printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-    elif [[ "$*" == *'--rm --no-deps monitoring-config'* ]]; then
-      record_monitoring "$@"
-      printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-    elif [[ "$*" == *'--rm --no-deps db-init'* ]]; then
-      /bin/mkdir -p "$(dirname "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}")"
-      printf 'fixture-current-live-keyring\n' >"${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
-      /bin/chmod 0600 "${SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE}"
-    else
-      exit 97
-    fi
-    ;;
-  *) exit 91 ;;
-esac
-EOF
-
-  cat >"${COMMAND_DIR}/curl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-for key in DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD MOBILE_SIGNING_SECRET \
-  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET \
-  CHRONICLE_REVIEWER_ACCESS_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD OIDC_CLIENT_SECRET; do
-  [[ -z "${!key+x}" ]] || {
-    echo "secret ${key} reached curl environment" >&2
-    exit 92
-  }
-done
-
-generated="$(cat "${SELFHOST_ROTATION_TEST_GENERATED_FILE}")"
-dashboard="$(cat "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}")"
-for argument in "$@"; do
-  [[ "$argument" != *"$generated"* && "$argument" != *"$dashboard"* ]] || {
-    echo "secret reached curl argv" >&2
-    exit 93
-  }
-  printf 'curl:%s\n' "$argument" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-done
-
-url="${@: -1}"
-[[ " $* " != *' -k '* && " $* " != *' -sk '* && " $* " == *' --cacert '* && " $* " == *' --noproxy * '* ]] || {
-  echo 'credential probe lacks verified TLS or proxy bypass' >&2
-  exit 98
-}
-if [[ "$url" == *'/chronicle/v3/auth/dashboard-login' ]]; then
-  [[ " $* " != *' --config '* ]] || exit 96
-  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin) == {"password": open(sys.argv[1]).read().rstrip("\n")} else 97)' \
-    "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}" || exit 97
-  printf 'dashboard-login-ok\n' >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
-  printf '200'
-  exit 0
-fi
-if [[ "$url" == *'/chronicle/api/web/study' ]]; then
-  [[ " $* " != *' --config '* ]] || exit 96
-  printf '401'
-  exit 0
-fi
-config="$(cat <&3)"
-if [[ "$url" == *'/chronicle/' ]]; then
-  escaped="${dashboard//\\/\\\\}"
-  escaped="${escaped//\"/\\\"}"
-  [[ "$config" == "user = \"researcher:${escaped}\"" ]] || exit 94
-  printf '200'
-  exit 0
-fi
-
-current="$(cat "${SELFHOST_ROTATION_TEST_GRAFANA_PASSWORD_FILE}")"
-escaped="${current//\\/\\\\}"
-escaped="${escaped//\"/\\\"}"
-[[ "$config" == "user = \"admin:${escaped}\"" ]] || exit 95
-if [[ "$url" == *'/api/user/password' ]]; then
-  # Never reached Grafana (connection refused): the forward change did not happen.
-  if [[ "${SELFHOST_ROTATION_TEST_GRAFANA_UNREACHABLE:-false}" == true && "$current" != "$generated" ]]; then
-    exit 7
-  fi
-  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" /dev/fd/3 \
-    "${SELFHOST_ROTATION_TEST_GRAFANA_PASSWORD_FILE}" 3<<'PY'
-import json
-from pathlib import Path
-import sys
-
-state = Path(sys.argv[1])
-document = json.load(sys.stdin)
-current = state.read_text(encoding="utf-8")
-assert document["oldPassword"] == current
-assert document["newPassword"] == document["confirmNew"]
-state.write_text(document["newPassword"], encoding="utf-8")
-PY
-  # Committed, but the response to the forward change is lost (curl timeout).
-  if [[ "${SELFHOST_ROTATION_TEST_LOSE_GRAFANA_ACK:-false}" == true && "$current" != "$generated" ]]; then
-    exit 28
-  fi
-fi
-printf '200'
-EOF
-
+  /bin/cp "${ROOT_DIR}/tests/security/fixtures/selfhost-secret-rotation/commands/"* "$COMMAND_DIR/"
   /bin/chmod 0755 "${COMMAND_DIR}/openssl" "${COMMAND_DIR}/python3" \
     "${COMMAND_DIR}/docker" "${COMMAND_DIR}/curl"
 }
@@ -367,6 +115,7 @@ run_rotation() {
   shift || true
   local -a env_args=(
     "CHRONICLE_INTERNAL_WEB_SECRET=fixture-inherited-secret-must-not-reach-startup-probes"
+    "JWT_SECRET_PREVIOUS=fixture-inherited-previous-key-must-not-reach-child-environments"
     "PATH=${COMMAND_DIR}:${PATH}"
     "SELFHOST_ROTATION_TEST_REAL_PYTHON=${REAL_PYTHON}"
     "SELFHOST_ROTATION_TEST_GENERATED_FILE=${GENERATED_FILE}"
@@ -379,6 +128,8 @@ run_rotation() {
     "SELFHOST_ROTATION_TEST_KEYRING_BACKUP_FILE=${KEYRING_BACKUP_FILE}"
     "SELFHOST_ROTATION_TEST_ARGS_LOG=${ARGS_LOG}"
     "SELFHOST_ROTATION_TEST_MONITORING_LOG=${CASE_DIR}/monitoring.jsonl"
+    "SELFHOST_ROTATION_TEST_DASHBOARD_CODE=${CASE_DASHBOARD_CODE:-200}"
+    "SELFHOST_ROTATION_TEST_CURL_STATUS=${CASE_CURL_STATUS:-0}"
   )
   if [[ "$fail_first_up" == true ]]; then
     env_args+=("SELFHOST_ROTATION_TEST_FAIL_FIRST_UP_FILE=${FAIL_FIRST_UP_FILE}")
@@ -450,7 +201,7 @@ assert_custody() {
         fail 'rotation omitted the separate CA export one-shot'
     fi
   fi
-  for secret in "$OLD_POSTGRES" "$OLD_MOBILE" "$OLD_JWT" "$OLD_METRICS" \
+  for secret in "$OLD_POSTGRES" "$OLD_POSTGRES_APP" "$OLD_JWT" "$OLD_METRICS" \
     "$OLD_INTERNAL" "$OLD_GRAFANA" "$DASHBOARD_PASSWORD" "$GENERATED"; do
     ! grep -Fq "$secret" "$output" || fail "secret was printed"
     [[ ! -e "$args" ]] || ! grep -Fq "$secret" "$args" || fail "secret reached subprocess argv"
@@ -461,14 +212,95 @@ assert_custody() {
   receipt="$(find "${SELFHOST_DIR}/operator-receipts/secret-rotations" -type f -name '*.json' | head -1)"
   [[ -n "$receipt" && -s "$receipt" ]] || fail "successful rotation emitted no receipt"
   /bin/chmod 0600 "$receipt" 2>/dev/null || true
-  for secret in "$OLD_POSTGRES" "$OLD_MOBILE" "$OLD_JWT" "$OLD_METRICS" \
+  for secret in "$OLD_POSTGRES" "$OLD_POSTGRES_APP" "$OLD_JWT" "$OLD_METRICS" \
     "$OLD_INTERNAL" "$OLD_GRAFANA" "$DASHBOARD_PASSWORD" "$GENERATED"; do
     ! grep -Fq "$secret" "$receipt" || fail "receipt contains a secret"
   done
 }
 
+check_dashboard_transport() {
+  local mode bind code expected status module=rotation-http.sh
+  for mode in mode-behind-proxy-internal mode-local-https; do
+    for scenario in '127.0.0.1 200 0' '10.0.0.5 403 0' '127.0.0.1 403 1' '10.0.0.5 000 60'; do
+      read -r bind code expected <<<"$scenario"
+      setup_case "dashboard-${mode}-${bind}-${code}"
+      replace_env_value COMPOSE_FILE "docker-compose.yml:overlays/${mode}.yml"
+      replace_env_value INTERNAL_BIND "$bind"
+      printf "%s\n" "DASHBOARD_BASE_URL=https://management.example.test" >>"$SELFHOST_DIR/.env"
+      CASE_DASHBOARD_CODE="$code"
+      CASE_CURL_STATUS=0
+      [[ "$code" != 000 ]] || CASE_CURL_STATUS=60
+      status=0
+      printf '%s\n%s\n' "$DASHBOARD_PASSWORD" "$DASHBOARD_PASSWORD" | run_rotation false dashboard || status=$?
+      [[ "$status" -eq "$expected" ]] || fail "dashboard transport result: $mode $bind $code ($status)"
+      if [[ "$expected" -eq 0 ]]; then
+        assert_custody "$OUTPUT" "$ARGS_LOG"
+        if [[ "$code" == 200 ]]; then
+          grep -Fq dashboard-login-ok "$ARGS_LOG" || fail "dashboard login was not checked"
+        else
+          grep -Fq dashboard_auth=operator_check_required "$OUTPUT" || fail "ACL denial lacks operator guidance"
+        fi
+      fi
+    done
+  done
+  CASE_DASHBOARD_CODE=200 CASE_CURL_STATUS=0
+  setup_case missing-rotation-http
+  /bin/rm "$SELFHOST_DIR/$module"
+  if printf '%s\n%s\n' "$DASHBOARD_PASSWORD" "$DASHBOARD_PASSWORD" | run_rotation false dashboard; then
+    fail "rotation accepted a missing HTTP module"
+  fi
+  grep -Fq "$module" "$OUTPUT" || fail "module loading failure was not visible"
+  ! grep -Fq compose-up: "$ARGS_LOG" || fail "module loading failure changed services"
+  echo 'dashboard transport and module loading checks passed'
+}
+
+if [[ "${1:-}" == --dashboard-transport ]]; then
+  check_dashboard_transport
+  exit 0
+fi
+
+check_post_acquisition_interlocks() {
+  local operation
+  for operation in "$@"; do
+    setup_case "racing-${operation}"
+    /bin/cp "${SELFHOST_DIR}/.env" "${CASE_DIR}/before.env"
+    sha256sum "$DB_PASSWORD_FILE" "$GRAFANA_PASSWORD_FILE" "$TDE_STATE_FILE" >"${CASE_DIR}/before.sha256"
+    cat >"${CASE_DIR}/race.bash" <<'SH'
+function /bin/mkdir() {
+  command /bin/mkdir "$@" || return
+  if [[ "$#" -eq 1 && "$1" == "$PWD/.chronicle-secret-rotation" ]]; then
+    command /bin/mkdir "$PWD/.chronicle-${SELFHOST_ROTATION_RACING_OPERATION}.lock"
+  fi
+}
+SH
+    if (export BASH_ENV="${CASE_DIR}/race.bash" SELFHOST_ROTATION_RACING_OPERATION="$operation"
+        run_rotation false --yes jwt); then
+      fail "rotation ignored a racing ${operation} lock"
+    fi
+    grep -Fq "${operation} started while the secret-rotation lock was being acquired; rotation did not start" "$OUTPUT" ||
+      fail "rotation did not explain the racing ${operation} interlock"
+    [[ -d "${SELFHOST_DIR}/.chronicle-${operation}.lock" ]] || fail "race fixture did not acquire its lock"
+    [[ ! -e "${SELFHOST_DIR}/.chronicle-secret-rotation" ]] || fail "racing ${operation} left a rotation transaction"
+    cmp -s "${CASE_DIR}/before.env" "${SELFHOST_DIR}/.env" || fail "racing ${operation} changed env"
+    sha256sum --check --status "${CASE_DIR}/before.sha256" || fail "racing ${operation} changed a secret"
+    [[ ! -d "${SELFHOST_DIR}/operator-receipts" ]] || fail "racing ${operation} emitted a rotation receipt"
+    ! grep -Eq '^compose-(up|exec|run):' "$ARGS_LOG" || fail "racing ${operation} changed containers"
+    echo "racing ${operation} interlock passed without env, secret or container changes"
+  done
+}
+
+if [[ "${1:-}" == --post-acquisition-interlocks ]]; then
+  shift
+  if [[ "$#" -eq 0 ]]; then set -- upgrade restore; fi
+  check_post_acquisition_interlocks "$@"
+  exit 0
+fi
+
+check_post_acquisition_interlocks upgrade restore
+
 setup_case restore-interlock
 /bin/mkdir "${SELFHOST_DIR}/.chronicle-restore.lock"
+printf 'prepared\n' >"${SELFHOST_DIR}/.chronicle-restore.lock/phase"
 set +e
 run_rotation false --yes jwt
 restore_interlock_status=$?
@@ -478,9 +310,25 @@ set -e
   fail "restore interlock left a partial rotation transaction"
 grep -Fq 'a restore is active or incomplete' "$OUTPUT" ||
   fail "rotation did not explain the restore interlock"
+grep -Fq 'Run ./chronicle restore --recover' "$OUTPUT" ||
+  fail "rotation did not name the restore recovery command"
+
+setup_case recover-upgrade-interlock
+/bin/mkdir "${SELFHOST_DIR}/.chronicle-secret-rotation" "${SELFHOST_DIR}/.chronicle-upgrade.lock"
+printf 'jwt\n' >"${SELFHOST_DIR}/.chronicle-secret-rotation/kind"
+printf '{"previous": "/releases/previous/selfhost"}\n' >"${SELFHOST_DIR}/.chronicle-upgrade.lock/recovery.json"
+set +e
+run_rotation false --yes recover --rollback
+recover_interlock_status=$?
+set -e
+[[ "$recover_interlock_status" -ne 0 ]] || fail "rotation recovery ignored an incomplete update"
+grep -Fq 'Run ./chronicle update from /releases/previous/selfhost' "$OUTPUT" ||
+  fail "rotation recovery did not name the update recovery command"
+[[ -e "${SELFHOST_DIR}/.chronicle-secret-rotation/kind" ]] || fail "refused recovery changed the rotation journal"
 
 setup_case tde-restore-interlock
 /bin/mkdir "${SELFHOST_DIR}/.chronicle-restore.lock"
+printf 'prepared\n' >"${SELFHOST_DIR}/.chronicle-restore.lock/phase"
 set +e
 run_rotation false --yes tde
 tde_restore_interlock_status=$?
@@ -493,7 +341,32 @@ set -e
 setup_case jwt
 run_rotation false --yes jwt
 grep -Fqx "JWT_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env" || fail "JWT secret was not updated"
+grep -Fqx "JWT_SECRET_PREVIOUS='$OLD_JWT'" "${SELFHOST_DIR}/.env" || fail "routine JWT rotation did not retain its previous key"
+"$REAL_PYTHON" - "$SELFHOST_DIR" <<'PY_JWT_WINDOW'
+from pathlib import Path
+import sys
+import time
+sys.path.insert(0, sys.argv[1])
+from chronicle_ops.envfile import read_env, value
+settings = read_env(Path(sys.argv[1]) / '.env')
+remaining = int(value(settings, 'JWT_SECRET_PREVIOUS_EXPIRES_AT')) - int(time.time())
+assert 0 < remaining <= int(value(settings, 'DASHBOARD_SESSION_MINUTES', '480')) * 60
+PY_JWT_WINDOW
 grep -Fq 'compose-up:' "$ARGS_LOG" || fail "JWT rotation did not recreate the backend"
+assert_custody "$OUTPUT" "$ARGS_LOG"
+/bin/cp "${SELFHOST_DIR}/.env" "${CASE_DIR}/before-overlap-retry"
+if run_rotation false --yes jwt; then
+  fail "routine rotation silently retired a key whose overlap is active"
+fi
+cmp -s "${SELFHOST_DIR}/.env" "${CASE_DIR}/before-overlap-retry" || fail "refused overlap retry changed credentials"
+grep -Fq 'previous JWT overlap is still active' "$OUTPUT" || fail "overlap retry did not explain its refusal"
+
+setup_case jwt-compromise
+printf "JWT_SECRET_PREVIOUS='fixture-older-key-for-overlap-0123456789'\nJWT_SECRET_PREVIOUS_EXPIRES_AT='%s'\n" \
+  "$(( $(date +%s) + 600 ))" >>"${SELFHOST_DIR}/.env"
+run_rotation false --yes jwt --revoke-sessions
+grep -Fqx "JWT_SECRET_PREVIOUS=''" "${SELFHOST_DIR}/.env" || fail "compromise rotation retained a previous key"
+grep -Fqx "JWT_SECRET_PREVIOUS_EXPIRES_AT='0'" "${SELFHOST_DIR}/.env" || fail "compromise rotation retained an overlap window"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
 assert_monitoring_refresh() {
@@ -555,11 +428,18 @@ grep -Fqx "DASHBOARD_PASSWORD_HASH='$BCRYPT'" "${SELFHOST_DIR}/.env" \
 assert_custody "$OUTPUT" "$ARGS_LOG"
 grep -Fq 'dashboard-login-ok' "$ARGS_LOG" ||
   fail "dashboard rotation did not verify a backend dashboard session"
-(cd "$ROOT_DIR/tests/selfhost-py" && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  test_verify.VerifyCredentialsTests.test_real_verify_keeps_credentials_in_stdin_and_proves_session) ||
-  fail "chronicle verify does not exercise the backend dashboard-login endpoint"
 grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
   fail "dashboard rotation did not recreate both backend and web"
+# Sessions minted under the old password end once the new hash is live: the backend refuses
+# tokens issued at or before the same cutoff restore writes (JwtBlocklist revoke-all).
+recreated_line="$(grep -n -m1 -F 'force-recreate backend web' "$ARGS_LOG" | cut -d: -f1)"
+cutoff_line="$(grep -n -m1 -Fx 'session-cutoff' "$ARGS_LOG" | cut -d: -f1)" ||
+  fail "dashboard rotation left sessions issued under the old password valid"
+(( cutoff_line > recreated_line )) || fail "dashboard session cutoff ran before the new password was live"
+expected_cutoff="$(cd "${ROOT_DIR}/selfhost" && PYTHONDONTWRITEBYTECODE=1 "$REAL_PYTHON" -c \
+  'from chronicle_ops.dump import SESSION_CUTOFF_SQL; print(SESSION_CUTOFF_SQL)')"
+[[ "$(<"${CASE_DIR}/session-cutoff.sql")" == "$expected_cutoff" ]] ||
+  fail "dashboard rotation wrote a session cutoff other than the restore contract's"
 
 setup_case reviewer
 run_rotation false --yes reviewer
@@ -569,22 +449,6 @@ grep -Fqx "CHRONICLE_REVIEWER_ACCESS_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env"
   || fail "reviewer rotation did not publish the generated credential"
 grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend' "$ARGS_LOG" \
   || fail "reviewer rotation did not recreate only the backend"
-assert_custody "$OUTPUT" "$ARGS_LOG"
-
-setup_case mobile
-run_rotation false --yes mobile begin
-grep -Fqx "MOBILE_SIGNING_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env" \
-  || fail "mobile begin did not make the new key current"
-grep -Fqx "MOBILE_SIGNING_SECRET_PREVIOUS='$OLD_MOBILE'" "${SELFHOST_DIR}/.env" \
-  || fail "mobile begin did not retain the previous key"
-assert_custody "$OUTPUT" "$ARGS_LOG"
-/bin/rm -rf "${SELFHOST_DIR}/operator-receipts"
-: >"$OUTPUT"; : >"$ARGS_LOG"
-run_rotation false --yes mobile finalize
-grep -Fqx "MOBILE_SIGNING_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env" \
-  || fail "mobile finalize changed the current key"
-grep -Fqx "MOBILE_SIGNING_SECRET_PREVIOUS=''" "${SELFHOST_DIR}/.env" \
-  || fail "mobile finalize did not remove the previous key"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
 setup_case postgres
@@ -625,7 +489,7 @@ grep -Fqx "GRAFANA_ADMIN_PASSWORD='$GENERATED'" "${SELFHOST_DIR}/.env" \
   || fail "Grafana API password was not updated"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
-# Regression V-29: Grafana commits the change but its response is lost. Rollback must reverse
+# Grafana commits the change but its response is lost. Rollback must reverse
 # it rather than restore an .env whose password Grafana no longer accepts.
 setup_case grafana-lost-ack
 CASE_LOSE_GRAFANA_ACK=true
@@ -642,7 +506,7 @@ grep -Fqx "GRAFANA_ADMIN_PASSWORD='$OLD_GRAFANA'" "${SELFHOST_DIR}/.env" \
 [[ ! -e "${SELFHOST_DIR}/.chronicle-secret-rotation" ]] \
   || fail "completed lost Grafana acknowledgement rollback left its transaction"
 
-# Regression V-29: the change never reached Grafana, so reversing it fails (NEW was never set);
+# The change never reached Grafana, so reversing it fails (NEW was never set);
 # the old password still works, so rollback is complete and must not keep the transaction.
 setup_case grafana-unreachable
 CASE_GRAFANA_UNREACHABLE=true
@@ -709,6 +573,8 @@ grep -Fqx "DASHBOARD_PASSWORD_HASH='$NEW_BCRYPT'" "${SELFHOST_DIR}/.env" ||
   fail "dashboard forward recovery did not retain the published hash"
 grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
   fail "dashboard forward recovery did not recreate backend and web"
+grep -Fqx 'session-cutoff' "$ARGS_LOG" ||
+  fail "dashboard forward recovery left sessions issued under the old password valid"
 grep -Fq 'rerun ./chronicle verify --dashboard-password' "$OUTPUT" ||
   fail "dashboard recovery did not request the lost cleartext password for operator verification"
 assert_custody "$OUTPUT" "$ARGS_LOG"
@@ -809,6 +675,8 @@ set -e
 setup_case unprepared-recovery
 /bin/mkdir "${SELFHOST_DIR}/.chronicle-secret-rotation"
 /bin/chmod 0700 "${SELFHOST_DIR}/.chronicle-secret-rotation"
+# Crashed after its first journal file but before the phase commit point.
+printf 'jwt\n' >"${SELFHOST_DIR}/.chronicle-secret-rotation/kind"
 run_rotation false --yes recover --rollback
 [[ ! -e "${SELFHOST_DIR}/.chronicle-secret-rotation" ]] \
   || fail "rollback recovery did not remove a pre-publication lock"
@@ -843,7 +711,7 @@ fi
 [[ "$(cat "$TDE_STATE_FILE")" == 'chronicle_key|chronicle_keyring' ]] \
   || fail "TDE key changed after the pre-rotation backup failed"
 
-# The pre-rotation dump is full PHI: it must never be written into a directory whose 0700
+# The pre-rotation dump holds all participant data: it must never be written into a directory whose 0700
 # mode could not be enforced (e.g. a backups tree still owned by an old root-run container).
 if [[ "$(id -u)" -ne 0 ]]; then
   setup_case tde-backup-dir-not-private
@@ -856,7 +724,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   set -e
   [[ "$backup_dir_status" -ne 0 ]] || fail "TDE rotation ran with a non-private backup directory"
   ! grep -Fq 'pg_dump' "$ARGS_LOG" 2>/dev/null \
-    || fail "pre-rotation PHI dump started although the backup directory could not be made 0700"
+    || fail "pre-rotation participant-data dump started although the backup directory could not be made 0700"
   grep -Fq 'backup directory' "$OUTPUT" \
     || fail "non-private backup directory failure did not name the backup directory"
   [[ "$(cat "$TDE_STATE_FILE")" == 'chronicle_key|chronicle_keyring' ]] \

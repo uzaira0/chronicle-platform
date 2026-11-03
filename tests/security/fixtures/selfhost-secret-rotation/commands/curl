@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+for key in DASHBOARD_PASSWORD DASHBOARD_PASSWORD_HASH POSTGRES_PASSWORD MOBILE_SIGNING_SECRET \
+  MOBILE_SIGNING_SECRET_PREVIOUS JWT_SECRET METRICS_PASSWORD CHRONICLE_INTERNAL_WEB_SECRET \
+  CHRONICLE_REVIEWER_ACCESS_SECRET GRAFANA_ADMIN_PASSWORD SMTP_PASSWORD OIDC_CLIENT_SECRET; do
+  [[ -z "${!key+x}" ]] || {
+    echo "secret ${key} reached curl environment" >&2
+    exit 92
+  }
+done
+
+generated="$(cat "${SELFHOST_ROTATION_TEST_GENERATED_FILE}")"
+dashboard="$(cat "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}")"
+for argument in "$@"; do
+  [[ "$argument" != *"$generated"* && "$argument" != *"$dashboard"* ]] || {
+    echo "secret reached curl argv" >&2
+    exit 93
+  }
+  printf 'curl:%s\n' "$argument" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+done
+
+url="${@: -1}"
+[[ "${SELFHOST_ROTATION_TEST_CURL_STATUS:-0}" == 0 ]] || exit "$SELFHOST_ROTATION_TEST_CURL_STATUS"
+[[ " $* " != *' -k '* && " $* " != *' -sk '* && " $* " == *' --cacert '* && " $* " == *' --noproxy * '* ]] || {
+  echo 'credential probe lacks verified TLS or proxy bypass' >&2
+  exit 98
+}
+if [[ "$url" == *'/chronicle/v3/auth/dashboard-login' ]]; then
+  [[ " $* " != *' --config '* ]] || exit 96
+  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" -c 'import json,sys; sys.exit(0 if json.load(sys.stdin) == {"password": open(sys.argv[1]).read().rstrip("\n")} else 97)' \
+    "${SELFHOST_ROTATION_TEST_DASHBOARD_FILE}" || exit 97
+  printf 'dashboard-login-ok\n' >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
+  printf '%s' "${SELFHOST_ROTATION_TEST_DASHBOARD_CODE:-200}"
+  exit 0
+fi
+if [[ "$url" == *'/chronicle/api/web/study' ]]; then
+  [[ " $* " != *' --config '* ]] || exit 96
+  if [[ "${SELFHOST_ROTATION_TEST_DASHBOARD_CODE:-200}" == 200 ]]; then printf 401; else printf '%s' "$SELFHOST_ROTATION_TEST_DASHBOARD_CODE"; fi
+  exit 0
+fi
+config="$(cat <&3)"
+if [[ "$url" == *'/chronicle/' ]]; then
+  escaped="${dashboard//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  [[ "$config" == "user = \"researcher:${escaped}\"" ]] || exit 94
+  printf '200'
+  exit 0
+fi
+
+current="$(cat "${SELFHOST_ROTATION_TEST_GRAFANA_PASSWORD_FILE}")"
+escaped="${current//\\/\\\\}"
+escaped="${escaped//\"/\\\"}"
+[[ "$config" == "user = \"admin:${escaped}\"" ]] || exit 95
+if [[ "$url" == *'/api/user/password' ]]; then
+  # Never reached Grafana (connection refused): the forward change did not happen.
+  if [[ "${SELFHOST_ROTATION_TEST_GRAFANA_UNREACHABLE:-false}" == true && "$current" != "$generated" ]]; then
+    exit 7
+  fi
+  "${SELFHOST_ROTATION_TEST_REAL_PYTHON}" /dev/fd/3 \
+    "${SELFHOST_ROTATION_TEST_GRAFANA_PASSWORD_FILE}" 3<<'PY'
+import json
+from pathlib import Path
+import sys
+
+state = Path(sys.argv[1])
+document = json.load(sys.stdin)
+current = state.read_text(encoding="utf-8")
+assert document["oldPassword"] == current
+assert document["newPassword"] == document["confirmNew"]
+state.write_text(document["newPassword"], encoding="utf-8")
+PY
+  # Committed, but the response to the forward change is lost (curl timeout).
+  if [[ "${SELFHOST_ROTATION_TEST_LOSE_GRAFANA_ACK:-false}" == true && "$current" != "$generated" ]]; then
+    exit 28
+  fi
+fi
+printf '200'
