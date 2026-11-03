@@ -263,7 +263,9 @@ PY
 }
 
 check_dependency_check_suppressions() {
-  if python3 -s -m unittest "$ROOT_DIR/tests/security/test_supply_chain_policy.py" &&
+  # discover, not a file path: unittest maps a path to a module name, which breaks under a dotted
+  # ROOT_DIR such as the release snapshot (chronicle-release-sca.XXXXXX).
+  if python3 -s -m unittest discover -s "$ROOT_DIR/tests/security" -p test_supply_chain_policy.py &&
      python3 -s "$ROOT_DIR/tests/security/check-dependency-check-suppressions.py" \
        "$ROOT_DIR/config/dependency-check-suppression.xml" "$ROOT_DIR"; then
     pass "Dependency-Check package-wide suppressions have bounded expiry and exclude resolved dependencies"
