@@ -217,6 +217,16 @@
       "CVE-2026-116587"
     ]
   },
+  "selfhost/Dockerfile.grafana::github.com/go-jose/go-jose/v4": {
+    "pin": "v4.1.8",
+    "reason": "Grafana 13.2.4 server binary links go-jose v4.1.4; v4.1.6 fixes a HIGH advisory (trivy gate). Image rebuilds the same tag with Grafana's release flags and this replace.",
+    "remove_when": "Remove the server build stage when the pinned Grafana release image's binary reports go-jose v4.1.6 or newer in go version -m and passes the trivy gate unmodified.",
+    "reviewed_on": "2026-11-02",
+    "review_after": "2026-12-02",
+    "recorded_advisories": [
+      "CVE-2026-116587"
+    ]
+  },
   "selfhost/backup-image::fork": {
     "pin": "d00896ab15f6da29e0449390315a36c3bbda5082",
     "reason": "MIT upstream d00896ab ported to Percona PostgreSQL with the Debian run-parts scheduler semantics preserved.",

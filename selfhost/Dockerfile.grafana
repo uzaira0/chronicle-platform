@@ -6,7 +6,25 @@ RUN wget -q -O /plugin.zip https://grafana.com/api/plugins/victoriametrics-logs-
     echo "73e7ce379ae9a9ce6fdb978e5d6d43f67029b4c3e4d970f1ca8f7f4617f331c5  /plugin.zip" | sha256sum -c - && \
     unzip -q /plugin.zip -d /plugins
 
+# The 13.2.4 server binary links go-jose v4.1.4 (HIGH advisory fixed in 4.1.6; trivy gate in
+# scripts/publish-images.sh). Rebuild the same tag with Grafana's release flags (Makefile build-go:
+# CGO off, -trimpath, -buildvcs=false, version ldflags) and go-jose raised to 4.1.8.
+# Drop this stage once a Grafana release image links go-jose 4.1.6 or newer.
+FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS server
+RUN git clone --quiet --depth 1 --branch v13.2.4 https://github.com/grafana/grafana /src && \
+    test "$(git -C /src rev-parse HEAD)" = af4a33e3786594ad72f72d97e6744010330c2977
+WORKDIR /src
+RUN go work edit -replace=github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.8 && \
+    CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath \
+        -ldflags "-X main.version=13.2.4 -X main.commit=af4a33e3786594ad72f72d97e6744010330c2977 -X main.buildBranch=HEAD -X main.buildstamp=1791891415" \
+        -o /out/grafana ./pkg/cmd/grafana && \
+    go version -m /out/grafana | grep -q 'go-jose/v4	v4.1.8'
+
 FROM grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+USER root
+# apk upgrade picks up Alpine security fixes published after the base digest was cut.
+RUN apk upgrade --no-cache
+COPY --from=server --chown=0:0 /out/grafana /usr/share/grafana/bin/grafana
 COPY --from=plugin --chown=472:0 /plugins /opt/chronicle-plugins
 USER 472:0
 HEALTHCHECK --interval=30s --timeout=8s --retries=8 CMD curl -fsS -o /dev/null http://127.0.0.1:3000/api/health || exit 1

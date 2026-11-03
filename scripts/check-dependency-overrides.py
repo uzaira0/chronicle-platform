@@ -62,6 +62,9 @@ def inventory(root):
         found["selfhost/Dockerfile.caddy::" + module] = pin
     for patch in re.findall(r'^COPY\s+(selfhost/caddy/\S+\.patch)\s', caddy, re.MULTILINE):
         found["selfhost/Dockerfile.caddy::patch:" + patch] = "sha256:" + hashlib.sha256((root / patch).read_bytes()).hexdigest()
+    grafana = (root / "selfhost/Dockerfile.grafana").read_text()
+    for module, pin in re.findall(r'go\s+work\s+edit\s+-replace=(\S+)=\S+@(\S+)', grafana):
+        found["selfhost/Dockerfile.grafana::" + module] = pin
     backup = (root / "selfhost/Dockerfile.backup").read_text()
     for package in re.findall(r'\bdnf\s+-y\s+upgrade\s+(\S+)', backup):
         found["selfhost/Dockerfile.backup::" + package.split("-1.")[0]] = package
