@@ -20,7 +20,8 @@ fail() {
 
 startup_timeout="${BACKUP_STARTUP_TIMEOUT_SECONDS:-3600}"
 poll_interval="${BACKUP_STARTUP_INTERVAL_SECONDS:-2}"
-backend_url="${BACKUP_BACKEND_URL:-http://backend:40320/chronicle/v3/study}"
+backend_url="${BACKUP_BACKEND_URL:-https://backend:8443/chronicle/v3/study}"
+backend_ca="${BACKUP_BACKEND_CA:-/etc/backend-tls/backend.crt}"
 postgres_host="${POSTGRES_HOST:-}"
 postgres_port="${POSTGRES_PORT:-5432}"
 postgres_database="${POSTGRES_DB:-}"
@@ -28,9 +29,8 @@ postgres_user="${POSTGRES_USER:-}"
 
 [[ "$startup_timeout" =~ ^[1-9][0-9]*$ ]] ||
   fail "BACKUP_STARTUP_TIMEOUT_SECONDS must be a positive integer"
-if [[ ${#startup_timeout} -gt 4 ]] || (( startup_timeout > 3600 )); then
-  fail "BACKUP_STARTUP_TIMEOUT_SECONDS must not exceed 3600"
-fi
+# Bash arithmetic is 64-bit; longer values would overflow the deadline instead of extending it.
+[[ ${#startup_timeout} -le 18 ]] || fail "BACKUP_STARTUP_TIMEOUT_SECONDS must fit in a 64-bit integer"
 [[ "$poll_interval" =~ ^[1-9][0-9]*$ ]] ||
   fail "BACKUP_STARTUP_INTERVAL_SECONDS must be a positive integer"
 if [[ ${#poll_interval} -gt 2 ]] || (( poll_interval > 60 )); then
@@ -74,7 +74,7 @@ while (( SECONDS < deadline )); do
     http_status="$(
       curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
         --connect-timeout "$probe_timeout" --max-time "$probe_timeout" \
-        "$backend_url" 2>/dev/null || true
+        --cacert "$backend_ca" "$backend_url" 2>/dev/null || true
     )"
     # Match the backend container's health contract: any 2xx or 4xx proves the Spring
     # request path is serving. The normal unauthenticated response is 401.

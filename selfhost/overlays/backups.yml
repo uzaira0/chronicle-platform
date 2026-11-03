@@ -21,7 +21,7 @@ services:
     # server newer than itself ("aborting because of server version mismatch"), so leaving
     # this on :17 against the 18.4-5 server does not degrade — every scheduled dump fails,
     # and the backups the encryption interlock depends on quietly stop existing.
-    image: ghcr.io/uzaira0/chronicle-selfhost-backup:2026.10.5@sha256:1bdf966c4c3327d99c3ae13d2cf46f3ffa1834b5dc63b745c1a0949de8ab95c3
+    image: ${BACKUP_IMAGE:?set BACKUP_IMAGE in .env}
     restart: unless-stopped
     # Compose evaluates depends_on only when it creates/starts the project. Docker's
     # restart policy can later restart this container independently after a host or daemon
@@ -45,7 +45,7 @@ services:
     # compose and the dumps land 0644; backup-prune-hook.sh sets them 0600 after each run.
     # Access is denied one level up regardless: db-init.sh holds ./backups at 0700 owned by
     # the operator, so no other local account can traverse in. Verified by `./chronicle verify`.
-    user: "${CHRONICLE_HOST_UID:-0}:${CHRONICLE_HOST_GID:-0}"
+    user: "${CHRONICLE_HOST_UID:?run ./chronicle to select the operator UID}:${CHRONICLE_HOST_GID:?run ./chronicle to select the operator GID}"
     #
     # The logging cap is spelled out rather than using the x-logging anchor from
     # docker-compose.yml: anchors do not cross YAML documents, and a compose overlay is a
@@ -73,16 +73,20 @@ services:
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
-      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
-      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-8}
-      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
-      PRE_OP_BACKUP_KEEP_DAYS: ${PRE_OP_BACKUP_KEEP_DAYS:-30}
+      # Chosen by the operator in ./chronicle setup; "all" never prunes that tier.
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:?run ./chronicle setup to choose backup retention}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:?run ./chronicle setup to choose backup retention}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:?run ./chronicle setup to choose backup retention}
+      PRE_OP_BACKUP_KEEP_DAYS: ${PRE_OP_BACKUP_KEEP_DAYS:?run ./chronicle setup to choose backup retention}
+      # A run with less free space than this on /backups fails, so the backup-stale alert fires.
+      MIN_FREE_DISK_GIB: ${MIN_FREE_DISK_GIB:-}
       # pg_dump waits for table locks instead of failing after the server's lock_timeout.
       PGOPTIONS: "-c lock_timeout=0"
       HEALTHCHECK_PORT: 8080
       BACKUP_STARTUP_TIMEOUT_SECONDS: ${BACKUP_STARTUP_TIMEOUT_SECONDS:-3600}
       BACKUP_STARTUP_INTERVAL_SECONDS: ${BACKUP_STARTUP_INTERVAL_SECONDS:-2}
-      BACKUP_BACKEND_URL: http://backend:40320/chronicle/v3/study
+      BACKUP_BACKEND_URL: https://backend:8443/chronicle/v3/study
+      BACKUP_BACKEND_CA: /etc/backend-tls/backend.crt
       # Take a dump immediately, not only on the SCHEDULE. Without this the first key-free
       # copy of the data is up to 24 hours away, and until it lands the stack sits in exactly
       # the state config-guard refuses to create: encrypted data with nothing that restores
@@ -91,10 +95,11 @@ services:
       BACKUP_ON_START: "TRUE"
     volumes:
       - postgres_tls:/etc/postgres-tls:ro
-      - ./backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro
+      - backend_tls:/etc/backend-tls:ro
+      - ./backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro,z
       # Bounds the pre-upgrade/pre-restore safety dumps that the rotation below never sees.
-      - ./backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro
-      - "${CHRONICLE_STATE_DIR:-.}/backups:/backups"
+      - ./backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/backups:/backups:z"
     depends_on:
       # A healthy BACKEND, not a healthy postgres. Flyway creates the schema when the backend
       # boots, so BACKUP_ON_START against a merely-running database writes a dump of an empty
@@ -115,4 +120,6 @@ services:
   # COMPOSE_FILE and restate what this file already is.
   config-guard:
     environment:
+      BACKUP_IMAGE: ${BACKUP_IMAGE:?set BACKUP_IMAGE in .env}
       BACKUPS_ENABLED: "true"
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-}

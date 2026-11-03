@@ -2,7 +2,7 @@
 # Commit: d00896ab15f6da29e0449390315a36c3bbda5082 (debian.Dockerfile, MIT).
 # Build with selfhost/ as context (scripts and the shared dump validator).
 # Keep upstream scripts, defaults, scheduler version and Debian hook semantics intact.
-FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS builder
+FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS builder
 
 RUN CGO_ENABLED=0 GOTOOLCHAIN=local go install -trimpath \
         -ldflags='-s -w -X main.version=v0.0.11' \
@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
         -o /out/run-parts /tmp/debianutils/run-parts.c
 
 # Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.
-FROM percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+FROM percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
 
 # Runtime user comes from overlays/backups.yml (host UID); root is only the unset default.
 # hadolint ignore=DL3002
@@ -33,9 +33,19 @@ WORKDIR /
 
 # Fixed builds of base packages the pinned Percona image predates (trivy gate in
 # scripts/publish-images.sh). Drop once Percona ships a base that carries them.
-RUN dnf -y upgrade expat-2.5.0-6.el9_8.5 gnutls-3.8.10-9.el9_8 \
-        python3.12-3.12.15-1.0.1.el9_8 python3.12-libs-3.12.15-1.0.1.el9_8 && \
+RUN dnf -y upgrade python3.12-urllib3-1.26.19-3.el9_8.2 && \
     dnf clean all
+
+# Base packages the backup never runs, removed instead of waived: BIND client tools (CVE-2026-19630,
+# CVE-2026-94300, CVE-2026-96888, CVE-2026-97313), kernel headers (CVE-2026-98614), emacs-filesystem
+# (CVE-2026-108976). dnf also removes what only they support: gcc, cmake, perl-devel.
+RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem && \
+    dnf clean all
+
+# CVE-2026-114406: distrust the compromised eMudhra intermediates in the system trust store until Red Hat
+# ships the ca-certificates update. Remove with the .trivyignore.yaml entry once it does.
+COPY backup-image/emudhra-distrusted-2026-10.pem /etc/pki/ca-trust/source/blocklist/
+RUN update-ca-trust extract
 
 # dnf in the pinned Percona image supplies Python; fail the build if that contract changes.
 RUN python3 -c 'import sys; assert sys.version_info >= (3, 9)' && command -v flock
@@ -79,7 +89,7 @@ ENV POSTGRES_DB="**None**" \
 COPY backup-image/hooks /hooks
 COPY backup-image/backup.sh backup-image/env.sh backup-image/init.sh /
 COPY backup-image/selfcheck.sh backup-image/selfcheck.py init-tde.sh /
-COPY chronicle_ops/dump.py /dump.py
+COPY chronicle_ops /chronicle_ops
 ENV PYTHONDONTWRITEBYTECODE=1
 RUN chmod 0755 /selfcheck.sh /selfcheck.py
 

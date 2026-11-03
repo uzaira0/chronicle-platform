@@ -13,23 +13,28 @@ import sys
 
 
 SCRATCH = "chronicle_restore_selfcheck"
-# In the image Dockerfile.backup copies the canonical validator to /dump.py.
-if Path(__file__).with_name("dump.py").is_file():
-    from dump import BACKUP_SCRATCH_FACTOR, publish_backup, validate_dump
-else:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from chronicle_ops.dump import BACKUP_SCRATCH_FACTOR, publish_backup, validate_dump
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from chronicle_ops.dump import APPLICATION_TABLE_POLICIES, BACKUP_SCRATCH_FACTOR, CATALOG_GATE_SQL, DUMP_EXCLUDE_OPTIONS, RESTORE_EXTENSIONS_SQL, publish_backup, validate_dump
 
 MANIFEST_SQL = """
 SELECT json_build_object(
   'database_bytes', pg_database_size(current_database()),
   'version', coalesce((SELECT max(version) FROM public.flyway_schema_history), ''),
+  'extensions', (SELECT json_agg(extname ORDER BY extname) FROM pg_extension),
   'tables', (SELECT coalesce(json_agg(c.relname ORDER BY c.relname), '[]'::json)
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')),
-  'study_participants', (SELECT count(*) FROM public.study_participants),
-  'studies', (SELECT count(*) FROM public.studies))
+            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')))
 """
+
+
+def row_counts_sql(tables):
+    # Use restore's reviewed table inventory, counting only tables present in this schema version.
+    counts = " UNION ALL ".join(f"SELECT '{table}' AS name, count(*) AS rows FROM {table}"
+                                for table in APPLICATION_TABLE_POLICIES if table.removeprefix("public.") in tables)
+    # A parallel count over a pg_tde table segfaults the backend; compose turns parallelism off, an override must not.
+    return ("SET max_parallel_workers_per_gather = 0;\n"
+            "SELECT coalesce(json_object_agg(name, rows), '{}'::json) FROM (" + counts + ") counts;"
+            if counts else "SELECT '{}'::json;")
 
 
 def psql(database, sql, capture=True, timeout=None):
@@ -55,13 +60,16 @@ def dump_snapshot(database, dump_file, options):
     )
     try:
         owner.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n")
-        owner.stdin.write("SELECT pg_export_snapshot();\n" + MANIFEST_SQL + ";\n")
+        owner.stdin.write(CATALOG_GATE_SQL + "\nSELECT pg_export_snapshot();\n" + MANIFEST_SQL + ";\n")
         owner.stdin.flush()
         snapshot = owner.stdout.readline().strip()
         if not re.fullmatch(r"[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+", snapshot):
             raise RuntimeError("source snapshot unavailable")
         manifest = json.loads(owner.stdout.readline())
-        command = ["pg_dump", "-d", database, *options, "--snapshot=" + snapshot]
+        owner.stdin.write(row_counts_sql(manifest["tables"]) + "\n")
+        owner.stdin.flush()
+        manifest["row_counts"] = json.loads(owner.stdout.readline())
+        command = ["pg_dump", "-d", database, *options, *DUMP_EXCLUDE_OPTIONS, "--snapshot=" + snapshot]
         # Keep pg_dump's existing output/options, including its compression and table AMs.
         with open(dump_file, "xb") as output:
             subprocess.run(command, stdout=output, check=True)
@@ -117,6 +125,8 @@ SELECT current_setting('default_table_access_method') = 'tde_heap'
 """)
         if ready != "t":
             raise RuntimeError("scratch database lacks TDE key or tde_heap default")
+    # Exactly what restore.sh creates on a fresh volume, so a missing extension fails here too.
+    psql(SCRATCH, RESTORE_EXTENSIONS_SQL, False)
     restore = subprocess.Popen(
         ["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", SCRATCH],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -137,14 +147,18 @@ SELECT current_setting('default_table_access_method') = 'tde_heap'
             except BrokenPipeError:
                 pass
         restore.wait()
-    restored = json.loads(psql(SCRATCH, MANIFEST_SQL + ";"))
+    restored = json.loads(psql(SCRATCH, CATALOG_GATE_SQL + "\n" + MANIFEST_SQL + ";"))
+    missing = set(source["extensions"]) - set(restored["extensions"]) - ({"pg_tde"} if encryption == "false" else set())
+    if missing:
+        raise RuntimeError("restored database lacks extensions: " + ", ".join(sorted(missing)))
     if restored["version"] != source["version"]:
         raise RuntimeError("schema version mismatch")
     if not set(source["tables"]).issubset(restored["tables"]):
         raise RuntimeError("missing public tables")
-    for table in ("study_participants", "studies"):
-        if restored[table] != source[table]:
-            raise RuntimeError(f"{table} row count mismatch")
+    restored_counts = json.loads(psql(SCRATCH, row_counts_sql(restored["tables"])))
+    for table, count in source["row_counts"].items():
+        if restored_counts.get(table) != count:
+            raise RuntimeError(f"{table.removeprefix('public.')} row count mismatch")
     wrong_method = psql(SCRATCH, f"""
 SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  JOIN pg_am a ON a.oid = c.relam
@@ -179,8 +193,10 @@ def main(args=None):
     try:
         if mode != "dump":
             raise ValueError("unknown self-check mode")
-        for abandoned in dump_file.parent.glob(database + "-*.sql.gz.partial"):
-            abandoned.unlink()
+        # A killed run leaves its dump fragment or publish_backup's release-stamp copy; both hold full data.
+        for pattern in ("-*.sql.gz.partial", "-*.sql.gz*.release.partial"):
+            for abandoned in dump_file.parent.glob(database + pattern):
+                abandoned.unlink()
         source = dump_snapshot(database, partial, options)
         check_dump(database, partial, source)
         status = 0
@@ -194,11 +210,12 @@ def main(args=None):
             status = 1
         if status == 0:
             try:
-                os.replace(partial, dump_file)
-                publish_backup(dump_file, database, source)
+                publish_backup(dump_file, database, source, pending=partial)
                 print("Restore self-check OK: restore verified", flush=True)
-            except (OSError, ValueError):
-                dump_file.unlink(missing_ok=True)
+            except (OSError, ValueError) as error:
+                print("Restore self-check FAIL: " + str(error), file=sys.stderr, flush=True)
+                if not partial.exists():
+                    dump_file.unlink(missing_ok=True)
                 status = 1
         try:
             partial.unlink(missing_ok=True)

@@ -8,7 +8,7 @@ fileExistenceTests:
     shouldExist: true
     isExecutableBy: owner
   - name: recovery validator
-    path: /dump.py
+    path: /chronicle_ops/dump.py
     shouldExist: true
   - name: TDE backup guard
     path: /init-tde.sh
@@ -21,9 +21,19 @@ commandTests:
     exitCode: 0
   - name: health and dump validation imports
     command: python3
-    args: [-c, 'import dump; compile(open("/selfcheck.py").read(), "/selfcheck.py", "exec")']
+    args: [-c, 'import chronicle_ops.dump; import selfcheck; assert selfcheck.main(["health"]) == 1']
     exitCode: 0
   - name: scheduler and lock tools
     command: bash
     args: [-ec, 'command -v go-cron; command -v flock; run-parts --version']
     exitCode: 0
+  - name: compromised eMudhra intermediates are distrusted (CVE-2026-114406)
+    command: bash
+    args: [-ec, 'trust list --filter=blocklist | grep -c "label: EM "']
+    expectedOutput: ['^16\n?$']
+    exitCode: 0
+  - name: unused BIND, kernel-header and compiler packages are absent
+    command: rpm
+    args: [-q, bind-utils, bind-libs, kernel-headers, emacs-filesystem, gcc]
+    expectedOutput: ['package bind-utils is not installed', 'package gcc is not installed']
+    exitCode: 5

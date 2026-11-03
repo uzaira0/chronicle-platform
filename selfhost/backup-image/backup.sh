@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 set -Eeo pipefail
+# A failed run must not leave an earlier run's success marker reporting healthy.
+trap '[[ $? -eq 0 ]] || rm -f "${BACKUP_SUCCESS_MARKER:?}"' EXIT
+# Hold the whole publication transaction, including retention, tier links and health publication.
+# The only competitor is go-cron overlapping its own run (manual `./chronicle backup` also starts
+# through go-cron). The holder publishes and reports this slot's outcome; a non-zero exit here would
+# make go-cron serve 503 until the holder finishes, so step aside successfully and change nothing.
+exec 8<>"${BACKUP_DIR:?}/.backup.lock"
+if ! flock -n 8; then
+  trap - EXIT
+  echo 'Backup skipped: another backup run is still publishing' >&2
+  exit 0
+fi
 
 HOOKS_DIR="/hooks"
 if [ -d "${HOOKS_DIR}" ]; then
@@ -19,7 +31,47 @@ fi
 #Initialize dirs
 mkdir -p "${BACKUP_DIR}/last/" "${BACKUP_DIR}/daily/" "${BACKUP_DIR}/weekly/" "${BACKUP_DIR}/monthly/"
 
-#Loop all databases
+# Prune every database before admitting a new dump.
+for DB in ${POSTGRES_DBS}; do
+  # Reclaim expired history before the space-gated dump. Keep every hardlink to the
+  # verified recovery point even when its normal retention has elapsed.
+  protected_dump=$(python3 - "$BACKUP_DIR" "$DB" <<'PY_KEEP'
+import json
+from pathlib import Path
+import sys
+from chronicle_ops.dump import backup_marker
+marker = backup_marker(sys.argv[1], sys.argv[2])
+if marker.exists():
+    name = json.loads(marker.read_text())["file"]
+    if Path(name).name != name:
+        raise SystemExit("invalid verified backup path")
+    path = marker.parent / name
+    print(path if path.is_file() else "/dev/null")
+else:
+    print("/dev/null")
+PY_KEEP
+  )
+  #Clean old files
+  echo "Cleaning older files for ${DB} database from ${POSTGRES_HOST}..."
+  # Chronicle: a tier whose retention is "all" is never pruned.
+  [[ "$KEEP_MINS" == all ]] || find "${BACKUP_DIR}/last" -maxdepth 1 -mmin "+${KEEP_MINS}" -type f ! -samefile "$protected_dump" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
+  [[ "$KEEP_DAYS" == all ]] || find "${BACKUP_DIR}/daily" -maxdepth 1 -mtime "+${KEEP_DAYS}" -type f ! -samefile "$protected_dump" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
+  [[ "$KEEP_WEEKS" == all ]] || find "${BACKUP_DIR}/weekly" -maxdepth 1 -mtime "+${KEEP_WEEKS}" -type f ! -samefile "$protected_dump" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
+  [[ "$KEEP_MONTHS" == all ]] || find "${BACKUP_DIR}/monthly" -maxdepth 1 -mtime "+${KEEP_MONTHS}" -type f ! -samefile "$protected_dump" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
+done
+
+python3 - "$BACKUP_DIR" <<'PY_SPACE'
+import os
+import sys
+from chronicle_ops.release import free_disk_floor
+floor = int(free_disk_floor({}))
+disk = os.statvfs(sys.argv[1])
+free = disk.f_bavail * disk.f_frsize
+if free < floor * 1024 ** 3:
+    sys.exit(f"ERROR: {sys.argv[1]} has {free} bytes free, under MIN_FREE_DISK_GIB={floor} GiB; "
+             "free backup space or choose a shorter retention with ./chronicle setup")
+PY_SPACE
+
 published=()
 for DB in ${POSTGRES_DBS}; do
   #Initialize filename vers
@@ -88,12 +140,6 @@ for DB in ${POSTGRES_DBS}; do
   else # [ "${BACKUP_LATEST_TYPE}" = "none"  ]
     echo "Not updating lastest backup."
   fi
-  #Clean old files
-  echo "Cleaning older files for ${DB} database from ${POSTGRES_HOST}..."
-  find "${BACKUP_DIR}/last" -maxdepth 1 -mmin "+${KEEP_MINS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
-  find "${BACKUP_DIR}/daily" -maxdepth 1 -mtime "+${KEEP_DAYS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
-  find "${BACKUP_DIR}/weekly" -maxdepth 1 -mtime "+${KEEP_WEEKS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
-  find "${BACKUP_DIR}/monthly" -maxdepth 1 -mtime "+${KEEP_MONTHS}" -name "${DB}-*${BACKUP_SUFFIX}" -exec rm -rvf '{}' ';'
   published+=("$DFILE")
 done
 

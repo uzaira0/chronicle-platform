@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Upstream prodrigestivill script kept verbatim; warnings reflect upstream syntax and sourced variables.
+# Upstream prodrigestivill script; the only Chronicle change is the BACKUP_KEEP_* check (number or all).
+# Warnings reflect upstream syntax and sourced variables.
 # shellcheck disable=SC2034,SC2057,SC2155,SC2166,SC2307
 # Pre-validate the environment
 if [ "${POSTGRES_DB}" = "**None**" -a "${POSTGRES_DB_FILE}" = "**None**" ]; then
@@ -56,10 +57,20 @@ else
 fi
 export PGHOST="${POSTGRES_HOST}"
 export PGPORT="${POSTGRES_PORT}"
+# Chronicle: bash arithmetic evaluates a word as 0, which would prune almost every dump.
+# "all" keeps a tier forever (the operator's choice in ./chronicle setup).
+for keep in BACKUP_KEEP_MINS BACKUP_KEEP_DAYS BACKUP_KEEP_WEEKS BACKUP_KEEP_MONTHS; do
+  if [[ "${!keep}" != all && ! "${!keep}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+    echo "${keep} must be all or a non-negative decimal integer (received '${!keep}')."
+    exit 1
+  fi
+done
 KEEP_MINS=${BACKUP_KEEP_MINS}
 KEEP_DAYS=${BACKUP_KEEP_DAYS}
-KEEP_WEEKS=`expr $(((${BACKUP_KEEP_WEEKS} * 7) + 1))`
-KEEP_MONTHS=`expr $(((${BACKUP_KEEP_MONTHS} * 31) + 1))`
+KEEP_WEEKS=${BACKUP_KEEP_WEEKS}
+KEEP_MONTHS=${BACKUP_KEEP_MONTHS}
+[[ "$KEEP_WEEKS" == all ]] || KEEP_WEEKS=`expr $(((${BACKUP_KEEP_WEEKS} * 7) + 1))`
+[[ "$KEEP_MONTHS" == all ]] || KEEP_MONTHS=`expr $(((${BACKUP_KEEP_MONTHS} * 31) + 1))`
 
 # Validate backup dir
 if [ '!' -d "${BACKUP_DIR}" -o '!' -w "${BACKUP_DIR}" -o '!' -x "${BACKUP_DIR}" ]; then

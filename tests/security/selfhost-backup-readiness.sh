@@ -115,15 +115,18 @@ set -e
 grep -Fq 'BACKUP_STARTUP_TIMEOUT_SECONDS must be a positive integer' "$invalid_output" \
   || fail "invalid timeout rejection was not comprehensible"
 
+run_entrypoint "${RUN_DIR}/extended" 7200 1 1 "${RUN_DIR}/extended.init" "${RUN_DIR}/extended.log" \
+  || fail "entrypoint refused an operator-selected startup timeout above the default"
+[[ -f "${RUN_DIR}/extended.init" ]] || fail "extended timeout did not start the scheduler"
+
 set +e
-BACKUP_STARTUP_TIMEOUT_SECONDS=3601 /bin/bash "$ENTRYPOINT" "${COMMAND_DIR}/image-init" \
-  >"${RUN_DIR}/oversized-timeout.log" 2>&1
-oversized_status=$?
+BACKUP_STARTUP_TIMEOUT_SECONDS=18446744073709551616 /bin/bash "$ENTRYPOINT" "${COMMAND_DIR}/image-init" \
+  >"${RUN_DIR}/overflow-timeout.log" 2>&1
+overflow_status=$?
 set -e
-[[ "$oversized_status" -ne 0 ]] || fail "entrypoint accepted an effectively unbounded startup timeout"
-grep -Fq 'BACKUP_STARTUP_TIMEOUT_SECONDS must not exceed 3600' \
-  "${RUN_DIR}/oversized-timeout.log" ||
-  fail "oversized timeout rejection was not comprehensible"
+[[ "$overflow_status" -ne 0 ]] || fail "entrypoint accepted a timeout that overflows its deadline"
+grep -Fq 'BACKUP_STARTUP_TIMEOUT_SECONDS must fit in a 64-bit integer' "${RUN_DIR}/overflow-timeout.log" ||
+  fail "overflow timeout rejection was not comprehensible"
 
 set +e
 BACKUP_STARTUP_TIMEOUT_SECONDS=10 BACKUP_STARTUP_INTERVAL_SECONDS=61 \
@@ -137,7 +140,7 @@ grep -Fq 'BACKUP_STARTUP_INTERVAL_SECONDS must not exceed 60' \
   fail "oversized readiness-interval rejection was not comprehensible"
 
 # Pre-operation safety dumps sit outside the image's daily/weekly/monthly rotation. The
-# post-backup hook bounds them by PRE_OP_BACKUP_KEEP_DAYS (launch audit D6, K3, D4).
+# post-backup hook bounds them by PRE_OP_BACKUP_KEEP_DAYS.
 PRUNE_HOOK="${ROOT_DIR}/selfhost/backup-prune-hook.sh"
 [[ -x "$PRUNE_HOOK" ]] || fail "pre-operation dump prune hook is missing or not executable"
 grep -Fq './backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro' "${ROOT_DIR}/selfhost/overlays/backups.yml" ||
@@ -173,5 +176,12 @@ done
 if BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=0 "$PRUNE_HOOK" post-backup >/dev/null 2>&1; then
   fail "prune hook accepted PRE_OP_BACKUP_KEEP_DAYS=0"
 fi
+if BACKUP_DIR="$PRUNE_DIR" "$PRUNE_HOOK" post-backup >/dev/null 2>&1; then
+  fail "prune hook chose its own retention when PRE_OP_BACKUP_KEEP_DAYS was unset"
+fi
+: >"${PRUNE_DIR}/pre-upgrade-old.sql.gz"; touch -d '400 days ago' "${PRUNE_DIR}/pre-upgrade-old.sql.gz"
+BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=all "$PRUNE_HOOK" post-backup >/dev/null ||
+  fail "prune hook refused PRE_OP_BACKUP_KEEP_DAYS=all"
+[[ -e "${PRUNE_DIR}/pre-upgrade-old.sql.gz" ]] || fail "PRE_OP_BACKUP_KEEP_DAYS=all still pruned a safety dump"
 
 echo "self-host backup readiness test passed"
