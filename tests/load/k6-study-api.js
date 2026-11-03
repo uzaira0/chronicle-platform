@@ -39,7 +39,8 @@ export default function () {
   check(studiesRes, {
     'list studies: status 200': (r) => r.status === 200,
     'list studies: is array': (r) => {
-      try { return Array.isArray(JSON.parse(r.body)); } catch { return false; }
+      // k6 v0.50 (the gate's pinned runner) cannot parse an optional catch binding.
+      try { return Array.isArray(JSON.parse(r.body)); } catch (_) { return false; }
     },
   });
 
