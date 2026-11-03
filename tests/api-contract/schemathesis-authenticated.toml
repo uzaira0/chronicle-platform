@@ -1,0 +1,2 @@
+# Environment substitution keeps the disposable bearer token out of process arguments and this file.
+headers = { Authorization = "Bearer ${CHRONICLE_AUTH_TOKEN}" }

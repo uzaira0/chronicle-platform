@@ -1,0 +1,1 @@
+[{"method": "POST", "path": "/v3/study/{study}/deletions/{op}/holds", "operation": "MutationController.recordHold"}]

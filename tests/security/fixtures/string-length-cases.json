@@ -1,0 +1,9 @@
+[
+  { "model": "Study", "property": "title", "className": "com.openlattice.chronicle.study.Study" },
+  { "model": "Study", "property": "description", "className": "com.openlattice.chronicle.study.Study" },
+  { "model": "Study", "property": "contact", "className": "com.openlattice.chronicle.study.Study" },
+  { "model": "Organization", "property": "title", "className": "com.openlattice.chronicle.organizations.Organization" },
+  { "model": "Organization", "property": "description", "className": "com.openlattice.chronicle.organizations.Organization" },
+  { "model": "AndroidSensorSample", "property": "timezone", "className": "com.openlattice.chronicle.android.AndroidSensorSample" },
+  { "model": "WebhookCreateRequest", "property": "secret", "className": "com.openlattice.chronicle.webhooks.WebhookCreateRequest" }
+]

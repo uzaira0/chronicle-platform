@@ -1,0 +1,5 @@
+[
+  {"method":"GET","path":"/chronicle/v3/study/{studyId}/participants/stats","operation":"StudyController.getParticipantStats"},
+  {"method":"GET","path":"/chronicle/v3/study/{studyId}/participants/ios/upload-status","operation":"StudyController.getIosUploadStatus"},
+  {"method":"GET","path":"/chronicle/v3/study/{studyId}/participants/never-requested","operation":"FutureController.unknownParticipantRoute"}
+]

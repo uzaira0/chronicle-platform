@@ -1,52 +1,41 @@
 #!/usr/bin/env bash
-# Runs Schemathesis API contract testing against the Chronicle backend.
-# Requires: schemathesis (pip install schemathesis), running Docker stack, generate-jwt.sh
+# Schemathesis contract fuzzing of the researcher GET surface described by chronicle-api/chronicle.yaml.
+# tests/security/backend-api-probes.sh supplies CHRONICLE_BASE_URL and CHRONICLE_AUTH_TOKEN from the
+# isolated test backend.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DOCKER_DIR="$PROJECT_ROOT/docker"
-REPORT_DIR="$PROJECT_ROOT/tests/api-contract/reports"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+: "${CHRONICLE_BASE_URL:?set the backend base URL}"
+: "${CHRONICLE_AUTH_TOKEN:?set a researcher bearer token}"
+python3 "$ROOT_DIR/tests/security/route-authorization-probes.py" --validate-target "$CHRONICLE_BASE_URL"
 
-BASE_URL="${CHRONICLE_BASE_URL:-http://127.0.0.1:40320}"
-SCHEMA_PATH="${CHRONICLE_SCHEMA_PATH:-$PROJECT_ROOT/chronicle-api/chronicle.yaml}"
-
-mkdir -p "$REPORT_DIR"
-
-# Generate a JWT for authentication
-echo "Generating JWT token..."
-if [ -f "$DOCKER_DIR/.env" ]; then
-  # shellcheck source=/dev/null
-  source "$DOCKER_DIR/.env"
-fi
-
-if [ -z "${JWT_SECRET:-}" ]; then
-  echo "ERROR: JWT_SECRET not set. Source docker/.env or set JWT_SECRET env var."
-  exit 1
-fi
-
-JWT_TOKEN=$("$DOCKER_DIR/generate-jwt.sh" 2>/dev/null || echo "")
-if [ -z "$JWT_TOKEN" ]; then
-  echo "ERROR: Failed to generate JWT token."
-  exit 1
-fi
-
-echo "Running Schemathesis against $BASE_URL..."
-echo "Schema: $SCHEMA_PATH"
-
-schemathesis run "$SCHEMA_PATH" \
-  --base-url "$BASE_URL" \
-  --header "Authorization: Bearer $JWT_TOKEN" \
-  --method GET \
+# Response bodies are not sanitized by Schemathesis. Keep output/artifacts private, including on failure.
+umask 077
+report_root="${CHRONICLE_SCHEMATHESIS_REPORT_DIR:-$ROOT_DIR/build/schemathesis}"
+mkdir -p "$report_root"
+chmod 700 "$report_root"
+empty_netrc="$report_root/empty.netrc"
+: > "$empty_netrc"
+chmod 600 "$empty_netrc"
+report_dir="$report_root/authenticated"
+mkdir -p "$report_dir"
+chmod 700 "$report_dir"
+: > "$report_dir/cli.log"
+chmod 600 "$report_dir/cli.log"
+status=0
+# Researcher GET surface only. Anonymous access to every route is covered by route-authorization-probes.py; the wider
+# all-method and anonymous run waits on JSON bodies for every error response.
+NO_PROXY='*' no_proxy='*' NETRC="$empty_netrc" env -u SCHEMATHESIS_HOOKS schemathesis \
+  --config-file "$ROOT_DIR/tests/api-contract/schemathesis-authenticated.toml" run "$ROOT_DIR/chronicle-api/chronicle.yaml" \
+  --url "$CHRONICLE_BASE_URL" \
+  --include-method GET \
+  --checks not_a_server_error,status_code_conformance,content_type_conformance,response_schema_conformance \
   --max-examples 50 \
-  --checks all \
-  --junit-xml "$REPORT_DIR/schemathesis-report.xml" \
-  --request-timeout 10000 \
-  --validate-schema false \
-  --hypothesis-seed 42 \
-  || SCHEMATHESIS_EXIT=$?
-
-echo ""
-echo "Report written to: $REPORT_DIR/schemathesis-report.xml"
-
-exit "${SCHEMATHESIS_EXIT:-0}"
+  --seed 42 \
+  --request-timeout 10 \
+  --report junit \
+  --report-dir "$report_dir" >"$report_dir/cli.log" 2>&1 || status=$?
+find "$report_dir" -type d -exec chmod 700 {} +
+find "$report_dir" -type f -exec chmod 600 {} +
+printf 'Schemathesis authenticated GET: exit%s; private reports: %s\n' "$status" "$report_dir"
+exit "$status"
