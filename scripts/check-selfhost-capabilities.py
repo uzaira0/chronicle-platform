@@ -14,7 +14,7 @@ MANIFEST = ROOT / "contracts" / "selfhost-capabilities.json"
 ARCHITECTURE_MANIFEST = ROOT / "config" / "architecture-boundaries.json"
 VALID_OWNERS = {"researcher-web", "participant-web", "mobile-client", "operator-cli", "grafana", "api-only-by-design"}
 REQUIRED = {
-    "study-export",
+    "participant-export",
     "participant-enrollment-health",
     "verified-deletion",
     "failed-background-operations",

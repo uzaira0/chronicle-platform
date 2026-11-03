@@ -6,450 +6,493 @@
   "sourceFiles": {
     "linkml": {
       "path": "ontology/chronicle.linkml.yaml",
-      "sha256": "e3ab0899ef3026b45135a48d35f4a9cd176bb9a776a6e7504dfc7c38985c6743"
+      "sha256": "2c679ce1729f45878aa2a71ee42bd02ca98dead54b1d11d5cf2db6e82aea5afc"
+    },
+    "openModuleRegistry": {
+      "path": "chronicle/app/src/open/assets/approved-module-registry.json",
+      "sha256": "d90dd712b1026cb8bcd518976b8bdd9e40130cdcd91f80785a83de6a53713b16"
+    },
+    "fixtureRegistry": {
+      "path": "chronicle-models/fixtures/payloads/registry.json",
+      "sha256": "afefb0d19e7652a2c191dd790403160b69d3fdaaf1c9bed35c30ee5635a84b4e"
     }
   },
   "contracts": {
+    "synchronousExportLimits": {
+      "SYNC_EXPORT_MAX_FILENAME_CHARS": 64
+    },
+    "enrollmentLockedSettings": [
+      "ParticipantPolicy",
+      "Withdrawal"
+    ],
     "collectionModules": [
       {
         "enumName": "USAGE_EVENTS",
         "id": "usage_events",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": true,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "IN_APP_ACTIVITY_CLASS",
         "id": "in_app_activity_class",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "DEVICE_LIFECYCLE",
         "id": "device_lifecycle",
         "privacyClass": "DEVICE_STATE_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": true,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "USER_IDENTIFICATION",
         "id": "user_identification",
         "privacyClass": "LOCAL_PARTICIPANT_LABEL",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "UPLOAD_TELEMETRY",
         "id": "upload_telemetry",
         "privacyClass": "OPERATIONAL_DIAGNOSTICS",
         "active": true,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": true,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_AVAILABILITY",
         "id": "sensor_availability",
         "privacyClass": "DEVICE_CAPABILITY",
         "active": true,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": true,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "QUESTIONNAIRE",
         "id": "questionnaire",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": true,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "BATTERY_TELEMETRY",
         "id": "battery_telemetry",
         "privacyClass": "DEVICE_STATE_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": true,
-        "intervalGated": true
+        "intervalGated": true,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_ACCELEROMETER",
         "id": "sensor_accelerometer",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_GYROSCOPE",
         "id": "sensor_gyroscope",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_MAGNETOMETER",
         "id": "sensor_magnetometer",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_GRAVITY",
         "id": "sensor_gravity",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_LINEAR_ACCELERATION",
         "id": "sensor_linear_acceleration",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_ROTATION_VECTOR",
         "id": "sensor_rotation_vector",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_STEP_COUNTER",
         "id": "sensor_step_counter",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "SENSOR_LIGHT",
         "id": "sensor_light",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_PROXIMITY",
         "id": "sensor_proximity",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_SIGNIFICANT_MOTION",
         "id": "sensor_significant_motion",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_TILT_DETECTOR",
         "id": "sensor_tilt_detector",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "SENSOR_SCREEN_ORIENTATION",
         "id": "sensor_screen_orientation",
         "privacyClass": "PHYSICAL_TELEMETRY",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": true,
         "activeDefaultEnabled": false,
-        "intervalGated": false
-      },
-      {
-        "enumName": "SENSOR_SAMSUNG_GRIP_WIFI",
-        "id": "sensor_samsung_grip_wifi",
-        "privacyClass": "PHYSICAL_TELEMETRY",
-        "active": false,
-        "defaultEnabledOverride": null,
-        "defaultEnabled": false,
-        "androidSensorModule": true,
-        "activeDefaultEnabled": false,
-        "intervalGated": false
-      },
-      {
-        "enumName": "SENSOR_SAMSUNG_MOTION",
-        "id": "sensor_samsung_motion",
-        "privacyClass": "PHYSICAL_TELEMETRY",
-        "active": false,
-        "defaultEnabledOverride": null,
-        "defaultEnabled": false,
-        "androidSensorModule": true,
-        "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": true
       },
       {
         "enumName": "INTERACTION_EVENTS",
         "id": "interaction_events",
         "privacyClass": "INTERACTION_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "AUDIO_ACTIVITY",
         "id": "audio_activity",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "AUDIO_CONTENT",
         "id": "audio_content",
         "privacyClass": "MEDIA_CONTENT",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "NOTIFICATION_ACTIVITY",
         "id": "notification_activity",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
-      },
-      {
-        "enumName": "AMBIENT_AUDIO",
-        "id": "ambient_audio",
-        "privacyClass": "AMBIENT_AUDIO_CONTEXT",
-        "active": true,
-        "defaultEnabledOverride": null,
-        "defaultEnabled": false,
-        "androidSensorModule": false,
-        "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "SLEEP",
         "id": "sleep",
         "privacyClass": "HEALTH_METRICS",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "ACTIVITY_RECOGNITION",
         "id": "activity_recognition",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "HEALTH_CONNECT",
         "id": "health_connect",
         "privacyClass": "HEALTH_METRICS",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": true
+        "intervalGated": true,
+        "playStoreBuild": false
       },
       {
         "enumName": "CONNECTIVITY_STATE",
         "id": "connectivity_state",
         "privacyClass": "DEVICE_STATE_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": true
+        "intervalGated": true,
+        "playStoreBuild": true
       },
       {
         "enumName": "APP_NETWORK_USAGE",
         "id": "app_network_usage",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": true
+        "intervalGated": true,
+        "playStoreBuild": true
       },
       {
         "enumName": "DEVICE_SETTINGS",
         "id": "device_settings",
         "privacyClass": "DEVICE_STATE_METADATA",
         "active": true,
+        "consentGated": true,
         "defaultEnabledOverride": false,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": true
+        "intervalGated": true,
+        "playStoreBuild": true
       },
       {
         "enumName": "TIME_USE_DIARY",
         "id": "time_use_diary",
         "privacyClass": "BEHAVIORAL_METADATA",
         "active": false,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "APP_INVENTORY",
         "id": "app_inventory",
         "privacyClass": "DEVICE_CAPABILITY",
         "active": false,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": true,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "GAZE_TRACKING",
         "id": "gaze_tracking",
         "privacyClass": "GAZE_TELEMETRY",
         "active": false,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "INTERACTION_CONTENT",
         "id": "interaction_content",
         "privacyClass": "SCREEN_CONTENT",
         "active": false,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "LOCATION",
         "id": "location",
         "privacyClass": "PRECISE_LOCATION",
         "active": false,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       },
       {
         "enumName": "COMMUNICATION_LOG",
         "id": "communication_log",
         "privacyClass": "COMMUNICATION_METADATA",
         "active": false,
+        "consentGated": false,
         "defaultEnabledOverride": null,
         "defaultEnabled": false,
         "androidSensorModule": false,
         "activeDefaultEnabled": false,
-        "intervalGated": false
-      },
-      {
-        "enumName": "HARDWARE_SENSORS",
-        "id": "hardware_sensors",
-        "privacyClass": "PHYSICAL_TELEMETRY",
-        "active": false,
-        "defaultEnabledOverride": null,
-        "defaultEnabled": false,
-        "androidSensorModule": false,
-        "activeDefaultEnabled": false,
-        "intervalGated": false
+        "intervalGated": false,
+        "playStoreBuild": false
       }
     ],
     "activeCollectionModuleIds": [
@@ -477,7 +520,6 @@
       "audio_activity",
       "audio_content",
       "notification_activity",
-      "ambient_audio",
       "sleep",
       "activity_recognition",
       "health_connect",
@@ -494,15 +536,12 @@
       "battery_telemetry"
     ],
     "inactiveCollectionModuleIds": [
-      "sensor_samsung_grip_wifi",
-      "sensor_samsung_motion",
       "time_use_diary",
       "app_inventory",
       "gaze_tracking",
       "interaction_content",
       "location",
-      "communication_log",
-      "hardware_sensors"
+      "communication_log"
     ],
     "androidSensorModuleIds": [
       "sensor_accelerometer",
@@ -516,13 +555,64 @@
       "sensor_proximity",
       "sensor_significant_motion",
       "sensor_tilt_detector",
+      "sensor_screen_orientation"
+    ],
+    "consentGatedCollectionModuleIds": [
+      "usage_events",
+      "in_app_activity_class",
+      "device_lifecycle",
+      "user_identification",
+      "battery_telemetry",
+      "sensor_accelerometer",
+      "sensor_gyroscope",
+      "sensor_magnetometer",
+      "sensor_gravity",
+      "sensor_linear_acceleration",
+      "sensor_rotation_vector",
+      "sensor_step_counter",
+      "sensor_light",
+      "sensor_proximity",
+      "sensor_significant_motion",
+      "sensor_tilt_detector",
       "sensor_screen_orientation",
-      "sensor_samsung_grip_wifi",
-      "sensor_samsung_motion"
+      "interaction_events",
+      "audio_activity",
+      "audio_content",
+      "notification_activity",
+      "sleep",
+      "activity_recognition",
+      "health_connect",
+      "connectivity_state",
+      "app_network_usage",
+      "device_settings"
     ],
     "intervalGatedCollectionModuleIds": [
       "battery_telemetry",
       "health_connect",
+      "connectivity_state",
+      "app_network_usage",
+      "device_settings"
+    ],
+    "playStoreBuildCollectionModuleIds": [
+      "usage_events",
+      "in_app_activity_class",
+      "device_lifecycle",
+      "user_identification",
+      "upload_telemetry",
+      "sensor_availability",
+      "questionnaire",
+      "battery_telemetry",
+      "sensor_accelerometer",
+      "sensor_gyroscope",
+      "sensor_magnetometer",
+      "sensor_gravity",
+      "sensor_linear_acceleration",
+      "sensor_rotation_vector",
+      "sensor_light",
+      "sensor_proximity",
+      "sensor_significant_motion",
+      "sensor_tilt_detector",
+      "sensor_screen_orientation",
       "connectivity_state",
       "app_network_usage",
       "device_settings"
@@ -577,10 +667,6 @@
         "defaultEnabled": false
       },
       {
-        "name": "AMBIENT_AUDIO_CONTEXT",
-        "defaultEnabled": false
-      },
-      {
         "name": "COMMUNICATION_METADATA",
         "defaultEnabled": false
       }
@@ -597,9 +683,7 @@
       "proximity",
       "significantMotion",
       "tiltDetector",
-      "screenOrientation",
-      "samsungGripWifi",
-      "samsungMotion"
+      "screenOrientation"
     ],
     "androidSensorMappings": [
       {
@@ -685,47 +769,21 @@
         "collectionModuleEnum": "SENSOR_TILT_DETECTOR",
         "active": true,
         "displayOrder": 11
-      },
-      {
-        "androidSensorType": "samsungGripWifi",
-        "collectionModuleId": "sensor_samsung_grip_wifi",
-        "collectionModuleEnum": "SENSOR_SAMSUNG_GRIP_WIFI",
-        "active": false,
-        "displayOrder": 12
-      },
-      {
-        "androidSensorType": "samsungMotion",
-        "collectionModuleId": "sensor_samsung_motion",
-        "collectionModuleEnum": "SENSOR_SAMSUNG_MOTION",
-        "active": false,
-        "displayOrder": 13
       }
-    ],
-    "iosSensorTypes": [
-      "deviceUsage",
-      "keyboardMetrics",
-      "messagesUsage",
-      "phoneUsage",
-      "accelerometer",
-      "pedometer",
-      "motionActivity"
     ],
     "studyFeatures": [
       "APP_USAGE",
       "APP_USAGE_SURVEY",
       "TIME_USE_DIARY",
       "ARCHIVE",
-      "IOS_SENSOR",
-      "ANDROID_SENSOR",
       "CHRONICLE_SURVEYS",
       "CHRONICLE",
       "CHRONICLE_DATA_COLLECTION"
     ],
     "participantDataTypes": [
       "UsageEvents",
-      "Preprocessed",
       "AppUsageSurvey",
-      "IOSSensor",
+      "IOSScreenTime",
       "AndroidSensor",
       "SensorAvailability",
       "BatteryTelemetry",
@@ -739,8 +797,7 @@
       "ConnectivityState",
       "AppNetworkUsage",
       "DeviceSettings",
-      "UploadDiagnostics",
-      "DataQualityAlerts"
+      "UploadDiagnostics"
     ],
     "participationStatuses": [
       "ENROLLED",
@@ -761,20 +818,310 @@
       "SETTINGS_CHANGE",
       "WITHDRAWAL"
     ],
-    "collectionDataDispositions": [
-      {
-        "enumName": "FLUSH_THEN_STOP",
-        "id": "flush_then_stop"
-      },
-      {
-        "enumName": "DISCARD_AND_STOP",
-        "id": "discard_and_stop"
-      },
-      {
-        "enumName": "HOLD_PENDING",
-        "id": "hold_pending"
-      }
-    ]
+    "apiKeyScopes": [
+      "READ_ONLY",
+      "WRITE",
+      "ADMIN"
+    ],
+    "androidUploadIssueCodes": [
+      "DESTINATION_MISSING",
+      "DESTINATION_IDENTITY_MISMATCH",
+      "DESTINATION_SOURCE_DEVICE_MISSING",
+      "DESTINATION_SETUP_INCOMPLETE",
+      "DESTINATION_DISABLED",
+      "DESTINATION_NONCANONICAL",
+      "DESTINATION_CREDENTIAL_INCOMPLETE",
+      "HTTP_SERVER_ERROR",
+      "HTTP_CLIENT_ERROR",
+      "TIMEOUT",
+      "DNS_FAILURE",
+      "TLS_FAILURE",
+      "CONNECTION_FAILURE",
+      "UPLOAD_FAILURE",
+      "APP_CRASH",
+      "APP_CRASH_NATIVE",
+      "APP_ANR",
+      "SAMPLE_QUARANTINED",
+      "LOCAL_BUFFER_OVERFLOW",
+      "LOCAL_REQUEUE_OVERFLOW",
+      "LOCAL_WRITE_FAILED",
+      "LOCAL_SHUTDOWN_DROPPED",
+      "COLLECTION_GATE_DROPPED",
+      "MODULE_POLICY_ERASED",
+      "DIRECT_BOOT_CAPACITY_DROPPED",
+      "DIRECT_BOOT_CORRUPT_RECORD",
+      "COLLECTION_PAUSED_STORAGE",
+      "COLLECTION_ACCESS_MISSING",
+      "UNRECOGNIZED_ISSUE"
+    ],
+    "participantFormKinds": [
+      "ENROLLMENT",
+      "APP_USAGE",
+      "QUESTIONNAIRE",
+      "TIME_USE_DIARY",
+      "PORTAL"
+    ],
+    "uploadTypes": [
+      "Android",
+      "AndroidSensor",
+      "AndroidSensorRejected"
+    ],
+    "fixtureRegistry": {
+      "schemaVersion": "chronicle-fixture-registry/v1",
+      "families": [
+        {
+          "family": "android-sensor-data",
+          "collectionModuleId": null,
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.android.AndroidSensorSample",
+          "fixtureFiles": [
+            "fixtures/payloads/android-sensor-data/valid.json",
+            "fixtures/payloads/android-sensor-data/invalid-bad-uuid.json",
+            "fixtures/payloads/android-sensor-data/invalid-bad-date.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset (2026-07-01T12:00:00Z); timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "AndroidSensorDataUploadService",
+          "backendTable": "android_sensor_data",
+          "notes": "Spans every active sensor_* hardware module; the per-sample sensor field selects the module, so collectionModuleId is null here."
+        },
+        {
+          "family": "screen-time-usage",
+          "collectionModuleId": null,
+          "payloadSchemaVersion": 1,
+          "jvmClass": null,
+          "fixtureFiles": [
+            "fixtures/payloads/screen-time-usage/valid.json"
+          ],
+          "timeSemantics": "generatedAt/capturedAt/observationStart/observationEnd: ISO-8601 UTC, second precision (Swift JSONEncoder .iso8601); Swift encoder sorts keys and omits nil fields",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "randomDeviceId"
+          ],
+          "backendHandler": "ScreenTimeUsageUploadService",
+          "backendTable": "ios_screen_time_usage",
+          "notes": "Envelope DTO lives in chronicle-server (ScreenTimeUsageEnvelope, StudyV4Controller); the wire shape is produced by chronicle-ios ScreenTimeUsagePayload.swift. Each app and web-domain record becomes one ios_screen_time_usage row."
+        },
+        {
+          "family": "device-settings",
+          "collectionModuleId": "device_settings",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidDeviceSettingsEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/device-settings/valid.json",
+            "fixtures/payloads/device-settings/invalid-negative-volume.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "DeviceSettingsUploadService",
+          "backendTable": "device_settings"
+        },
+        {
+          "family": "battery-telemetry",
+          "collectionModuleId": "battery_telemetry",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.BatterySample",
+          "fixtureFiles": [
+            "fixtures/payloads/battery-telemetry/valid.json",
+            "fixtures/payloads/battery-telemetry/invalid-level-out-of-range.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "BatteryTelemetryUploadService",
+          "backendTable": "battery_telemetry"
+        },
+        {
+          "family": "interaction-events",
+          "collectionModuleId": "interaction_events",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidInteractionEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/interaction-events/valid.json",
+            "fixtures/payloads/interaction-events/invalid-grid-out-of-range.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; eventTimeMillis is the SystemClock event time in millis when present",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "InteractionEventsUploadService",
+          "backendTable": "interaction_events"
+        },
+        {
+          "family": "app-audio-activity",
+          "collectionModuleId": "audio_activity",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidAudioActivityEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/app-audio-activity/valid.json",
+            "fixtures/payloads/app-audio-activity/invalid-negative-volume.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "AppAudioActivityUploadService",
+          "backendTable": "app_audio_activity"
+        },
+        {
+          "family": "app-audio-content",
+          "collectionModuleId": "audio_content",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidAudioContentEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/app-audio-content/valid.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; durationMillis/positionMillis are media-position millis",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "AppAudioContentUploadService",
+          "backendTable": "app_audio_content"
+        },
+        {
+          "family": "notification-activity",
+          "collectionModuleId": "notification_activity",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidNotificationActivityEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/notification-activity/valid.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "NotificationActivityUploadService",
+          "backendTable": "notification_activity"
+        },
+        {
+          "family": "sleep-events",
+          "collectionModuleId": "sleep",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidSleepEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/sleep-events/valid.json",
+            "fixtures/payloads/sleep-events/invalid-confidence-out-of-range.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; segmentStartMillis/segmentEndMillis are epoch millis",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "SleepEventsUploadService",
+          "backendTable": "sleep_events"
+        },
+        {
+          "family": "activity-recognition",
+          "collectionModuleId": "activity_recognition",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidActivityRecognitionEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/activity-recognition/valid.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "ActivityRecognitionEventsUploadService",
+          "backendTable": "activity_recognition_events"
+        },
+        {
+          "family": "health-metrics",
+          "collectionModuleId": "health_connect",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidHealthMetricEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/health-metrics/valid.json",
+            "fixtures/payloads/health-metrics/invalid-window-inverted.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; startMillis/endMillis are the epoch-millis record window (equal for instantaneous readings)",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "HealthMetricsUploadService",
+          "backendTable": "health_metrics"
+        },
+        {
+          "family": "connectivity-state",
+          "collectionModuleId": "connectivity_state",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidConnectivityStateEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/connectivity-state/valid.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; timezone carries the device-local zone id",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "ConnectivityStateEventsUploadService",
+          "backendTable": "connectivity_state_events"
+        },
+        {
+          "family": "app-network-usage",
+          "collectionModuleId": "app_network_usage",
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.collection.AndroidAppNetworkUsageEvent",
+          "fixtureFiles": [
+            "fixtures/payloads/app-network-usage/valid.json",
+            "fixtures/payloads/app-network-usage/invalid-negative-rx.json"
+          ],
+          "timeSemantics": "timestamp: OffsetDateTime, ISO-8601 with offset; bucketStartMillis/bucketEndMillis are the NetworkStatsManager epoch-millis bucket window",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "sourceRandomDeviceId"
+          ],
+          "backendHandler": "AppNetworkUsageUploadService",
+          "backendTable": "app_network_usage"
+        },
+        {
+          "family": "ios-device",
+          "collectionModuleId": null,
+          "payloadSchemaVersion": 1,
+          "jvmClass": "com.openlattice.chronicle.sources.IOSDevice",
+          "fixtureFiles": [
+            "fixtures/payloads/ios-device/valid.json",
+            "fixtures/payloads/ios-device/invalid-missing-class.json"
+          ],
+          "timeSemantics": "no event time; enrollment-time source-device record",
+          "scopingFields": [
+            "studyId",
+            "participantId",
+            "randomDeviceId"
+          ],
+          "backendHandler": "EnrollmentService",
+          "backendTable": "DEVICES",
+          "notes": "Polymorphic SourceDevice: the wire payload must carry the Jackson @class discriminator com.openlattice.chronicle.sources.IOSDevice."
+        }
+      ]
+    }
   },
   "compatibility": {
     "unknownCollectionModuleIds": "Consumers that support tolerant settings decode should ignore unknown module ids.",

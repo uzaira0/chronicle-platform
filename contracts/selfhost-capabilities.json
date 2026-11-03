@@ -2,12 +2,6 @@
   "schemaVersion": 1,
   "capabilities": [
     {
-      "id": "study-export",
-      "backend": "ExportController: create, list, inspect, and download export jobs",
-      "owners": ["researcher-web"],
-      "evidence": ["chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx:bulk_downloads.recent_jobs"]
-    },
-    {
       "id": "participant-export",
       "backend": "StudyController: download participant data",
       "owners": ["researcher-web"],
@@ -25,25 +19,26 @@
     },
     {
       "id": "verified-deletion",
-      "backend": "DataDeletionController and StudyController: queue and inspect verified deletion",
+      "backend": "DataDeletionController and StudyController: request, inspect and explicitly run verified deletion",
       "owners": ["researcher-web", "participant-web"],
       "evidence": [
-        "chronicle-web/src/modern/routes/study-participants-page.tsx:participants.deletion_status",
+        "chronicle-web/src/modern/components/deletion-status-card.tsx:participants.deletion_status",
+        "chronicle-web/src/modern/components/erase-deletion-button.tsx:participants.erase_now",
         "chronicle-web/src/modern/routes/public-enrollment-page.tsx:enrollment.withdrawal_link"
       ]
     },
     {
       "id": "study-lifecycle-deletion",
-      "backend": "StudyLifecycleController: quarantine, status, cancel, and erase a study",
+      "backend": "StudyLifecycleController: request, status, and cancel a study deletion",
       "owners": ["researcher-web"],
-      "evidence": ["chronicle-web/src/modern/routes/study-layout.tsx:study_layout.banner_scheduled"]
+      "evidence": ["chronicle-web/src/modern/components/study-notices.tsx:study_layout.banner_deletion_requested"]
     },
     {
       "id": "failed-background-operations",
-      "backend": "ExportController, PipelineController, and deletion workers expose job state",
+      "backend": "Deletion workers expose job state",
       "owners": ["researcher-web", "operator-cli", "grafana"],
       "evidence": [
-        "chronicle-web/src/modern/routes/study-bulk-downloads-page.tsx:FAILED",
+        "chronicle-web/src/modern/components/deletion-status-card.tsx:statusLabel(t, 'job'",
         "selfhost/chronicle:doctor",
         "selfhost/monitoring/grafana-dashboards/application.json:materialization"
       ]
@@ -90,13 +85,6 @@
         "chronicle/collection-upload/src/main/java/com/openlattice/chronicle/collection/upload/CombinedUploadOrchestrator.kt:upload",
         "chronicle-ios/chronicle/CoreData/UploadDataOperation.swift:upload"
       ]
-    },
-    {
-      "id": "retention-holds",
-      "backend": "DataDeletionController retention-hold endpoints",
-      "owners": ["api-only-by-design"],
-      "rationale": "Legal-hold actions remain an explicit owner API rather than a routine researcher workflow.",
-      "evidence": ["chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/DataDeletionController.kt:placeHold"]
     }
   ]
 }

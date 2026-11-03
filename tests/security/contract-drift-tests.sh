@@ -55,7 +55,6 @@ TOTAL=0
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
@@ -155,7 +154,6 @@ extract_controller_endpoints() {
                     *CONTROLLER*|*BASE*)
                         # Try to find the constant value in the API files
                         local const_name="${const_ref##*.}"
-                        local class_name="${const_ref%%.*}"
                         local resolved
                         resolved=$(grep -rh "const val $const_name" "$API_DIR" "$CONTROLLER_DIR" 2>/dev/null | grep -oP '"[^"]*"' | head -1 | tr -d '"')
                         if [ -n "$resolved" ]; then
@@ -260,7 +258,6 @@ else
 fi
 
 # Check spec has components/schemas
-SCHEMA_COUNT=$(grep -c '^\s\{4\}\w' "$SPEC_FILE" 2>/dev/null | head -1 || echo 0)
 if grep -q 'components:' "$SPEC_FILE" && grep -q 'schemas:' "$SPEC_FILE"; then
     pass "Spec has components/schemas section"
 else
@@ -291,7 +288,6 @@ SPEC_CRITICAL_PATHS=(
     "/chronicle/v3/admin/reload/cache"
     "/chronicle/v3/organization"
     "/chronicle/v3/notification/{studyId}"
-    "/chronicle/principal/users"
     "/chronicle/principal/roles/current"
 )
 
@@ -366,25 +362,19 @@ header "Controller-vs-Spec: Undocumented controller endpoints"
 # Mark them as "sub-resource" to distinguish from truly undocumented endpoints.
 UNDOCUMENTED_CONTROLLERS=(
     "AuthTokenController:/chronicle/v3/auth"
-    "TokenRevocationController:/chronicle/v3/admin/tokens"
     "ExportController:export"
-    "DashboardController:dashboard"
     "ApiKeyController:api-key"
-    "PipelineController:pipeline"
     "WebhookController:webhook"
     "StudyComplianceController:compliance"
     "StudyLifecycleController:lifecycle"
     "StudyLimitsController:limits"
     "ParticipantPurgeController:purge"
-    "RoleController:role"
-    "DataQualityController:data-quality"
-    "AnonymizationController:anonymiz"
 )
 
 # Controllers that are sub-resources of /v3/study (use StudyApi.BASE) and are
 # intentionally undocumented in the main spec because they extend the study path.
 # These should be tracked but not counted as failures.
-STUDY_SUBRESOURCE_CONTROLLERS="ExportController DashboardController ApiKeyController PipelineController WebhookController StudyComplianceController StudyLifecycleController StudyLimitsController ParticipantPurgeController RoleController DataQualityController AnonymizationController TokenRevocationController"
+STUDY_SUBRESOURCE_CONTROLLERS="ExportController ApiKeyController WebhookController StudyComplianceController StudyLifecycleController StudyLimitsController ParticipantPurgeController"
 
 SPEC_CONTENT=$(cat "$SPEC_FILE")
 undocumented_count=0
@@ -602,7 +592,6 @@ else
         "GET:/chronicle/v3/organization"
         "GET:/chronicle/v3/authorizations"
         "GET:/chronicle/v3/admin/event-storage"
-        "GET:/chronicle/principal/users"
         "GET:/chronicle/principal/roles/current"
         "GET:/chronicle/principal/sync"
     )
@@ -629,9 +618,9 @@ else
             fail "Live $method $path: returned 500 Internal Server Error"
             add_drift "live-500" "$method $path" "Endpoint returned HTTP 500"
         elif [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
-            pass "Live $method $path: auth required (HTTP $http_code) — endpoint exists"
+            fail "Live $method $path: authentication rejected; endpoint existence is unproven (HTTP $http_code)"
         elif [ "$http_code" = "429" ]; then
-            pass "Live $method $path: rate-limited (HTTP 429) — endpoint exists"
+            fail "Live $method $path: throttled; endpoint existence is unproven (HTTP 429)"
         elif [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
             pass "Live $method $path: OK (HTTP $http_code)"
         elif [ "$http_code" = "404" ]; then
@@ -648,7 +637,6 @@ else
     CT_ENDPOINTS=(
         "/chronicle/v3/study"
         "/chronicle/v3/organization"
-        "/chronicle/principal/users"
     )
 
     for path in "${CT_ENDPOINTS[@]}"; do
@@ -663,21 +651,12 @@ else
         content_type="${ct_response%%|*}"
         ct_http_code="${ct_response##*|}"
 
-        if [ -z "$content_type" ] && [ "$ct_http_code" = "000" ]; then
-            skip "Content-Type $path: no response"
-        elif [ -z "$content_type" ] && { [ "$ct_http_code" = "401" ] || [ "$ct_http_code" = "403" ] || [ "$ct_http_code" = "404" ] || [ "$ct_http_code" = "429" ]; }; then
-            pass "Content-Type $path: HTTP $ct_http_code (no content-type expected for error responses)"
+        if [ "$ct_http_code" != "200" ]; then
+            fail "Content-Type $path: handler control is inconclusive (HTTP $ct_http_code)"
         elif echo "$content_type" | grep -qi "application/json"; then
             pass "Content-Type $path: application/json"
-        elif echo "$content_type" | grep -qi "text/html"; then
-            # Could be an auth redirect — acceptable
-            pass "Content-Type $path: text/html (likely auth redirect)"
-        elif [ -z "$content_type" ]; then
-            # Empty content-type is acceptable for endpoints that return no body
-            pass "Content-Type $path: empty (HTTP $ct_http_code — no body returned)"
         else
-            fail "Content-Type $path: expected application/json, got '$content_type'"
-            add_drift "content-type" "$path" "Expected application/json, got $content_type"
+            fail "Content-Type $path: expected application/json, received $content_type"
         fi
     done
 fi

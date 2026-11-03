@@ -3,10 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCHEMA="$ROOT_DIR/ontology/chronicle.linkml.yaml"
-CHRONICLE_API_DIR="${CHRONICLE_API_DIR:-$ROOT_DIR/chronicle-api}"
 CHRONICLE_MODELS_DIR="${CHRONICLE_MODELS_DIR:-$ROOT_DIR/chronicle-models}"
 
-python3 - "$ROOT_DIR" "$SCHEMA" "$CHRONICLE_API_DIR" "$CHRONICLE_MODELS_DIR" <<'PY'
+python3 - "$ROOT_DIR" "$SCHEMA" "$CHRONICLE_MODELS_DIR" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -15,8 +14,7 @@ import yaml
 
 root = Path(sys.argv[1])
 schema_path = Path(sys.argv[2])
-api_dir = Path(sys.argv[3])
-models_dir = Path(sys.argv[4])
+models_dir = Path(sys.argv[3])
 
 schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
 enums = schema.get("enums", {})
@@ -52,11 +50,6 @@ def string_wire_ids(path):
 
 checks = [
     (
-        "AuditAction",
-        schema_values("AuditAction"),
-        enum_constants(api_dir / "src/main/kotlin/com/openlattice/chronicle/audit/AuditAction.kt"),
-    ),
-    (
         "SourceDeviceType",
         schema_values("SourceDeviceType"),
         enum_constants(models_dir / "src/main/kotlin/com/openlattice/chronicle/sources/SourceDeviceType.kt"),
@@ -77,11 +70,6 @@ checks = [
         enum_constants(models_dir / "src/main/kotlin/com/openlattice/chronicle/android/AndroidSensorType.kt"),
     ),
     (
-        "IosSensorType",
-        schema_values("IosSensorType"),
-        enum_constants(models_dir / "src/main/kotlin/com/openlattice/chronicle/sensorkit/SensorType.kt"),
-    ),
-    (
         "ParticipationStatus",
         schema_values("ParticipationStatus"),
         enum_constants(models_dir / "src/main/java/com/openlattice/chronicle/data/ParticipationStatus.java"),
@@ -95,11 +83,6 @@ checks = [
         "ConsentTrigger",
         schema_values("ConsentTrigger"),
         enum_constants(models_dir / "src/main/kotlin/com/openlattice/chronicle/collection/ConsentTrigger.kt"),
-    ),
-    (
-        "CollectionDataDisposition",
-        schema_values("CollectionDataDisposition"),
-        string_wire_ids(models_dir / "src/main/kotlin/com/openlattice/chronicle/collection/CollectionDataDisposition.kt"),
     ),
     (
         "CollectionPrivacyClass",

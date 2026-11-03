@@ -12,7 +12,6 @@
   "group": "neuroscience",
   "version": "1.0",
   "organizationIds": [],
-  "notificationsEnabled": false,
   "storage": "chronicle",
   "phoneNumber": ""
 }

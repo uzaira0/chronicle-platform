@@ -52,73 +52,84 @@ echo "=== Chronicle domain contract guardrails ==="
 
 require_file "$LINKML_CONTRACT"
 require_file "$ROOT_DIR/scripts/generate-chronicle-contracts.py"
-require_file "$MODELS_DIR/generated/domain-contracts/chronicle-domain-contracts.json"
-require_file "$MODELS_DIR/fixtures/domain-contracts/domain-contract-fixture.json"
-require_file "$MODELS_DIR/scripts/check-domain-contracts.sh"
 
 "$ROOT_DIR/scripts/generate-chronicle-contracts.py" --check
 pass "LinkML-generated Chronicle contract artifacts are fresh"
+python3 "$ROOT_DIR/tests/security/endpoint-consumer-coverage.py"
+python3 "$ROOT_DIR/tests/security/endpoint-consumer-coverage.py" --self-test
+
+python3 -s - "$ROOT_DIR" <<'PY'
+import importlib.util
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+root = Path(sys.argv[1])
+generator = Path("scripts/generate-chronicle-contracts.py")
+spec = importlib.util.spec_from_file_location("chronicle_contracts", root / generator)
+contracts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(contracts)
+schema = contracts.load_schema()
+outputs = contracts.all_outputs(schema)
+source = contracts.SCHEMA_PATH.relative_to(root)
+upload_outputs = contracts.upload_limit_outputs(schema)
+constant = next(path.relative_to(root) for path in upload_outputs if path.suffix == ".kt")
+adapters = tuple(path.relative_to(root) for path in contracts.UPLOAD_LIMIT_ADAPTERS)
+limit = contracts.upload_limit_bytes(schema)
+with tempfile.TemporaryDirectory(prefix="chronicle-contract-") as directory:
+    scratch = Path(directory)
+    for path in sorted({root / generator, *contracts.INPUTS, *outputs}):
+        target = scratch / path.relative_to(root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+
+    def check(expected_status, path=None):
+        result = subprocess.run([sys.executable, "-s", str(scratch / generator), "--check"],
+                                cwd=scratch, capture_output=True, text=True, check=False)
+        assert result.returncode == expected_status, (
+            f"{path}: expected exit {expected_status}, got {result.returncode}\n" + result.stdout + result.stderr)
+        if path is not None:
+            assert f"{path} is stale" in result.stderr, result.stderr
+            print(f"PASS contract --check: {path} drift rejected (exit {result.returncode})")
+        else:
+            print("PASS contract --check: clean scratch copy accepted (exit 0)")
+
+    check(0)
+    path = contracts.FRESH_SCHEMA_PATH.relative_to(root)
+    target = scratch / path
+    original = target.read_text()
+    prefix = contracts.RESTORE_RECEIPT_VERSION_PREFIX
+    target.write_text(original.replace(prefix, prefix + "0 + "))
+    check(1, path)
+    target.write_text(original)
+    check(0)
+    for path in (*adapters, source):
+        target = scratch / path
+        original = target.read_text()
+        target.write_text(original.replace(str(limit), str(limit + 1)))
+        check(1, constant if path == source else path)
+        target.write_text(original)
+        check(0)
+
+    for output in sorted(outputs.keys() - contracts.UPLOAD_LIMIT_ADAPTERS.keys()):
+        path = output.relative_to(root)
+        target = scratch / path
+        original = target.read_text()
+        target.write_text(original + "\n")
+        check(1, path)
+        target.write_text(original)
+        check(0)
+PY
+pass "Default contract check rejects drift in every generated output, upload adapter and ontology constant"
+
+python3 "$ROOT_DIR/tests/security/play-store-module-registry-check.py"
+python3 "$ROOT_DIR/tests/security/play-store-module-registry-check.py" --self-test
 
 python3 "$ROOT_DIR/tests/security/contract-drift-diff.py" "$ROOT_DIR" ||
   fail "shared value sets drift across LinkML, chronicle-models, web, OpenAPI or the ast-grep rule"
 pass "Shared value sets agree across LinkML, chronicle-models, web, OpenAPI and Android"
-
-require_file "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py"
-CHRONICLE_MODELS_DIR="$MODELS_DIR" CHRONICLE_API_SPEC="$API_SPEC" \
-  "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py" \
-    --models-dir "$MODELS_DIR" \
-    --api-spec "$API_SPEC" \
-    --check
-pass "OpenAPI-derived web payload contracts and canonical fixtures are fresh"
-
-# Prove that both environment and explicit source overrides feed the payload
-# generator. Each probe changes only source bytes, so a correctly routed check
-# reports the committed artifact as stale (exit 1); ignoring an override would
-# incorrectly report it as fresh.
-PAYLOAD_OVERRIDE_PROBE="$(mktemp -d)"
-trap 'rm -rf "$PAYLOAD_OVERRIDE_PROBE"' EXIT
-mkdir -p "$PAYLOAD_OVERRIDE_PROBE/models"
-cp "$API_SPEC" "$PAYLOAD_OVERRIDE_PROBE/chronicle.yaml"
-cp -R "$MODELS_DIR/fixtures" "$PAYLOAD_OVERRIDE_PROBE/models/fixtures"
-printf '\n# payload-generator override probe\n' >> "$PAYLOAD_OVERRIDE_PROBE/chronicle.yaml"
-printf '\n ' >> "$PAYLOAD_OVERRIDE_PROBE/models/fixtures/payloads/registry.json"
-
-expect_payload_check_stale() {
-  local description="$1"
-  shift
-  local status
-  if "$@" >/dev/null 2>&1; then
-    status=0
-  else
-    status=$?
-  fi
-  [[ "$status" -eq 1 ]] || fail "$description (expected stale exit 1, got $status)"
-}
-
-expect_payload_check_stale \
-  "payload generator must honor CHRONICLE_API_SPEC" \
-  env CHRONICLE_API_SPEC="$PAYLOAD_OVERRIDE_PROBE/chronicle.yaml" CHRONICLE_MODELS_DIR="$MODELS_DIR" \
-    "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py" --check
-expect_payload_check_stale \
-  "payload generator must honor CHRONICLE_MODELS_DIR" \
-  env CHRONICLE_API_SPEC="$API_SPEC" CHRONICLE_MODELS_DIR="$PAYLOAD_OVERRIDE_PROBE/models" \
-    "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py" --check
-expect_payload_check_stale \
-  "payload generator explicit source flags must override environment defaults" \
-  env CHRONICLE_API_SPEC="$API_SPEC" CHRONICLE_MODELS_DIR="$MODELS_DIR" \
-    "$ROOT_DIR/scripts/generate-chronicle-payload-contracts.py" \
-      --api-spec "$PAYLOAD_OVERRIDE_PROBE/chronicle.yaml" \
-      --models-dir "$PAYLOAD_OVERRIDE_PROBE/models" \
-      --check
-rm -rf "$PAYLOAD_OVERRIDE_PROBE"
-trap - EXIT
-pass "Payload generator honors environment and explicit source overrides"
-
-(
-  cd "$MODELS_DIR"
-  scripts/check-domain-contracts.sh
-)
-pass "chronicle-models implementation contract and fixture projection are fresh"
 
 # iOS is intentionally pinned with `submodule.<name>.update=none` in methodic. An
 # incidental developer checkout must not silently broaden root CI. Run this section
@@ -152,9 +163,6 @@ models_dir = Path(sys.argv[2])
 linkml_contract_path = Path(sys.argv[3])
 ios_available = sys.argv[4] == "1"
 contract = json.loads(linkml_contract_path.read_text(encoding="utf-8"))
-models_contract = json.loads(
-    (models_dir / "generated/domain-contracts/chronicle-domain-contracts.json").read_text(encoding="utf-8")
-)
 contracts = contract["contracts"]
 
 
@@ -167,30 +175,7 @@ def pass_msg(message: str) -> None:
     print(f"PASS: {message}")
 
 
-mirror_keys = [
-    "collectionModules",
-    "activeCollectionModuleIds",
-    "activeDefaultEnabledCollectionModuleIds",
-    "inactiveCollectionModuleIds",
-    "androidSensorModuleIds",
-    "privacyClasses",
-    "androidSensorTypes",
-    "androidSensorMappings",
-    "iosSensorTypes",
-    "studyFeatures",
-    "participantDataTypes",
-    "participationStatuses",
-    "studyLifecycleStatuses",
-    "consentTriggers",
-    "collectionDataDispositions",
-]
-for key in mirror_keys:
-    if contracts[key] != models_contract["contracts"][key]:
-        fail(f"chronicle-models implementation mirror drift for {key}")
-pass_msg("chronicle-models implementation mirror matches LinkML-generated domain contract")
-
-
-# Tranche 4: chronicle-web consumes the GENERATED contract module. The guardrail no
+# chronicle-web consumes the GENERATED contract module. The guardrail no
 # longer parses hand-maintained literal unions (they must not exist); it asserts the
 # new invariants: generated imports present, no re-declared canonical unions, defaults
 # and sensor mappings joined (not hand-written), and web-owned presentation covering
@@ -204,13 +189,11 @@ if not web_constants_path.exists():
     fail("chronicle-web checkout missing or empty — init the submodule before running the guardrails")
 web = web_constants_path.read_text(encoding="utf-8")
 ops = (web_dir / "src/modern/state/study-operations-api.ts").read_text(encoding="utf-8")
-zod = (web_dir / "src/modern/state/zod-schemas.ts").read_text(encoding="utf-8")
 
 generated_import = re.compile(r"from '(?:\.\./|@/)generated/chronicle-contracts'")
 for name, text in (
     ("study-constants.ts", web),
     ("study-operations-api.ts", ops),
-    ("zod-schemas.ts", zod),
 ):
     if not generated_import.search(text):
         fail(f"chronicle-web {name} must import from the generated chronicle-contracts module")
@@ -218,11 +201,9 @@ pass_msg("chronicle-web migrated files consume the generated chronicle-contracts
 
 canonical_unions = [
     ("study-constants.ts", web, "CollectionModuleId"),
-    ("study-constants.ts", web, "CollectionDataDisposition"),
     ("study-operations-api.ts", ops, "ParticipationStatus"),
     ("study-operations-api.ts", ops, "StudyLifecycleStatus"),
     ("study-operations-api.ts", ops, "ParticipantDataType"),
-    ("study-operations-api.ts", ops, "CollectionConsentTrigger"),
 ]
 for name, text, symbol in canonical_unions:
     match = re.search(rf"export\s+type\s+{re.escape(symbol)}\s*=\s*([^;]+);", text)
@@ -236,17 +217,44 @@ for name, text, symbol in canonical_unions:
         fail(f"chronicle-web {name} no longer exposes canonical symbol {symbol}")
 pass_msg("chronicle-web declares no hand-maintained canonical value-set unions")
 
-if not re.search(r"z\.enum\(\s*PARTICIPATION_STATUSES\s*\)", zod):
-    fail("chronicle-web ParticipationStatusSchema must be z.enum(PARTICIPATION_STATUSES) from the generated tuple")
-pass_msg("chronicle-web zod ParticipationStatusSchema is built from the generated tuple")
-
-# Require actual membership-check usage, not just the import line: the guard
-# body must test against the generated array (or the zod schema built from it).
-if not re.search(
-    r"PARTICIPATION_STATUSES[\s\S]{0,80}?\.includes\(|ParticipationStatusSchema\.safeParse\(", ops
+# Production response validation lives in the API normalizer; Zod schemas under
+# modern/test are test fixtures. Require the predicate's returned expression, not
+# a tuple name in an import, comment or unused declaration.
+status_guard = re.search(r"^function isParticipationStatus\([^\n]+\{\n(.*?)^\}", ops, re.M | re.S)
+if not status_guard or not re.fullmatch(
+    r"\s*return typeof value === 'string' && "
+    r"\(PARTICIPATION_STATUSES as readonly string\[\]\)\.includes\(value\);\s*",
+    status_guard.group(1),
 ):
     fail("chronicle-web isParticipationStatus must test membership against the generated PARTICIPATION_STATUSES array")
+normalizer = re.search(r"^export function normalizeParticipantList\([^\n]+\{\n(.*?)^\}", ops, re.M | re.S)
+if not normalizer or not re.search(
+    r"^\s+participationStatus:\s*isParticipationStatus\(participant\.participationStatus\)\s*"
+    r"\?\s*participant\.participationStatus\s*:\s*PARTICIPATION_STATUS\.UNKNOWN,",
+    normalizer.group(1), re.M,
+):
+    fail("chronicle-web normalizeParticipantList must use isParticipationStatus for the returned status")
 pass_msg("chronicle-web participation-status guard is driven by the generated array")
+
+# Consent entries now use the generated OpenAPI wire type, whose trigger enum is
+# compared with LinkML by contract-drift-diff.py. Require the actual query's alias
+# and use; the removed private CollectionConsentTrigger alias had no caller.
+if not re.search(
+    r"^import type \{ components \} from '@/types/chronicle-api\.generated';", ops, re.M,
+) or not re.search(
+    r"^export type CollectionAcknowledgmentEntry = "
+    r"components\['schemas'\]\['CollectionAcknowledgmentEntry'\]", ops, re.M,
+):
+    fail("chronicle-web CollectionAcknowledgmentEntry must use its generated wire schema")
+acknowledgments_query = re.search(
+    r"^    getStudyCollectionAcknowledgments: builder\.query<CollectionAcknowledgmentEntry\[\],[\s\S]*?^    \}\),",
+    ops, re.M,
+)
+if not acknowledgments_query or not re.search(
+    r"^\s+readAllRows<CollectionAcknowledgmentEntry\[\]>\(", acknowledgments_query.group(0), re.M,
+):
+    fail("chronicle-web getStudyCollectionAcknowledgments must consume CollectionAcknowledgmentEntry")
+pass_msg("chronicle-web consent query consumes the generated wire schema")
 
 if re.search(r"defaultEnabled\s*:\s*(?:true|false)\b", web):
     fail("chronicle-web study-constants.ts hand-writes defaultEnabled; join it from COLLECTION_MODULE_CONTRACTS")
@@ -261,7 +269,7 @@ presentation_match = re.search(
 )
 if not presentation_match:
     fail("Unable to find chronicle-web COLLECTION_MODULE_PRESENTATION")
-presented = re.findall(r"value:\s*'([^']+)'", presentation_match.group(1))
+presented = re.findall(r"value:\s*COLLECTION_MODULE_ID\.(\w+)", presentation_match.group(1))
 active_id_set = set(contracts["activeCollectionModuleIds"])
 if len(presented) != len(set(presented)) or set(presented) != active_id_set:
     fail(
@@ -273,7 +281,7 @@ pass_msg("chronicle-web module presentation covers exactly the active generated 
 
 if ios_available:
     ios_dir = root / "chronicle-ios"
-    forbidden = re.compile(r"\b(CollectionModuleId|CollectionDataDisposition|ConsentTrigger|StudyFeature|StudyLifecycleStatus)\b")
+    forbidden = re.compile(r"\b(CollectionModuleId|ConsentTrigger|StudyFeature|StudyLifecycleStatus)\b")
     hits = []
     swift_files_scanned = 0
     for path in ios_dir.rglob("*.swift"):
@@ -301,6 +309,9 @@ for path in [android_settings, android_build, server_settings, server_build]:
 pass_msg("downstream Android/server build files are present")
 PY
 
+python3 "$ROOT_DIR/tests/security/test_domain_contract_guardrails.py"
+pass "Domain guard rejects isolated copied-value and detached-validation fixtures"
+
 # Web descriptor label/description coverage lives in chronicle-web's own test suite.
 # Run it when bun and the web dependencies are available; the textual invariants above
 # already cover the structural checks when they are not.
@@ -311,12 +322,16 @@ if [[ -f "$WEB_DIR/src/modern/lib/study-constants.test.ts" ]]; then
     (cd "$WEB_DIR" && bun test src/modern/lib/study-constants.test.ts) ||
       fail "chronicle-web study-constants coverage test suite failed"
     pass "chronicle-web descriptor coverage test suite passes"
+    (cd "$WEB_DIR" && bun test ./src/modern/state/normalizers.property.test.ts \
+      -t 'counts unknown statuses without dropping their participants') ||
+      fail "chronicle-web participation-status response validation test failed"
+    pass "chronicle-web production participation-status response validation passes"
   else
     skip "bun/web dependencies unavailable here; descriptor coverage test runs in chronicle-web CI (build.yml bun test)"
   fi
 fi
 
-# ai-built-code C7: which modules honor a collection interval lives once, in
+# Which modules honor a collection interval lives once, in
 # chronicle-models CollectionCadenceModules (web reads it via the generated contracts;
 # contract-drift-diff.py compares the lists). Fail if either side goes back to a hand copy.
 ANDROID_PULL_SCHEDULE="${CHRONICLE_ANDROID_DIR:-$ROOT_DIR/chronicle}/app/src/main/java/com/openlattice/chronicle/collection/device/ExpansionPullSchedule.kt"

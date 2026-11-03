@@ -15,7 +15,345 @@ default_prefix: chronicle
 default_range: string
 imports:
 - linkml:types
+# Chronicle generator extension: byte contracts shared by server, mobile and edge.
+constants:
+  PARTICIPANT_PROCESSING_BLOCKED_CODE:
+    value: PARTICIPANT_PROCESSING_BLOCKED
+    description: A valid participant session cannot process data until the researcher removes the block.
+  BROWSER_ERROR_REPORT_PATH:
+    value: /chronicle/v3/observability/browser-errors
+    description: Same-origin endpoint for finite browser failure counters.
+  RESEARCHER_CSRF_HEADER:
+    value: X-CSRF-Token
+    description: Cookie-bound researcher request CSRF token header.
+  EDIT_PRECONDITION_HEADER:
+    value: If-Match
+    description: HTTP precondition carrying the revision used to edit a resource.
+  EDIT_REVISION_HEADER:
+    value: ETag
+    description: HTTP response header publishing the resource revision.
+  USER_ACTIVITY_HEADER:
+    value: X-Chronicle-User-Activity
+    description: Explicit interactive researcher action age in nonnegative elapsed milliseconds.
+  USER_ACTIVITY_HEADER_VALUE:
+    value: "0"
+    description: Header value denoting a fresh interactive researcher action.
+  SESSION_IDLE_WINDOW_MS_FIELD:
+    value: idleWindowMs
+    description: Session metadata field carrying the configured inactivity window in milliseconds.
+  PARTICIPANT_FORM_DATE_HEADER:
+    value: X-Chronicle-Form-Date
+    description: Calendar resource selected for a daily participant form submission.
+  RANDOM_DEVICE_ID_HEADER:
+    value: X-Chronicle-Random-Device-Id
+    description: Enrolled source random device id sent with every mobile request.
+  API_KEY_HEADER:
+    value: X-Api-Key
+    description: Per-device mobile API key.
+  ENROLLMENT_CODE_HEADER:
+    value: X-Chronicle-Enrollment-Code
+    description: Study enrollment code presented while enrolling.
+  MANIFEST_DIGEST_HEADER:
+    value: X-Chronicle-Manifest-Digest
+    description: Digest of the enrollment manifest the participant accepted.
+  ENROLLMENT_ATTEMPT_ID_HEADER:
+    value: X-Chronicle-Enrollment-Attempt-Id
+    description: Client id that makes an enrollment retry replay the first result.
+  PROPOSED_API_KEY_HEADER:
+    value: X-Chronicle-Proposed-Api-Key
+    description: Device-generated API key proposed during enrollment.
+  WITHDRAWAL_REQUEST_ID_HEADER:
+    value: X-Chronicle-Withdrawal-Request-Id
+    description: Client id that makes a withdrawal retry replay the first result.
+  REVIEWER_SECRET_HEADER:
+    value: X-Chronicle-Reviewer-Secret
+    description: Store-reviewer enrollment credential.
+  SIGNATURE_HEADER:
+    value: X-Chronicle-Signature
+    description: HMAC signature of a mobile request.
+  SIGNATURE_TIMESTAMP_HEADER:
+    value: X-Chronicle-Timestamp
+    description: Signing time of a mobile request.
+  SIGNATURE_NONCE_HEADER:
+    value: X-Chronicle-Nonce
+    description: Single-use nonce of a signed mobile request.
+  COLLECTION_VERSION_HEADER:
+    value: X-Chronicle-Collection-Version
+    description: Immutable settings revision recorded when an upload batch was captured.
+  COLLECTION_DECISION_HEADER:
+    value: X-Chronicle-Collection-Decision
+    description: Sequence number of the phone's latest collection decision when an upload batch was captured.
+  IDEMPOTENCY_KEY_HEADER:
+    value: Idempotency-Key
+    description: Client key that makes a create retry replay the first response.
+  PARTICIPANT_FORM_CSRF_HEADER:
+    value: X-Chronicle-Form-CSRF
+    description: Participant form session CSRF token header.
+  COLLECTION_DEFAULT_SENSOR_RATE_HZ:
+    value: 5
+    description: Sampling rate in Hz for a sensor module that names none.
+  COLLECTION_DEFAULT_SENSOR_DUTY_ACTIVE_SECONDS:
+    value: 30
+    description: Seconds of sampling in each duty cycle for a sensor module that names none.
+  COLLECTION_DEFAULT_SENSOR_DUTY_PERIOD_SECONDS:
+    value: 300
+    description: Length of one duty cycle, in seconds, for a sensor module that names none.
+  COLLECTION_DEFAULT_INTERVAL_SECONDS:
+    value: 900
+    description: Collection interval for an interval-gated module that names none; WorkManager's 15-minute floor.
+  STUDY_DEFAULT_WITHDRAWAL_MODE:
+    value: KEEP_PRIOR_DATA
+    description: Withdrawal mode of a study that names none; data collected before withdrawal stays available.
+  MAX_REQUEST_SIZE_BYTES:
+    value: 67108864
+    description: Maximum wire and transport-decoded HTTP request body, in bytes. The 64 MiB ceiling is the owner's 2026-10 decision.
+  REQUEST_HEADER_HEADROOM_BYTES:
+    value: 16384
+    description: Header allowance reserved from the Android collected request byte budget.
+  UPLOAD_ROW_REJECTED_CODE:
+    value: UPLOAD_ROW_REJECTED
+    description: ApiError code of an upload 400 caused by a row's own content. The phone splits the batch and quarantines a single row only when refused with this code; any other 400 keeps the rows queued.
+  COLLECTION_ACK_REJECTED_CODE:
+    value: COLLECTION_ACK_REJECTED
+    description: ApiError code of a collection-acknowledgment 400 for an acknowledgment the server can never accept (its
+      evidence contradicts the enrollment receipt, the issued settings ledger or the decision already recorded under
+      its sequence). The phone drops the queued acknowledgment only when refused with this code; any other refusal keeps
+      it queued and retried.
+  ENROLLMENT_CANCELLED_CODE:
+    value: ENROLLMENT_CANCELLED
+    description: ApiError code of the 410 that answers an enroll whose attempt a cancel (dashboard or phone) ended. The phone ends that attempt as cancelled (D4); the participant is never withdrawn.
+  ENROLLMENT_STUDY_CHANGED_CODE:
+    value: ENROLLMENT_STUDY_CHANGED
+    description: ApiError code of the 409 that answers an enroll whose reviewed study changed before it bound (RS-3). The phone ends that attempt and asks the participant to open the same link again.
+  UPLOAD_BODY_TIMEOUT_SECONDS:
+    value: 300
+    description: Fixed whole-body proxy deadline. Android adapts its byte target on slow links.
+  BROWSER_DOWNLOAD_CSRF_FIELD:
+    value: _csrf
+    description: Hidden form field carrying the cookie-bound CSRF token for native file downloads.
+  BROWSER_DOWNLOAD_REAUTHENTICATION_PATH:
+    value: /login
+    description: Dashboard router path of the sign-in page a native download with an expired session goes to; the
+      server prefixes the dashboard's base path.
+  PARTICIPANT_ID_PATTERN:
+    value: '(?![.]{1,2}$)[A-Za-z0-9_.-]{1,255}'
+    description: The one participant-id rule (whole-string match), shared by server writes, enrollment links and the
+      dashboard's register form.
+  SYNC_EXPORT_MAX_FILENAME_CHARS:
+    value: 64
+    description: Maximum requested filename length in a synchronous export.
+# Chronicle generator extension: the one-shot migration pool, shared by deployment targets.
+bootstrap_pool:
+  maximumPoolSize: 2
+  minimumIdle: 0
+  idleTimeout: 600000
+  maxLifetime: 1800000
+  leakDetectionThreshold: 300000
+  connectionTimeout:
+    default: 5000
+    selfhost: 30000
 enums:
+  ApiKeyScope:
+    description: Researcher API key permission scopes, ordered from read to owner authority.
+    permissible_values:
+      READ_ONLY: {}
+      WRITE: {}
+      ADMIN: {}
+  ParticipantFormKind:
+    description: Participant capabilities bound into a form-access code and session.
+    permissible_values:
+      ENROLLMENT: {}
+      APP_USAGE: {}
+      QUESTIONNAIRE: {}
+      TIME_USE_DIARY: {}
+      PORTAL: {}
+  UploadType:
+    description: Upload buffer payload kinds, including quarantined sensor payloads.
+    permissible_values:
+      Android:
+        annotations:
+          countsAsResearchReceipt: true
+      AndroidSensor:
+        annotations:
+          countsAsResearchReceipt: true
+      AndroidSensorRejected:
+        annotations:
+          countsAsResearchReceipt: false
+  BrowserErrorKind:
+    description: Browser failure categories; no messages, URLs or stacks cross this boundary.
+    permissible_values:
+      ERROR: {}
+      UNHANDLED_REJECTION: {}
+  StudySettingType:
+    description: Study settings keys; each entry owns a separate policy.
+    permissible_values:
+      DataCollection: {}
+      Notifications: {}
+      TimeUseDiary: {}
+      Survey: {}
+      ParticipantPolicy:
+        annotations:
+          lockedAfterEnrollment: true
+          formField: participantPolicy
+      Withdrawal:
+        annotations:
+          lockedAfterEnrollment: true
+          formField: withdrawalMode
+      AppUsageSurvey: {}
+  AndroidUploadIssueCode:
+    description: Closed, redacted Android upload-diagnostic issue codes; the category groups them for researchers.
+    permissible_values:
+      DESTINATION_MISSING:
+        annotations:
+          category:
+            value: upload_failures
+      DESTINATION_IDENTITY_MISMATCH:
+        annotations:
+          category:
+            value: upload_failures
+      DESTINATION_SOURCE_DEVICE_MISSING:
+        annotations:
+          category:
+            value: upload_failures
+      DESTINATION_SETUP_INCOMPLETE:
+        annotations:
+          category:
+            value: upload_failures
+      DESTINATION_DISABLED:
+        annotations:
+          category:
+            value: upload_failures
+      DESTINATION_NONCANONICAL:
+        annotations:
+          category:
+            value: upload_failures
+      DESTINATION_CREDENTIAL_INCOMPLETE:
+        annotations:
+          category:
+            value: upload_failures
+      HTTP_SERVER_ERROR:
+        annotations:
+          category:
+            value: upload_failures
+      HTTP_CLIENT_ERROR:
+        annotations:
+          category:
+            value: upload_failures
+      TIMEOUT:
+        annotations:
+          category:
+            value: upload_failures
+      DNS_FAILURE:
+        annotations:
+          category:
+            value: upload_failures
+      TLS_FAILURE:
+        annotations:
+          category:
+            value: upload_failures
+      CONNECTION_FAILURE:
+        annotations:
+          category:
+            value: upload_failures
+      UPLOAD_FAILURE:
+        annotations:
+          category:
+            value: upload_failures
+      APP_CRASH:
+        annotations:
+          category:
+            value: app_crashes
+      APP_CRASH_NATIVE:
+        annotations:
+          category:
+            value: app_crashes
+      APP_ANR:
+        annotations:
+          category:
+            value: app_crashes
+      SAMPLE_QUARANTINED:
+        annotations:
+          category:
+            value: quarantined
+      LOCAL_BUFFER_OVERFLOW:
+        annotations:
+          category:
+            value: data_loss
+      LOCAL_REQUEUE_OVERFLOW:
+        annotations:
+          category:
+            value: data_loss
+      LOCAL_WRITE_FAILED:
+        annotations:
+          category:
+            value: data_loss
+      LOCAL_SHUTDOWN_DROPPED:
+        annotations:
+          category:
+            value: data_loss
+      COLLECTION_GATE_DROPPED:
+        annotations:
+          category:
+            value: data_loss
+      MODULE_POLICY_ERASED:
+        annotations:
+          category:
+            value: data_loss
+      DIRECT_BOOT_CAPACITY_DROPPED:
+        annotations:
+          category:
+            value: data_loss
+      DIRECT_BOOT_CORRUPT_RECORD:
+        annotations:
+          category:
+            value: quarantined
+      COLLECTION_PAUSED_STORAGE:
+        annotations:
+          category:
+            value: collection_paused
+      COLLECTION_ACCESS_MISSING:
+        annotations:
+          category:
+            value: collection_paused
+      UNRECOGNIZED_ISSUE:
+        description: >-
+          Assigned by the server, never sent by a phone: a code from a newer app that this server does not
+          know is stored as this value instead of refusing the batch.
+        annotations:
+          category:
+            value: data_loss
+          serverAssigned:
+            value: true
+  WithdrawalMode:
+    description: What happens to a participant's prior data when they withdraw, chosen per study.
+    permissible_values:
+      KEEP_PRIOR_DATA:
+        description: Data collected before withdrawal stays available to the study team.
+      ERASE:
+        description: Withdrawal requests erasure of the participant's prior data.
+  AppUsageFrequency:
+    description: App usage survey reporting frequency, chosen per study.
+    permissible_values:
+      DAILY: {}
+      HOURLY: {}
+  AppUsageDayState:
+    description: Answer state of one ended survey day, a calendar day in the study time zone.
+    permissible_values:
+      UNANSWERED:
+        description: Nothing has been answered for the day.
+      ANSWERED:
+        description: Every app listed for the day has an answer, or the participant confirmed a day with no apps.
+      NEW_APPS:
+        description: The day was answered, and uploads since then list apps that still need an answer.
+  AppUsageDayConflict:
+    description: Why a survey day submission was refused; the participant page shows the day again.
+    permissible_values:
+      ALREADY_ANSWERED:
+        description: An app in the submission already has an answer for that day.
+      APPS_CHANGED:
+        description: The submission answers an app the day no longer lists.
+      DAY_UNAVAILABLE:
+        description: The day has not ended yet, or the participant was not enrolled on it.
   DeploymentProfile:
     description: Supported production deployment profiles.
     permissible_values:
@@ -52,9 +390,9 @@ enums:
     description: Participant data export/download categories mirrored from chronicle-models.
     permissible_values:
       UsageEvents: {}
-      Preprocessed: {}
       AppUsageSurvey: {}
-      IOSSensor: {}
+      IOSScreenTime:
+        description: iOS Screen Time (DeviceActivity App & Web Usage) rows.
       AndroidSensor: {}
       SensorAvailability: {}
       BatteryTelemetry: {}
@@ -69,7 +407,6 @@ enums:
       AppNetworkUsage: {}
       DeviceSettings: {}
       UploadDiagnostics: {}
-      DataQualityAlerts: {}
   ParticipationStatus:
     description: Participant enrollment/collection status values mirrored from chronicle-models.
     permissible_values:
@@ -103,25 +440,6 @@ enums:
       WITHDRAWAL:
         description: Participant chose to leave rather than accept a newly required
           module.
-  CollectionDataDisposition:
-    description: Stable wire IDs for handling pending local data when a module is
-      disabled.
-    permissible_values:
-      flush_then_stop:
-        description: Drain and upload pending data, then stop collecting.
-        annotations:
-          enumName:
-            value: FLUSH_THEN_STOP
-      discard_and_stop:
-        description: Drop pending data, then stop collecting.
-        annotations:
-          enumName:
-            value: DISCARD_AND_STOP
-      hold_pending:
-        description: Stop collecting while retaining pending data locally.
-        annotations:
-          enumName:
-            value: HOLD_PENDING
   CollectionPrivacyClass:
     description: Privacy tiers for mobile collection modules.
     permissible_values:
@@ -173,10 +491,6 @@ enums:
         annotations:
           defaultEnabled:
             value: 'false'
-      AMBIENT_AUDIO_CONTEXT:
-        annotations:
-          defaultEnabled:
-            value: 'false'
       COMMUNICATION_METADATA:
         annotations:
           defaultEnabled:
@@ -188,6 +502,8 @@ enums:
         annotations:
           enumName:
             value: USAGE_EVENTS
+          consentGated:
+            value: 'true'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -204,6 +520,8 @@ enums:
         annotations:
           enumName:
             value: IN_APP_ACTIVITY_CLASS
+          consentGated:
+            value: 'true'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -222,6 +540,8 @@ enums:
         annotations:
           enumName:
             value: DEVICE_LIFECYCLE
+          consentGated:
+            value: 'true'
           privacyClass:
             value: DEVICE_STATE_METADATA
           active:
@@ -238,6 +558,8 @@ enums:
         annotations:
           enumName:
             value: USER_IDENTIFICATION
+          consentGated:
+            value: 'true'
           privacyClass:
             value: LOCAL_PARTICIPANT_LABEL
           active:
@@ -254,6 +576,8 @@ enums:
         annotations:
           enumName:
             value: UPLOAD_TELEMETRY
+          consentGated:
+            value: 'false'
           privacyClass:
             value: OPERATIONAL_DIAGNOSTICS
           active:
@@ -270,6 +594,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_AVAILABILITY
+          consentGated:
+            value: 'false'
           privacyClass:
             value: DEVICE_CAPABILITY
           active:
@@ -286,6 +612,8 @@ enums:
         annotations:
           enumName:
             value: QUESTIONNAIRE
+          consentGated:
+            value: 'false'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -302,6 +630,8 @@ enums:
         annotations:
           enumName:
             value: BATTERY_TELEMETRY
+          consentGated:
+            value: 'true'
           privacyClass:
             value: DEVICE_STATE_METADATA
           active:
@@ -318,6 +648,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_ACCELEROMETER
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -338,6 +670,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_GYROSCOPE
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -358,6 +692,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_MAGNETOMETER
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -378,6 +714,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_GRAVITY
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -398,6 +736,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_LINEAR_ACCELERATION
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -418,6 +758,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_ROTATION_VECTOR
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -438,6 +780,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_STEP_COUNTER
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -458,6 +802,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_LIGHT
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -478,6 +824,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_PROXIMITY
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -498,6 +846,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_SIGNIFICANT_MOTION
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -518,6 +868,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_TILT_DETECTOR
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -538,6 +890,8 @@ enums:
         annotations:
           enumName:
             value: SENSOR_SCREEN_ORIENTATION
+          consentGated:
+            value: 'true'
           privacyClass:
             value: PHYSICAL_TELEMETRY
           active:
@@ -554,50 +908,12 @@ enums:
             value: screenOrientation
           sensorDisplayOrder:
             value: '3'
-      sensor_samsung_grip_wifi:
-        annotations:
-          enumName:
-            value: SENSOR_SAMSUNG_GRIP_WIFI
-          privacyClass:
-            value: PHYSICAL_TELEMETRY
-          active:
-            value: 'false'
-          defaultEnabled:
-            value: 'false'
-          activeDefaultEnabled:
-            value: 'false'
-          androidSensorModule:
-            value: 'true'
-          intervalGated:
-            value: 'false'
-          androidSensorType:
-            value: samsungGripWifi
-          sensorDisplayOrder:
-            value: '12'
-      sensor_samsung_motion:
-        annotations:
-          enumName:
-            value: SENSOR_SAMSUNG_MOTION
-          privacyClass:
-            value: PHYSICAL_TELEMETRY
-          active:
-            value: 'false'
-          defaultEnabled:
-            value: 'false'
-          activeDefaultEnabled:
-            value: 'false'
-          androidSensorModule:
-            value: 'true'
-          intervalGated:
-            value: 'false'
-          androidSensorType:
-            value: samsungMotion
-          sensorDisplayOrder:
-            value: '13'
       interaction_events:
         annotations:
           enumName:
             value: INTERACTION_EVENTS
+          consentGated:
+            value: 'true'
           privacyClass:
             value: INTERACTION_METADATA
           active:
@@ -614,6 +930,8 @@ enums:
         annotations:
           enumName:
             value: AUDIO_ACTIVITY
+          consentGated:
+            value: 'true'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -632,6 +950,8 @@ enums:
         annotations:
           enumName:
             value: AUDIO_CONTENT
+          consentGated:
+            value: 'true'
           privacyClass:
             value: MEDIA_CONTENT
           active:
@@ -648,6 +968,8 @@ enums:
         annotations:
           enumName:
             value: NOTIFICATION_ACTIVITY
+          consentGated:
+            value: 'true'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -662,26 +984,12 @@ enums:
             value: 'false'
           defaultEnabledOverride:
             value: 'false'
-      ambient_audio:
-        annotations:
-          enumName:
-            value: AMBIENT_AUDIO
-          privacyClass:
-            value: AMBIENT_AUDIO_CONTEXT
-          active:
-            value: 'true'
-          defaultEnabled:
-            value: 'false'
-          activeDefaultEnabled:
-            value: 'false'
-          androidSensorModule:
-            value: 'false'
-          intervalGated:
-            value: 'false'
       sleep:
         annotations:
           enumName:
             value: SLEEP
+          consentGated:
+            value: 'true'
           privacyClass:
             value: HEALTH_METRICS
           active:
@@ -698,6 +1006,8 @@ enums:
         annotations:
           enumName:
             value: ACTIVITY_RECOGNITION
+          consentGated:
+            value: 'true'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -716,6 +1026,8 @@ enums:
         annotations:
           enumName:
             value: HEALTH_CONNECT
+          consentGated:
+            value: 'true'
           privacyClass:
             value: HEALTH_METRICS
           active:
@@ -732,6 +1044,8 @@ enums:
         annotations:
           enumName:
             value: CONNECTIVITY_STATE
+          consentGated:
+            value: 'true'
           privacyClass:
             value: DEVICE_STATE_METADATA
           active:
@@ -750,6 +1064,8 @@ enums:
         annotations:
           enumName:
             value: APP_NETWORK_USAGE
+          consentGated:
+            value: 'true'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -768,6 +1084,8 @@ enums:
         annotations:
           enumName:
             value: DEVICE_SETTINGS
+          consentGated:
+            value: 'true'
           privacyClass:
             value: DEVICE_STATE_METADATA
           active:
@@ -786,6 +1104,8 @@ enums:
         annotations:
           enumName:
             value: TIME_USE_DIARY
+          consentGated:
+            value: 'false'
           privacyClass:
             value: BEHAVIORAL_METADATA
           active:
@@ -802,6 +1122,8 @@ enums:
         annotations:
           enumName:
             value: APP_INVENTORY
+          consentGated:
+            value: 'false'
           privacyClass:
             value: DEVICE_CAPABILITY
           active:
@@ -818,6 +1140,8 @@ enums:
         annotations:
           enumName:
             value: GAZE_TRACKING
+          consentGated:
+            value: 'false'
           privacyClass:
             value: GAZE_TELEMETRY
           active:
@@ -834,6 +1158,8 @@ enums:
         annotations:
           enumName:
             value: INTERACTION_CONTENT
+          consentGated:
+            value: 'false'
           privacyClass:
             value: SCREEN_CONTENT
           active:
@@ -850,6 +1176,8 @@ enums:
         annotations:
           enumName:
             value: LOCATION
+          consentGated:
+            value: 'false'
           privacyClass:
             value: PRECISE_LOCATION
           active:
@@ -866,6 +1194,8 @@ enums:
         annotations:
           enumName:
             value: COMMUNICATION_LOG
+          consentGated:
+            value: 'false'
           privacyClass:
             value: COMMUNICATION_METADATA
           active:
@@ -878,70 +1208,6 @@ enums:
             value: 'false'
           intervalGated:
             value: 'false'
-      hardware_sensors:
-        annotations:
-          enumName:
-            value: HARDWARE_SENSORS
-          privacyClass:
-            value: PHYSICAL_TELEMETRY
-          active:
-            value: 'false'
-          defaultEnabled:
-            value: 'false'
-          activeDefaultEnabled:
-            value: 'false'
-          androidSensorModule:
-            value: 'false'
-          intervalGated:
-            value: 'false'
-  AuditAction:
-    description: HIPAA/security audit actions mirrored from chronicle-api.
-    permissible_values:
-      LOGIN: null
-      LOGOUT: null
-      LOGIN_FAILED: null
-      TOKEN_REFRESH: null
-      SESSION_EXPIRED: null
-      VIEW: null
-      SEARCH: null
-      LIST: null
-      EXPORT: null
-      DOWNLOAD: null
-      CREATE: null
-      UPDATE: null
-      DELETE: null
-      ARCHIVE: null
-      RESTORE: null
-      PERMISSION_CHANGE: null
-      PERMISSION_GRANT: null
-      PERMISSION_REVOKE: null
-      SETTINGS_CHANGE: null
-      CONFIGURATION_CHANGE: null
-      UNAUTHORIZED_ACCESS: null
-      ACCESS_DENIED: null
-      INVALID_REQUEST: null
-      RATE_LIMITED: null
-      SUSPICIOUS_ACTIVITY: null
-      DATA_SUBMISSION: null
-      DEVICE_ENROLLMENT: null
-      DEVICE_UNENROLLMENT: null
-      SENSOR_DATA_UPLOAD: null
-      USAGE_DATA_UPLOAD: null
-      BATTERY_TELEMETRY_UPLOAD: null
-      INTERACTION_EVENTS_UPLOAD: null
-      COLLECTION_ACKNOWLEDGMENT: null
-      STUDY_CREATE: null
-      STUDY_UPDATE: null
-      STUDY_DELETE: null
-      PARTICIPANT_ENROLL: null
-      PARTICIPANT_WITHDRAW: null
-      PARTICIPANT_DATA_ACCESS: null
-      NOTIFICATION_SENT: null
-      NOTIFICATION_FAILED: null
-      JOB_CREATED: null
-      JOB_COMPLETED: null
-      JOB_FAILED: null
-      DATA_DELETION: null
   AndroidSensorType:
     description: Android sensor type identifiers mirrored from chronicle-models.
     permissible_values:
@@ -957,18 +1223,6 @@ enums:
       significantMotion: {}
       tiltDetector: {}
       screenOrientation: {}
-      samsungGripWifi: {}
-      samsungMotion: {}
-  IosSensorType:
-    description: iOS sensor type identifiers mirrored from chronicle-models.
-    permissible_values:
-      deviceUsage: {}
-      keyboardMetrics: {}
-      messagesUsage: {}
-      phoneUsage: {}
-      accelerometer: {}
-      pedometer: {}
-      motionActivity: {}
   StudyFeature:
     description: Study feature flags mirrored from chronicle-models.
     permissible_values:
@@ -976,8 +1230,6 @@ enums:
       APP_USAGE_SURVEY: {}
       TIME_USE_DIARY: {}
       ARCHIVE: {}
-      IOS_SENSOR: {}
-      ANDROID_SENSOR: {}
       CHRONICLE_SURVEYS: {}
       CHRONICLE: {}
       CHRONICLE_DATA_COLLECTION: {}
@@ -994,13 +1246,10 @@ classes:
     - participation_statuses
     - study_lifecycle_statuses
     - consent_triggers
-    - collection_data_dispositions
     - collection_privacy_classes
     - collection_module_ids
     - android_sensor_types
-    - ios_sensor_types
     - study_features
-    - audit_actions
 slots:
   deployment_profiles:
     range: DeploymentProfile
@@ -1023,23 +1272,14 @@ slots:
   consent_triggers:
     range: ConsentTrigger
     multivalued: true
-  collection_data_dispositions:
-    range: CollectionDataDisposition
-    multivalued: true
   collection_privacy_classes:
     range: CollectionPrivacyClass
     multivalued: true
   collection_module_ids:
     range: CollectionModuleId
     multivalued: true
-  audit_actions:
-    range: AuditAction
-    multivalued: true
   android_sensor_types:
     range: AndroidSensorType
-    multivalued: true
-  ios_sensor_types:
-    range: IosSensorType
     multivalued: true
   study_features:
     range: StudyFeature
