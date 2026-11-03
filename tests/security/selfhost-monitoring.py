@@ -546,20 +546,24 @@ def test_release_images_require_anonymous_registry_access() -> None:
         with tarfile.open(archive, "w:gz") as source:
             builder["add_to_tar"](source, manifest, "candidate/release-manifest.json", 0)
             builder["add_to_tar"](source, overlay, "candidate/selfhost/overlays/backups.yml", 0)
+        digest = builder["digest_reference"]
+        assert digest("busybox:1.37.0-musl@sha256:" + "a" * 64) == "busybox@sha256:" + "a" * 64
+        assert digest("registry.example:5443/team/app:1.2@sha256:" + "b" * 64) == "registry.example:5443/team/app@sha256:" + "b" * 64
+        assert digest("registry.example:5443/app@sha256:" + "c" * 64) == "registry.example:5443/app@sha256:" + "c" * 64
         for private in ("", *images.values()):
             calls = []
             def inspect(command, *, env, **kwargs):
                 assert command[:3] == ["docker", "manifest", "inspect"]
                 assert not list(Path(env["DOCKER_CONFIG"]).iterdir())
                 calls.append(command[-1])
-                return subprocess.CompletedProcess(command, int(command[-1] == private))
+                return subprocess.CompletedProcess(command, int(private != "" and command[-1] == digest(private)))
             with patch.object(builder["subprocess"], "run", side_effect=inspect):
                 try:
                     builder["require_public_archive_images"](archive)
                 except SystemExit:
                     assert private
                 else:
-                    assert not private and set(calls) == set(images.values())
+                    assert not private and set(calls) == {digest(pin) for pin in images.values()}
 
 
 def test_smoke_monitoring_certificate_uses_state_directory() -> None:

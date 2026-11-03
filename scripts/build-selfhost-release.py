@@ -176,6 +176,14 @@ def require_smoke_result(result: Path, archive: Path) -> None:
         fail("release smoke is missing required passing coverage")
 
 
+def digest_reference(pin: str) -> str:
+    """name@digest without the tag: a digest pull ignores the tag, but docker manifest inspect fails a tag the
+    upstream has since moved (busybox:1.37.0-musl), although the pinned digest still pulls."""
+    name, digest = pin.split("@", 1)
+    head, _, last = name.rpartition("/")
+    return (head + "/" if head else "") + last.split(":", 1)[0] + "@" + digest
+
+
 def require_public_archive_images(archive: Path) -> None:
     with tarfile.open(archive, "r:gz") as source:
         manifest = archive_manifest(source)
@@ -185,7 +193,7 @@ def require_public_archive_images(archive: Path) -> None:
             fail("candidate has invalid runtime image pins")
     with tempfile.TemporaryDirectory(prefix="chronicle-anonymous-registry-") as directory:
         for pin in set(images.values()):
-            result = subprocess.run(["docker", "manifest", "inspect", pin],
+            result = subprocess.run(["docker", "manifest", "inspect", digest_reference(pin)],
                                     env=dict(os.environ, DOCKER_CONFIG=directory),
                                     capture_output=True, timeout=60)
             if result.returncode:
