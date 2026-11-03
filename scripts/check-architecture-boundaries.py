@@ -8,8 +8,8 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import sys
-import tempfile
 from typing import Any
 
 SOURCE_SUFFIXES = {".java", ".kt", ".kts", ".swift", ".ts", ".tsx", ".js", ".jsx"}
@@ -54,6 +54,35 @@ def active_exception(
     return False
 
 
+def source_errors(
+    relative_path: str,
+    source: str,
+    manifest: dict[str, Any],
+    today: dt.date,
+) -> list[str]:
+    owners = matching_owners(relative_path, manifest)
+    if len(owners) != 1:
+        return [f"{relative_path}: expected exactly one architecture owner, found {owners or 'none'}"]
+    errors = []
+    for rule in manifest["forbidden_dependencies"]:
+        if "prefixes" in rule:
+            if not any(relative_path.startswith(prefix) for prefix in rule["prefixes"]):
+                continue
+        elif rule["owner"] != owners[0]:
+            continue
+        for token in rule["tokens"]:
+            if token in source and not active_exception(relative_path, token, manifest, today):
+                errors.append(f"{relative_path}: {owners[0]} may not depend on {token}")
+    for rule in manifest.get("forbidden_patterns", []):
+        if not any(relative_path.startswith(prefix) for prefix in rule["prefixes"]):
+            continue
+        for match in re.finditer(rule["pattern"], source, re.DOTALL):
+            token = f"{rule['name']}:{match['field']}"
+            if not active_exception(relative_path, token, manifest, today):
+                errors.append(f"{relative_path}: forbidden {token}")
+    return errors
+
+
 def check(
     root: pathlib.Path,
     manifest: dict[str, Any],
@@ -62,9 +91,6 @@ def check(
     include_optional: bool = False,
 ) -> list[str]:
     errors: list[str] = []
-    forbidden_by_owner = {
-        item["owner"]: item["tokens"] for item in manifest["forbidden_dependencies"]
-    }
     required_roots = set(manifest["source_roots"])
     optional_roots = set(manifest.get("optional_source_roots", []))
     discovered_roots = required_roots | (optional_roots if include_optional else set())
@@ -90,24 +116,10 @@ def check(
 
     for path in sorted(set(files)):
         relative_path = path.relative_to(root).as_posix()
-        owners = matching_owners(relative_path, manifest)
-        if len(owners) != 1:
-            errors.append(
-                f"{relative_path}: expected exactly one architecture owner, found {owners or 'none'}"
-            )
-            continue
-        owner = owners[0]
-        source = path.read_text(encoding="utf-8", errors="replace")
-        for token in forbidden_by_owner.get(owner, []):
-            if token not in source:
-                continue
-            try:
-                exempt = active_exception(relative_path, token, manifest, today)
-            except ValueError as error:
-                errors.append(str(error))
-                continue
-            if not exempt:
-                errors.append(f"{relative_path}: {owner} may not depend on {token}")
+        try:
+            errors.extend(source_errors(relative_path, path.read_text(encoding="utf-8", errors="replace"), manifest, today))
+        except ValueError as error:
+            errors.append(str(error))
 
     known_exception_paths = {item["path"] for item in manifest.get("exceptions", [])}
     for exception_path in sorted(known_exception_paths):
@@ -116,41 +128,49 @@ def check(
     return errors
 
 
-def self_test() -> None:
-    with tempfile.TemporaryDirectory() as directory:
-        root = pathlib.Path(directory)
-        source_root = root / "models" / "src" / "main"
-        source_root.mkdir(parents=True)
-        source = source_root / "Example.kt"
-        source.write_text("import forbidden.framework.Type\n", encoding="utf-8")
-        manifest = {
-            "version": 1,
-            "source_roots": ["models/src/main"],
-            "optional_source_roots": ["ios/src/main"],
-            "owners": [{"name": "models", "prefixes": ["models/src/main/"]}],
-            "forbidden_dependencies": [
-                {"owner": "models", "tokens": ["forbidden.framework."]}
-            ],
-            "exceptions": [],
-        }
-        errors = check(root, manifest, dt.date(2026, 7, 13))
-        if len(errors) != 1 or "may not depend" not in errors[0]:
-            raise AssertionError(f"negative boundary fixture did not fire: {errors}")
-        source.write_text("data class Example(val id: String)\n", encoding="utf-8")
-        errors = check(root, manifest, dt.date(2026, 7, 13))
-        if errors:
-            raise AssertionError(f"positive boundary fixture failed: {errors}")
+def dependency_self_test(manifest: dict[str, Any]) -> None:
+    for rule in manifest["forbidden_dependencies"]:
+        prefixes = rule.get("prefixes") or next(
+            owner["prefixes"] for owner in manifest["owners"] if owner["name"] == rule["owner"]
+        )
+        for prefix in prefixes:
+            for token in rule["tokens"]:
+                for source in (f"import {token}Forbidden", f"val dependency: {token}Forbidden? = null"):
+                    errors = source_errors(prefix + "Example.kt", source, manifest, dt.date.today())
+                    if not any(f"may not depend on {token}" in error for error in errors):
+                        raise AssertionError(f"manifest dependency fixture did not fire: {rule}")
 
-        optional_root = root / "ios" / "src" / "main"
-        optional_root.mkdir(parents=True)
-        (optional_root / "Example.swift").write_text("struct Example {}\n", encoding="utf-8")
-        errors = check(root, manifest, dt.date(2026, 7, 13))
-        if errors:
-            raise AssertionError(f"present optional root was not skipped by default: {errors}")
-        manifest["owners"].append({"name": "ios", "prefixes": ["ios/src/main/"]})
-        errors = check(root, manifest, dt.date(2026, 7, 13), include_optional=True)
-        if errors:
-            raise AssertionError(f"present optional source root was not checked: {errors}")
+
+def optional_root_self_test(fixture_root: pathlib.Path, manifest: dict[str, Any]) -> None:
+    manifest = dict(manifest, source_roots=[], exceptions=[])
+    manifest["owners"] = [owner for owner in manifest["owners"] if owner["name"] != "ios-runtime"]
+    if check(fixture_root, manifest, dt.date.today()):
+        raise AssertionError("present optional root must be skipped by default")
+    errors = check(fixture_root, manifest, dt.date.today(), include_optional=True)
+    if len(errors) != 1 or "exactly one architecture owner" not in errors[0]:
+        raise AssertionError(f"opted-in optional root must be checked: {errors}")
+    manifest["owners"].append({"name": "ios-runtime", "prefixes": ["chronicle-ios/chronicle/"]})
+    if check(fixture_root, manifest, dt.date.today(), include_optional=True):
+        raise AssertionError("opted-in optional root with an owner must pass")
+    manifest["source_roots"] = ["missing/src/main"]
+    if not any("production source root is missing" in error for error in check(fixture_root, manifest, dt.date.today())):
+        raise AssertionError("missing required source root must fail closed")
+
+
+def self_test() -> None:
+    script_root = pathlib.Path(__file__).resolve().parents[1]
+    manifest = load_manifest(script_root / "config/architecture-boundaries.json")
+    manifest["exceptions"] = []
+    fixture_root = script_root / "tests/architecture-boundaries"
+    fixtures = json.loads((fixture_root / "fixtures.json").read_text(encoding="utf-8"))
+    for fixture in fixtures:
+        if "owner" in fixture and matching_owners(fixture["path"], manifest) != [fixture["owner"]]:
+            raise AssertionError(f"{fixture['name']}: incorrect architecture owner")
+        errors = source_errors(fixture["path"], fixture["source"], manifest, dt.date.today())
+        if bool(errors) != fixture["forbidden"]:
+            raise AssertionError(f"{fixture['name']}: unexpected boundary result: {errors}")
+    dependency_self_test(manifest)
+    optional_root_self_test(fixture_root / "optional", manifest)
 
 
 def main() -> int:

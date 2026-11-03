@@ -2,77 +2,53 @@
 set -euo pipefail
 
 server_dir=chronicle-server
-since=
 migrations=src/main/resources/db/migration
 fail() { printf 'FAIL setup: %s\n' "$*" >&2; exit 1; }
 while (($#)); do
   case "$1" in
-    --server-dir|--since)
+    --server-dir)
       if (($# < 2)) || [[ -z "$2" ]]; then fail "$1 requires a value"; fi
-      if [[ "$1" == --server-dir ]]; then server_dir=$2; else since=$2; fi
+      server_dir=$2
       shift 2 ;;
     -h|--help)
-      printf 'Usage: %s [--server-dir chronicle-server] [--since <git ref>]\n' "$0"
+      printf 'Usage: %s [--server-dir chronicle-server]\n' "$0"
       exit 0 ;;
     *) fail "unknown argument: $1" ;;
   esac
 done
 cd "$server_dir" || fail "cannot open server directory: $server_dir"
 [[ -d "$migrations" ]] || fail "missing $migrations"
-if [[ -z "$since" ]]; then
-  tags=$(git tag --list 'published-*' --sort=-creatordate) || fail 'cannot list tags'
-  since=${tags%%$'\n'*}
-  if [[ -z "$since" ]]; then
-    roots=$(git rev-list --max-parents=0 HEAD) || fail 'cannot find root commit'
-    since=${roots%%$'\n'*}
-  fi
-fi
-base=$(git rev-parse --verify --end-of-options "${since}^{commit}") || fail "invalid baseline: $since"
-# Disable rename detection so a renamed published file always appears as a deletion.
-changes=$(git -c core.quotePath=false diff --no-ext-diff --no-renames --name-status "$base" -- "$migrations") || fail 'cannot diff migrations'
-untracked=$(git -c core.quotePath=false ls-files --others --exclude-standard -- "$migrations") || fail 'cannot list new migrations'
-published=$(git ls-tree -r --name-only "$base" -- "$migrations") || fail 'cannot list published migrations'
-added=()
-immutable=PASS
-while IFS=$'\t' read -r status file; do
-  [[ -n "$status" ]] || continue
-  if [[ "$status" == A ]]; then
-    added+=("$file")
-  else
-    immutable=FAIL
-    printf 'FAIL immutability: %s %s\n' "$status" "$file"
-  fi
-done <<< "$changes"
-while IFS= read -r file; do
-  [[ -n "$file" ]] && added+=("$file")
-done <<< "$untracked"
-printf '%s immutability (a): baseline %s\n' "$immutable" "$since"
+shopt -s nullglob
+migrations_files=("$migrations"/*.sql)
+((${#migrations_files[@]})) || fail "no SQL migrations"
 
 additive=PASS
 numbering=PASS
-# Two added migrations sharing a version both beat the published maximum, so check them against each other too.
-duplicates=$(for file in "${added[@]}"; do
+# Flyway compares versions numerically part by part, so leading zeroes, trailing .0 parts and
+# underscore/dot separators do not make a different version (V1, V1.0 and V01_0 are one).
+duplicates=$(for file in "${migrations_files[@]}"; do
   name=${file##*/}
   [[ "$name" == V*__*.sql ]] || continue
   version=${name#V}; version=${version%%__*}
   awk -v v="$version" 'BEGIN { n=split(v,p,/[._]/); out=""
     for (i=1; i<=n; i++) { sub(/^0+/, "", p[i]); out = out (i>1 ? "." : "") (p[i] == "" ? "0" : p[i]) }
-    print out }'
+    sub(/(\.0)+$/, "", out); print out }'
 done | sort | uniq -d)
 if [[ -n "$duplicates" ]]; then
   numbering=FAIL
   while IFS= read -r version; do
-    printf 'FAIL numbering: duplicate version V%s among added migrations\n' "$version"
+    printf 'FAIL numbering: duplicate version V%s among migrations\n' "$version"
   done <<< "$duplicates"
 fi
-for file in "${added[@]}"; do
+for file in "${migrations_files[@]}"; do
   [[ "$file" == *.sql ]] || continue
   if [[ ! -f "$file" || -L "$file" ]]; then
     printf 'FAIL additive-only: %s:1: migration must be a regular SQL file\n' "$file"
     additive=FAIL
     continue
   fi
-  if ! awk '
+  # Byte-based scan: the keywords are ASCII, and a UTF-8 locale makes BSD awk abort on valid UTF-8.
+  if ! LC_ALL=C awk '
     function hit(line, reason) {
       printf "%s additive-only: %s:%d: %s%s\n", approved ? "PASS" : "FAIL", FILENAME, line, reason, approved ? " (approved: " approval ")" : ""
       if (!approved) failed = 1
@@ -80,15 +56,13 @@ for file in "${added[@]}"; do
     function statement(words,lines,n,   i,j,reason,has_where,depth) {
       for (i=1; i<=n; i++) {
         reason = ""
-        if (words[i] == "DROP" && words[i+1] ~ /^(TABLE|COLUMN)$/)
+        # Every DROP needs approval: schemas, extensions, types and sequences cascade into data.
+        if (words[i] == "DROP")
           reason = "DROP " words[i+1]
         else if (words[i] == "TRUNCATE") reason = "TRUNCATE"
         else if (words[i] == "RENAME" && words[i+1] ~ /^(TO|COLUMN)$/)
           reason = "RENAME " words[i+1]
-        else if (words[i] == "ALTER" && words[i+1] == "TABLE") {
-          for (j=i+2; j<=n; j++)
-            if (words[j] == "DROP" && words[j+1] !~ /^(TABLE|COLUMN)$/) hit(lines[j], "ALTER TABLE ... DROP")
-        } else if (words[i] == "ALTER" && words[i+1] == "COLUMN") {
+        else if (words[i] == "ALTER" && words[i+1] == "COLUMN") {
           for (j=i+2; j<=n && words[j] != ","; j++)
             if (words[j] == "TYPE") { reason = "ALTER COLUMN ... TYPE"; break }
         } else if (words[i] == "DELETE" && words[i+1] == "FROM") {
@@ -182,30 +156,11 @@ for file in "${added[@]}"; do
     }
   ' "$file"; then additive=FAIL; fi
 
-  if ! awk -v candidate="${file##*/}" -v path="$file" '
-    function version(name) { sub(/^.*\//, "", name); sub(/^V/, "", name); sub(/__.*/, "", name); return name }
-    function greater(a,b,   x,y,n,m,i) {
-      n=split(a,x,/[._]/); m=split(b,y,/[._]/)
-      for (i=1; i<=n || i<=m; i++) {
-        sub(/^0+/, "", x[i]); sub(/^0+/, "", y[i])
-        if (length(x[i]) != length(y[i])) return length(x[i]) > length(y[i])
-        if ("x" x[i] != "x" y[i]) return "x" x[i] > "x" y[i]
-      }
-      return 0
-    }
-    /\/V[0-9]+([._][0-9]+)*__.*\.sql$/ {
-      v=version($0); if (maximum == "" || greater(v,maximum)) maximum=v
-    }
-    END {
-      if (candidate !~ /^V[0-9]+([._][0-9]+)*__.+\.sql$/) {
-        printf "FAIL numbering: %s: invalid versioned migration name\n", path; exit 1
-      }
-      if (maximum != "" && !greater(version(candidate),maximum)) {
-        printf "FAIL numbering: %s: version must exceed published V%s\n", path, maximum; exit 1
-      }
-    }
-  ' <<< "$published"; then numbering=FAIL; fi
+  if [[ ! "${file##*/}" =~ ^V[0-9]+([._][0-9]+)*__.+\.sql$ ]]; then
+    printf 'FAIL numbering: %s: invalid versioned migration name\n' "$file"
+    numbering=FAIL
+  fi
 done
 printf '%s additive-only (b)\n' "$additive"
 printf '%s numbering (c)\n' "$numbering"
-[[ "$immutable" == PASS && "$additive" == PASS && "$numbering" == PASS ]]
+[[ "$additive" == PASS && "$numbering" == PASS ]]

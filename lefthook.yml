@@ -15,6 +15,11 @@ skip_tags:
 pre-commit:
   parallel: true
   commands:
+    kotlin-daemon-state:
+      # The Kotlin daemon rewrites .kotlin/sessions/*.salive on every build; .gitignore keeps it
+      # out of `git add -A`, and this refuses a force-added path.
+      glob: ".kotlin/**"
+      run: "printf 'Kotlin daemon state must not be committed: %s\\n' {staged_files} >&2; exit 1"
     biome-check:
       root: "chronicle-web/"
       glob: "src/**/*.{ts,tsx,js,jsx}"
@@ -46,11 +51,16 @@ pre-commit:
       # several fixture .kt files are staged together.
       exclude:
         - "tests/security/fixtures/**"
-      run: detekt-cli --input {staged_files} --config detekt.yml --baseline detekt-baseline.xml --build-upon-default-config
+        - "tests/security/semgrep-tests/**"
+        - "tests/security/rules/**"
+      # detekt-cli takes one comma-separated --input; lefthook substitutes space-separated paths.
+      run: sh -c 'IFS=,; detekt-cli --input "$*" --config detekt.yml --baseline detekt-baseline.xml --build-upon-default-config' detekt {staged_files}
 
 pre-push:
   parallel: true
   commands:
+    python-shell-and-paths:
+      run: python3 scripts/check-python-shell.py && python3 scripts/check-machine-paths.py
     i18n-lint:
       glob: "**/*.{ts,tsx,kt,swift}"
       run: scripts/i18n-lint.sh

@@ -4,7 +4,7 @@
 # an ignored location and proves it passes, then removes every probe (also on interruption).
 #   scripts/i18n-lint-mutation.sh [web|android|server|ios ...]
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 surfaces=("$@"); [ ${#surfaces[@]} -eq 0 ] && surfaces=(web android server ios)
 probes=()
 cleanup() { for p in "${probes[@]:-}"; do [ -n "$p" ] && rm -f "$p"; done; }

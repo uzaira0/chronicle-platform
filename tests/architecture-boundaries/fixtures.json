@@ -1,0 +1,75 @@
+[
+  {
+    "name": "services/enrollment/False",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/enrollment/Example.kt",
+    "source": "import com.openlattice.chronicle.storage.StorageResolver",
+    "forbidden": false
+  },
+  {
+    "name": "services/enrollment/True",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/enrollment/Example.kt",
+    "source": "import com.openlattice.chronicle.controllers.StudyController",
+    "forbidden": true
+  },
+  {
+    "name": "storage/False",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/Example.kt",
+    "source": "import com.openlattice.chronicle.storage.StorageResolver",
+    "forbidden": false
+  },
+  {
+    "name": "storage/True",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/Example.kt",
+    "source": "import com.openlattice.chronicle.controllers.StudyController",
+    "forbidden": true
+  },
+  {
+    "name": "AutowiredFalse",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example(private val storage: StorageResolver)",
+    "forbidden": false
+  },
+  {
+    "name": "AutowiredTrue",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example {\n@Autowired\n@Qualifier(\"storage\")\nprivate lateinit var storage: StorageResolver\n}",
+    "forbidden": true
+  },
+  {
+    "name": "InjectFalse",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example(private val storage: StorageResolver)",
+    "forbidden": false
+  },
+  {
+    "name": "InjectTrue",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example {\n@Inject\n@Qualifier(\"storage\")\nprivate lateinit var storage: StorageResolver\n}",
+    "forbidden": true
+  },
+  {
+    "name": "qualified field injection",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example { @field:jakarta.inject.Inject private lateinit var storage: StorageResolver }",
+    "forbidden": true
+  },
+  {
+    "name": "bean parameters and ordinary lateinit",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example { private lateinit var cache: Cache; @Bean fun example(storage: StorageResolver) = storage }",
+    "forbidden": false
+  },
+  {
+    "name": "method injection is not a field",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/Example.kt",
+    "source": "class Example { @Autowired fun init(storage: StorageResolver) {} private lateinit var cache: Cache }",
+    "forbidden": false
+  },
+  {
+    "name": "participantaccess keeps its owner and allowed storage dependency",
+    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/participantaccess/Example.kt",
+    "source": "import com.openlattice.chronicle.storage.StorageResolver",
+    "forbidden": false,
+    "owner": "participantaccess"
+  }
+]

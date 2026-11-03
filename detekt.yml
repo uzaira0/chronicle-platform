@@ -12,6 +12,7 @@ complexity:
   CyclomaticComplexMethod:
     active: true
     threshold: 15
+    ignoreSimpleWhenEntries: true
   LargeClass:
     active: true
     threshold: 600
@@ -92,6 +93,11 @@ potential-bugs:
     active: true
 
 style:
+  FunctionOnlyReturningConstant:
+    # Amazon (minimal) stubs preserve the shared API with constant results and unused inputs.
+    excludes: &minimalFlavorStubs ['**/app/src/amazon/**']
+  UnusedParameter:
+    excludes: *minimalFlavorStubs
   MagicNumber:
     active: false  # Too noisy for a project with SQL and config constants
   MaxLineLength:

@@ -29,14 +29,23 @@ for s in "${surfaces[@]}"; do
     web)
       # The Spanish report is informational here: missing keys are expected mid-translation and are
       # filled through `make i18n-sheet-import`; `bun run i18n:report es --check` is the strict gate.
-      (cd chronicle-web && bash scripts/i18n-lint-selftest.sh && ast-grep scan src/modern && { bun run --silent i18n:report es | grep -E '^[a-z-]+: ' || true; }) || status=1 ;;
+      (cd chronicle-web && python3 ../scripts/i18n-lint-cases.py lint/i18n/cases && ast-grep scan src/modern && { bun run --silent i18n:report es | grep -E '^[a-z-]+: ' || true; }) || status=1 ;;
     android)
-      (cd chronicle && bash scripts/i18n-lint-selftest.sh && ast-grep scan app/src/main collection-*/src/main) || status=1 ;;
+      (cd chronicle && python3 ../scripts/i18n-lint-cases.py lint/i18n/cases && ast-grep scan app/src/main collection-*/src/main) || status=1 ;;
     server)
-      (cd chronicle-server && bash scripts/i18n-lint-selftest.sh && ast-grep scan src/main) || status=1 ;;
+      (cd chronicle-server && python3 ../scripts/i18n-lint-cases.py lint/i18n/cases && ast-grep scan src/main) || status=1 ;;
     ios)
       if [ -f chronicle-ios/lint/i18n/semgrep.yml ]; then
-        (cd chronicle-ios && bash scripts/i18n-lint-selftest.sh && semgrep --metrics=off --error --quiet --config lint/i18n/semgrep.yml chronicle ChronicleScreenTimeReport) || status=1
+        (
+          cd chronicle-ios || exit
+          bash scripts/i18n-lint-selftest.sh || exit
+          targets=()
+          for target in chronicle ChronicleScreenTimeReport; do
+            [[ ! -d "$target" ]] || targets+=("$target")
+          done
+          ((${#targets[@]} > 0)) || { echo "ios: source directories missing" >&2; exit 1; }
+          semgrep --metrics=off --error --quiet --config lint/i18n/semgrep.yml "${targets[@]}"
+        ) || status=1
       else
         echo "ios: no rules yet"; fi ;;
     *) echo "unknown surface: $s"; exit 2 ;;

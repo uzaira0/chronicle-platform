@@ -34,7 +34,16 @@
     },
     {
       "name": "server-runtime",
-      "prefixes": ["chronicle-server/src/main/"]
+      "prefixes": ["chronicle-server/src/main/"],
+      "exclude_prefixes": [
+        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/participantaccess/"
+      ]
+    },
+    {
+      "name": "participantaccess",
+      "prefixes": [
+        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/participantaccess/"
+      ]
     },
     {
       "name": "android-app",
@@ -67,6 +76,13 @@
   ],
   "forbidden_dependencies": [
     {
+      "owner": "participantaccess",
+      "tokens": [
+        "com.openlattice.chronicle.services.studies.",
+        "com.openlattice.chronicle.services.delete."
+      ]
+    },
+    {
       "owner": "wire-models",
       "tokens": [
         "retrofit2.",
@@ -88,6 +104,16 @@
       "tokens": [
         "com.openlattice.chronicle.ui.",
         "retrofit2."
+      ]
+    },
+    {
+      "owner": "server-runtime",
+      "prefixes": [
+        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/",
+        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/storage/"
+      ],
+      "tokens": [
+        "com.openlattice.chronicle.controllers."
       ]
     }
   ],
@@ -112,6 +138,22 @@
       "owner": "mobile-platform",
       "reason": "Legacy Retrofit builder awaiting transport-adapter extraction",
       "expires": "2026-12-31"
+    },
+    {
+      "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/RLSSecurityPod.kt",
+      "token": "lateinit-injected-field:authorizationManager",
+      "owner": "server-runtime",
+      "reason": "Untouched RLS pod uses field injection; migrate to bean parameters in its owning refactor.",
+      "expires": "2026-12-31"
+    }
+  ],
+  "forbidden_patterns": [
+    {
+      "name": "lateinit-injected-field",
+      "prefixes": [
+        "chronicle-server/src/main/kotlin/com/openlattice/chronicle/pods/"
+      ],
+      "pattern": "@(?:(?:field|set):)?(?:[\\w]+\\.)*(?:Autowired|Inject)\\b(?:(?!\\b(?:fun|class|val|var)\\b)[^{};])*?\\blateinit\\s+var\\s+(?P<field>\\w+)"
     }
   ]
 }

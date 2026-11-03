@@ -90,25 +90,26 @@ def scan():
 
 def main():
     parser = argparse.ArgumentParser(description="Gate production CPD clones against the checked-in baseline")
-    parser.add_argument("--update-baseline", action="store_true")
+    parser.add_argument("--update-baseline", action="store_true",
+                        help="drop baseline entries whose clones are gone; never adds a clone")
     args = parser.parse_args()
     current, locations = scan()
-    if args.update_baseline:
-        BASELINE.write_text("".join(
-            json.dumps(key) + "\n" for key in sorted(current) for _ in range(current[key])
-        ))
-        print(f"Updated {BASELINE.relative_to(ROOT)}")
-        return 0
     baseline = Counter()
     for line in BASELINE.read_text().splitlines():
         language, tokens, paths = json.loads(line)
         baseline[(language, tokens, tuple(paths))] += 1
+    if args.update_baseline:
+        kept = baseline & current
+        BASELINE.write_text("".join(json.dumps(key) + "\n" for key in sorted(kept) for _ in range(kept[key])))
+        print(f"Updated {BASELINE.relative_to(ROOT)}: {sum(kept.values())} entries")
+        return 0
     for key, count in sorted((current - baseline).items()):
         print(f"NEW clone ({key[0]}, {key[1]} tokens, {count} group(s)): " + "; ".join(locations[key]))
-    stale = sum((baseline - current).values())
-    if stale:
-        print(f"baseline can shrink: {stale} clone group(s) no longer exist")
-    return 1 if current - baseline else 0
+    # A stale entry would silently admit a new clone with the same key, so it fails too.
+    for key, count in sorted((baseline - current).items()):
+        print(f"STALE baseline entry ({key[0]}, {key[1]} tokens, {count} group(s)): {', '.join(key[2])}; "
+              "remove it with CHRONICLE_DUPLICATION_UPDATE_BASELINE=1")
+    return 1 if current != baseline else 0
 
 
 if __name__ == "__main__":

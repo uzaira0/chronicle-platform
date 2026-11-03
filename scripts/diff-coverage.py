@@ -2,22 +2,13 @@
 import argparse
 import fnmatch
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-
-def is_operator_script(path):
-    """Python or shell source, including extensionless executables such as selfhost/chronicle."""
-    if path.suffix in (".py", ".sh"):
-        return True
-    if path.suffix or not path.is_file():
-        return False
-    with path.open("rb") as handle:
-        first = handle.readline(128)
-    return first.startswith(b"#!") and any(name in first for name in (b"bash", b"sh", b"python"))
 
 def git(repo, *arguments, required=True):
     result = subprocess.run(["git", "-C", str(repo), *arguments], capture_output=True, text=True)
@@ -78,34 +69,40 @@ def children(repo, base, only=None):
 
 
 def changed_files(repo, base):
-    tracked = git(repo, "diff", "--name-only", "--diff-filter=ACMR", "-z", base, "--")
+    """Paths whose change adds lines, and untracked files; a deletion-only change leaves no line to measure."""
+    tracked = git(repo, "diff", "--numstat", "--no-renames", "--diff-filter=ACMR", "-z", base, "--")
+    added = {path for added, _, path in (record.split("\t", 2) for record in tracked.split("\0") if record)
+             if added != "0"}
     untracked = git(repo, "ls-files", "--others", "--exclude-standard", "-z")
-    return set((tracked + "\0" + untracked).split("\0")) - {""}
+    return (added | set(untracked.split("\0"))) - {""}
 
 
 def reports_and_roots(repo):
     xml, lcov, sources = [], [], ["."]
     for directory, dirs, files in os.walk(repo):
         here = Path(directory)
-        dirs[:] = [d for d in dirs if d not in {".git", ".gradle", "node_modules", ".local", ".venv"}]
+        dirs[:] = [d for d in dirs if d not in {".git", ".gradle", "node_modules", ".local", ".venv"}
+                   and not (here / d / ".git").exists()]
         relative = here.relative_to(repo).as_posix()
-        if relative.endswith(("src/main/kotlin", "src/main/java")):
+        if re.search(r"(?:^|/)src/[^/]+/(?:java|kotlin)$", relative) and production_jvm(relative + "/Source.kt"):
             sources.append(relative)
-        if "/build/reports/jacoco/" in "/" + relative + "/":
+        if any(directory in "/" + relative + "/" for directory in ("/build/reports/jacoco/", "/build/reports/coverage/")):
             xml.extend(str(here / f) for f in files if f.endswith(".xml"))
         xml.extend(str(here / f) for f in files if f == "coverage.xml"
                    or relative in {"coverage", "build/coverage"} and f.endswith(".xml"))
         if relative in {"coverage", "chronicle-web/coverage"} and "lcov.info" in files:
             lcov.append(str(here / "lcov.info"))
-    bash = repo / "build/coverage/bash-cobertura.xml"
-    if bash.is_file():
-        xml.append(str(bash))
-    else:
-        print(f"[diff-coverage] {repo}: Bash input build/coverage/bash-cobertura.xml absent; skipping that optional input", flush=True)
     return sorted(set(xml)), sorted(set(lcov)), sources
 
 
-def check(repo, base, inherited=()):
+def production_jvm(path):
+    source = re.search(r"(?:^|/)src/([^/]+)/(?:java|kotlin)/", path)
+    # The root tests/ tree holds rule fixtures shaped like production sources; none of it ships.
+    return bool(path.endswith((".kt", ".java")) and source and not path.startswith("tests/")
+                and not source[1].lower().startswith(("test", "androidtest")))
+
+
+def check(repo, base, required, inherited=()):
     relative = repo.relative_to(root).as_posix()
     prefix = "" if relative == "." else relative + "/"
     scoped = list(inherited) + [(prefix, glob) for glob in waivers(repo)]
@@ -118,12 +115,30 @@ def check(repo, base, inherited=()):
     failed = False
     if changes:
         xml, lcov, sources = reports_and_roots(repo)
+        # A report is required only where --require says a gate job produces it; other repositories
+        # and languages (Bash) are measured against whatever reports exist, usually none.
+        kinds = required.get(relative, set())
+        # A report written before the newest change in its own module cannot measure it; it is not evidence.
+        # A module's report is not made stale by a change in another module (Gradle leaves it untouched).
+        dated = [("/" + p, (repo / p).stat().st_mtime) for p in changes
+                 if p.endswith((".kt", ".java", ".ts", ".tsx", ".js", ".jsx", ".py")) and (repo / p).is_file()]
+
+        def newest_in(report):
+            module = ("/" + Path(report).relative_to(repo).as_posix()).split("/build/")[0].split("/coverage/")[0]
+            return max((when for path, when in dated if path.startswith(module + "/")), default=0)
+
+        stale = {r for r in xml + lcov if Path(r).stat().st_mtime < newest_in(r)}
+        if stale:
+            print(f"[diff-coverage] {repo}: ignoring reports that predate the changed sources: "
+                  + ", ".join(sorted(str(Path(r).relative_to(repo)) for r in stale)), file=sys.stderr)
+            xml, lcov = [r for r in xml if r not in stale], [r for r in lcov if r not in stale]
         missing = []
-        if not xml and not lcov:
-            missing.append("no coverage reports found")
-        if any(p.endswith((".kt", ".java")) and "/src/main/" in "/" + p for p in changes) and not xml:
+        if any(production_jvm(p) for p in changes) and "jacoco" in kinds and not xml:
             missing.append("changed JVM sources require JaCoCo XML")
-        if any(p.endswith((".ts", ".tsx", ".js", ".jsx")) for p in changes) and not lcov:
+        python_sources = [p for p in changes if p.startswith("selfhost/") and p.endswith(".py")]
+        if python_sources and "cobertura" in kinds and not any(ET.parse(report).getroot().tag == "coverage" for report in xml):
+            missing.append("changed selfhost Python sources require coverage.xml")
+        if any(p.endswith((".ts", ".tsx", ".js", ".jsx")) for p in changes) and "lcov" in kinds and not lcov:
             missing.append("changed web sources require coverage/lcov.info")
         measured = set()
         for report in xml:
@@ -142,18 +157,14 @@ def check(repo, base, inherited=()):
                 if line.startswith("SF:"):
                     measured.add((repo / line[3:]).resolve())
         for path in changes:
-            production_jvm = path.endswith((".kt", ".java")) and "/src/main/" in "/" + path
             production_web = path.endswith((".ts", ".tsx", ".js", ".jsx")) and not any(
-                marker in path for marker in (".test.", ".spec.", "/tests/", "/__tests__/"))
-            production_operator = is_operator_script(repo / path) and "tests" not in Path(path).parts
-            if (production_jvm and xml or production_web and lcov or production_operator) and (repo / path).resolve() not in measured:
+                marker in "/" + path for marker in (".test.", ".spec.", "/tests/", "/__tests__/", "/e2e/"))
+            if (production_jvm(path) and xml or production_web and lcov or path in python_sources and xml) and (repo / path).resolve() not in measured:
                 missing.append(f"changed source {path} is absent from coverage reports")
         if missing:
             print(f"[diff-coverage] {repo}: {'; '.join(missing)}. Produce reports with "
-                  "bash scripts/local-ci.sh jvm-smoke (JaCoCo), or "
-                  "(cd chronicle-web && bun test --coverage --coverage-reporter=lcov) (lcov); "
-                  "Python coverage XML must include the changed Python sources, and the Bash xtrace producer "
-                  "must supply build/coverage/bash-cobertura.xml for changed Bash sources.", file=sys.stderr)
+                  "bash scripts/local-ci.sh jvm-smoke android-unit selfhost (JVM/Android/Python), or "
+                  "(cd chronicle-web && bun test --coverage --coverage-reporter=lcov) (lcov).", file=sys.stderr)
             failed = True
         # diff-cover cannot mix lcov and XML in one invocation.
         for reports in (xml, lcov):
@@ -169,7 +180,7 @@ def check(repo, base, inherited=()):
     else:
         print(f"[diff-coverage] {repo}: no unwaived changes", flush=True)
     for child, child_base in subs:
-        failed = check(child, child_base, scoped) or failed
+        failed = check(child, child_base, required, scoped) or failed
     return failed
 
 
@@ -178,7 +189,16 @@ if __name__ == "__main__":
     parser.add_argument("--base", help="root repository base (default: merge-base with origin/main, then HEAD~1)")
     parser.add_argument("--print-base", metavar="SUBMODULE",
                         help="print the base commit this gate uses for SUBMODULE, then exit")
+    parser.add_argument("--require", action="append", default=[], metavar="REPO=KIND",
+                        help="fail when REPO (path from the root, . for the root) has changed sources but no "
+                             "KIND report (jacoco, lcov or cobertura); repeatable")
     args = parser.parse_args()
+    required = {}
+    for entry in args.require:
+        repository, _, kind = entry.partition("=")
+        if kind not in ("jacoco", "lcov", "cobertura"):
+            parser.error(f"--require {entry}: KIND must be jacoco, lcov or cobertura")
+        required.setdefault(repository, set()).add(kind)
     for command in ("git",) if args.print_base else ("git", "diff-cover"):
         if shutil.which(command) is None:
             print(f"[diff-coverage] missing required command: {command}", file=sys.stderr)
@@ -190,7 +210,7 @@ if __name__ == "__main__":
             submodule = root / args.print_base
             print(dict(children(root, base, only=submodule)).get(submodule) or default_base(submodule))
             sys.exit(0)
-        sys.exit(1 if check(root, base) else 0)
+        sys.exit(1 if check(root, base, required) else 0)
     except (ValueError, OSError, ET.ParseError) as error:
         print(f"[diff-coverage] {error}", file=sys.stderr)
         sys.exit(2)

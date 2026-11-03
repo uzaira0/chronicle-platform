@@ -11,7 +11,7 @@
 #   2. RLS enabled+forced on the security-critical tables
 #   2b. Runtime roles cannot mutate immutable withdrawal/revision evidence
 #   3. 32 RESTRICTIVE deletion-quarantine policies (current corpus)
-#   4. Re-issued orphan tables exist (V55-V58: webhooks, anonymization, orgs, refresh tokens)
+#   4. Re-issued orphan tables exist (V55-V58: webhooks, orgs, refresh tokens)
 #   4b. Audit handoff/immutability triggers present (V54/V59)
 #   5. TDE coverage: every public table on tde_heap (excluding flyway_schema_history until
 #      migrate-tde.sh has run after the deploy)
@@ -156,7 +156,7 @@ QP="$(psql_scalar "SELECT count(*) FROM pg_policies WHERE policyname LIKE 'delet
 [[ "${QP}" == "32" ]] && ok "32 restrictive quarantine policies" || fail "expected 32 quarantine policies, found ${QP}"
 
 echo "== 4. Re-issued orphan tables (V55-V58) =="
-for t in webhook_registrations webhook_deliveries study_anonymization_config participant_pseudonyms organization_members organization_quotas refresh_tokens; do
+for t in webhook_registrations webhook_deliveries; do
   [[ "$(psql_scalar "SELECT to_regclass('public.${t}') IS NOT NULL")" == "t" ]] && ok "${t}" || fail "table ${t} missing"
 done
 

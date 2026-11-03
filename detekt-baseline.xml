@@ -1,134 +1,47 @@
 <?xml version="1.0" ?>
 <SmellBaseline>
-  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <ManuallySuppressedIssues>
+  </ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>CastToNullableType:UploadExecutorRegressionTest.kt$UploadExecutorRegressionTest$as</ID>
-    <ID>ComplexCondition:ApiKeyAuthenticationFilter.kt$ApiKeyAuthenticationFilter$keyInfo == null &amp;&amp; (statusRequest || currentEnrollmentRequest) &amp;&amp; apiKeyService.isErasedDeviceKey(rawKey)</ID>
-    <ID>ComplexCondition:AppNetworkUsageSource.kt$AndroidAppNetworkUsageSource$initial &amp;&amp; (recorded == legacy || (recorded == null &amp;&amp; prefs.contains(KEY_LAST_END)))</ID>
-    <ID>ComplexCondition:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$current == null || ResearchErasureFence.enrollmentKey(current) != ResearchErasureFence.enrollmentKey(expected) || EnrollmentSettings(appContext).getParticipationStatus() != ParticipationStatus.ENROLLED || com.openlattice.chronicle.services.withdrawal.WithdrawalStateStore(appContext).state() != com.openlattice.chronicle.services.withdrawal.WithdrawalState.NONE</ID>
-    <ID>ComplexCondition:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$current == null || ResearchErasureFence.enrollmentKey(current) != ResearchErasureFence.enrollmentKey(expected) || ResearchErasureFence(appContext).settingsGeneration() != responseGeneration || !ResearchPersistenceGate.isActiveEnrollment(appContext)</ID>
-    <ID>ComplexCondition:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$current == null || ResearchErasureFence.enrollmentKey(current) != ResearchErasureFence.enrollmentKey(expected) || fence.settingsGeneration() != responseGeneration || EnrollmentSettings(appContext).getParticipationStatus() != ParticipationStatus.ENROLLED || com.openlattice.chronicle.services.withdrawal.WithdrawalStateStore(appContext).state() != com.openlattice.chronicle.services.withdrawal.WithdrawalState.NONE</ID>
-    <ID>ComplexCondition:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$it.owner == null &amp;&amp; createdAt != null &amp;&amp; timestamp != null &amp;&amp; timestamp &gt;= createdAt</ID>
-    <ID>ComplexCondition:Enrollment.kt$Enrollment$!appLinkData.isHierarchical || appLinkData.scheme != "chronicle" || appLinkData.host != "enroll" || !appLinkData.path.isNullOrEmpty()</ID>
-    <ID>ComplexCondition:Enrollment.kt$Enrollment$resultCode != RESULT_OK || studyId == null || participantId == null || serverUrl == null || fetched == null || accessCode == null || preview == null</ID>
-    <ID>ComplexCondition:Enrollment.kt$Enrollment$studyId == null || participantId == null || serverUrl == null || accessCode == null || fetched == null || preview == null</ID>
-    <ID>ComplexCondition:EnrollmentRecoveryManager.kt$EnrollmentRecoveryManager$normalizedOrigin != row.url || manifest.studyId.toString() != row.studyId || manifest.participantId != row.participantId || manifest.participantPolicy.version != row.disclosureVersion</ID>
     <ID>ComplexCondition:EnrollmentSettings.kt$EnrollmentSettings$currentSettings.getStudyId() == studyId &amp;&amp; currentSettings.getParticipantId() == participantId &amp;&amp; (current == null || current.studyId != studyId.toString() || current.participantId != participantId)</ID>
-    <ID>ComplexCondition:FakeDaos.kt$FakeUploadStatsDao$old.studyId != null || old.participantId != null || old.deviceId != null || old.enrollmentEpoch != null</ID>
     <ID>ComplexCondition:LayoutChecks.kt$LayoutChecks$underTop || underBottom || underLeft || underRight</ID>
     <ID>ComplexCondition:LayoutChecks.kt$LayoutChecks$view is TextView &amp;&amp; view !is EditText &amp;&amp; !actionBarTitle &amp;&amp; view.text.isNotEmpty()</ID>
     <ID>ComplexCondition:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$digest == null || recorded == null || recorded == "unknown" || recorded == digest</ID>
-    <ID>ComplexCondition:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$mixed &amp;&amp; "diagnostics_separated=true" in manifest &amp;&amp; (diagnosticNames.isEmpty() || diagnosticNames.any { !File(directory, it).isFile })</ID>
-    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$(result is com.openlattice.chronicle.collection.core.ModuleResult.Skipped || result is com.openlattice.chronicle.collection.core.ModuleResult.Retry || result is com.openlattice.chronicle.collection.core.ModuleResult.Failed) &amp;&amp; records &gt; 0</ID>
-    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$current == null || current.id != expected.id || current.createdAt != expected.createdAt || current.studyId != expected.studyId || current.participantId != expected.participantId || current.sourceDeviceId != expected.sourceDeviceId</ID>
-    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$row.studyId != scope.study || row.participantId != scope.participant || row.deviceId != scope.device || row.enrollmentEpoch != scope.epoch</ID>
-    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$server != null &amp;&amp; server.studyId == study &amp;&amp; server.participantId == participant &amp;&amp; server.sourceDeviceId.isNotBlank()</ID>
-    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$bucket == null || bucket.count &lt;= 0 || bucket.id.isBlank() || !assignOwner</ID>
-    <ID>ComplexCondition:ReminderLinkActivity.kt$ReminderLinkActivity$owner == null || current == null || !sameEnrollment(owner, current) || currentScope(appContext) != scope</ID>
-    <ID>ComplexCondition:ResearchPersistenceGate.kt$ResearchPersistenceGate$!(isActiveEnrollmentOrThrow(appContext, ignoreStorageLatch = true) &amp;&amp; (moduleId == null || moduleId in admittedOrigins.get().orEmpty() || CollectionLoopStore.of(appContext).collects(moduleId)))</ID>
-    <ID>ComplexCondition:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$existingServer != null &amp;&amp; (existingServer.url != url || existingServer.studyId != studyId || existingServer.participantId != participantId)</ID>
+    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$current == null || current.id != expected.id || current.createdAt != expected.createdAt || current.studyId != expected.studyId || current.participantId != expected.participantId || current.sourceRandomDeviceId != expected.sourceRandomDeviceId</ID>
+    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$row.studyId != scope.study || row.participantId != scope.participant || row.randomDeviceId != scope.device || row.enrollmentEpoch != scope.epoch</ID>
+    <ID>ComplexCondition:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$server != null &amp;&amp; server.studyId == study &amp;&amp; server.participantId == participant &amp;&amp; server.sourceRandomDeviceId.isNotBlank()</ID>
     <ID>ComplexCondition:SingleEnrollmentPolicy.kt$!enrolled.enabled &amp;&amp; !enrolled.enrollmentSetupComplete &amp;&amp; enrolled.enrollmentIssuedAtEpochMillis == null &amp;&amp; enrolled.apiKey == null</ID>
     <ID>ComplexCondition:SingleEnrollmentPolicy.kt$sameIdentity &amp;&amp; !enrolled.enabled &amp;&amp; !enrolled.enrollmentSetupComplete &amp;&amp; enrolled.enrollmentIssuedAtEpochMillis == null</ID>
     <ID>ComplexCondition:SsrfValidator.kt$SsrfValidator$address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress</ID>
     <ID>ComplexCondition:StartOnBoot.kt$StartOnBoot$context == null || intent == null || (intent.action != ACTION_BOOT_COMPLETED &amp;&amp; intent.action != ACTION_MY_PACKAGE_REPLACED)</ID>
     <ID>ComplexCondition:StorageAdmission.kt$StorageAdmission$decisionGeneration == generation &amp;&amp; !paused &amp;&amp; prefs.getString(SCOPE, null) == scope &amp;&amp; prefs.getBoolean(PAUSED, false) &amp;&amp; prefs.getBoolean(EPISODE_RECORDED, false)</ID>
-    <ID>ComplexCondition:StorageFailureBoundary.kt$isAdded &amp;&amp; current != null &amp;&amp; !current.isFinishing &amp;&amp; !current.isDestroyed</ID>
-    <ID>ComplexCondition:StudyModuleAuthorization.kt$manifest.studyId != studyId || manifest.participantId != participantId || manifest.participantPolicy.version != disclosureVersion || canonicalHttpsOrigin(manifest.serverOrigin) != canonicalHttpsOrigin(server.url)</ID>
     <ID>ComplexCondition:StudyModuleAuthorization.kt$scheme != "https" || host.isNullOrBlank() || uri.userInfo != null || uri.query != null || uri.fragment != null || (!uri.path.isNullOrEmpty() &amp;&amp; uri.path != "/") || (uri.port != -1 &amp;&amp; uri.port !in 1..65535)</ID>
     <ID>ComplexCondition:TargetUserRouterLockOrderTest.kt$TargetUserRouterLockOrderTest$Thread.currentThread().name == "fresh-router" &amp;&amp; method.name == "getString" &amp;&amp; args?.get(0) == STUDY_ID &amp;&amp; hooked.compareAndSet(false, true)</ID>
-    <ID>ComplexCondition:UploadExecutor.kt$UploadExecutor$appPackageName != null &amp;&amp; interactionType != null &amp;&amp; timestamp != null &amp;&amp; timezone != null &amp;&amp; user != null &amp;&amp; applicationLabel != null</ID>
-    <ID>ComplexCondition:UsagePollCheckpointStore.kt$DaoUsagePollCheckpointStore$scope != null &amp;&amp; acceptanceFloor == 0L &amp;&amp; scope.substringBeforeLast(':') == legacyOwnerScope &amp;&amp; scope.substringAfterLast( ':').toLongOrNull() in 0L..1L</ID>
-    <ID>CyclomaticComplexMethod:AndroidHealthMetricSource.kt$AndroidHealthMetricSource$private fun readAdmitted(): List&lt;HealthMetricReading&gt;</ID>
-    <ID>CyclomaticComplexMethod:ApiKeyAuthenticationFilter.kt$ApiKeyAuthenticationFilter$@Suppress("LongMethod", "ReturnCount") override fun doFilterInternal( request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain )</ID>
-    <ID>CyclomaticComplexMethod:AudioUploadWorker.kt$AudioUploadWorkerDelegate$private fun &lt;T, D&gt; uploadStream( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (RestrictedChronicleStudyApi, UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, ): Int</ID>
-    <ID>CyclomaticComplexMethod:BatteryUploadWorker.kt$BatteryUploadWorkerDelegate$fun execute(): Int</ID>
-    <ID>CyclomaticComplexMethod:CollectionCapability.kt$CollectionCapabilityResolver$public fun resolve( moduleId: CollectionModuleId, environment: CapabilityEnvironment, copy: CopyResolver = ENGLISH_CAPABILITY, ): CollectionCapability</ID>
-    <ID>CyclomaticComplexMethod:CollectionConsentCopy.kt$CollectionConsentCopy$private fun healthConnectRecordTypeLabel(type: HealthConnectRecordType): String</ID>
-    <ID>CyclomaticComplexMethod:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$private fun executeDisposition(moduleId: CollectionModuleId, disposition: CollectionDataDisposition)</ID>
-    <ID>CyclomaticComplexMethod:CollectionLoopCoordinator.kt$CollectionLoopCoordinator.Companion$@JvmStatic fun retryPendingCollectionAcks( pending: List&lt;PendingCollectionAckRecord&gt;, servers: List&lt;UploadServerEntity&gt;, provisionalEnrollmentServer: UploadServerEntity? = null, report: (server: UploadServerEntity, studyId: UUID, acknowledgment: CollectionAcknowledgment) -&gt; Unit, onFailure: (server: UploadServerEntity, error: Exception) -&gt; Unit = { _, _ -&gt; }, onDiscard: ( record: PendingCollectionAckRecord, reason: PendingCollectionAckDiscardReason, ) -&gt; Unit = { _, _ -&gt; }, ): CollectionAckRetryResult</ID>
-    <ID>CyclomaticComplexMethod:CollectionLoopCoordinator.kt$internal fun dedicatedQueueFor(moduleId: CollectionModuleId): DispositionQueue</ID>
-    <ID>CyclomaticComplexMethod:CollectionSettingsResolver.kt$CollectionSettingsResolver$private fun findViolation(moduleId: CollectionModuleId, setting: CollectionModuleSetting): String?</ID>
-    <ID>CyclomaticComplexMethod:CompactNumericSensorPayloadValidator.kt$CompactNumericSensorPayloadValidator$fun validate(envelope: CompactNumericSensorPayload)</ID>
     <ID>CyclomaticComplexMethod:ConcurrentEditFilter.kt$ConcurrentEditFilter$internal fun guarded(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain)</ID>
-    <ID>CyclomaticComplexMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimDueOperation(requiredOperationId: UUID? = null): ClaimedDeletion?</ID>
-    <ID>CyclomaticComplexMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun completeOperation(claim: ClaimedDeletion, participantId: String?)</ID>
-    <ID>CyclomaticComplexMethod:DataSharingFragment.kt$DataSharingFragment$private fun healthConnectRecordTypeLabel(type: HealthConnectRecordType): String</ID>
-    <ID>CyclomaticComplexMethod:DataSharingFragment.kt$internal fun notificationAccessDisclosure( activeModules: Collection&lt;CollectionModuleId&gt;, copy: CopyResolver = ENGLISH_NOTIFICATION_ACCESS, ): NotificationAccessDisclosure</ID>
-    <ID>CyclomaticComplexMethod:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$private fun enrollServer(context: Context, intent: Intent): DebugBroadcastResult</ID>
-    <ID>CyclomaticComplexMethod:DirectBootBufferCleanup.kt$fun clearDirectBootSensorBuffer(context: Context): Boolean</ID>
-    <ID>CyclomaticComplexMethod:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$fun drainWithSettingsVersion( expectedOwner: String = "test-owner", enrollmentCreatedAt: String? = null, persist: (List&lt;SensorSampleEntry&gt;, Int?) -&gt; DrainTransfer, ): DrainResult</ID>
-    <ID>CyclomaticComplexMethod:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$internal fun eraseSensorTypes(sensorTypes: Set&lt;String&gt;, expectedOwner: String?, beforeErase: (Set&lt;String&gt;) -&gt; Unit = {}): Int</ID>
-    <ID>CyclomaticComplexMethod:DirectBootStorageAdmission.kt$DirectBootStorageAdmission$internal fun evaluate( context: Context, buffer: DirectBootSampleBuffer, usableBytes: Long = directBootFilesDir(context).usableSpace, journal: DirectBootDiagnosticsJournal = DirectBootDiagnosticsJournal(context), ): Boolean</ID>
-    <ID>CyclomaticComplexMethod:Enrollment.kt$Enrollment$private fun doEnrollment( studyId: UUID, participantId: String, serverUrl: String, mobileSigningSecretOverride: String?, enrollmentAccessCode: String, fetched: AndroidDataCollectionSetting, preview: EnrollmentPreviewResponse, partition: com.openlattice.chronicle.collection.state.EnrollmentModulePartition, )</ID>
-    <ID>CyclomaticComplexMethod:Enrollment.kt$Enrollment$private fun reviewThenEnroll()</ID>
-    <ID>CyclomaticComplexMethod:EnrollmentRecoveryManager.kt$EnrollmentRecoveryManager$private fun recoverPendingEnrollment( context: Context, dao: UploadServerDao, row: UploadServerEntity, ): EnrollmentRecoveryResult</ID>
-    <ID>CyclomaticComplexMethod:EnrollmentSettings.kt$EnrollmentSettings$private fun isEnrolled(strictStorage: Boolean): Boolean</ID>
-    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun completeExportAndEnqueue( claim: ClaimedExport, request: ExportRequest, dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, ): ExportWriteResult?</ID>
-    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun persistExportFailure( claim: ClaimedExport, format: ExportFormat, failure: Exception, )</ID>
-    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$internal fun terminalizeOneExhaustedRecovery(): Boolean</ID>
-    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$private fun cleanupOneExpiredExport(): Boolean</ID>
-    <ID>CyclomaticComplexMethod:ExportService.kt$ExportService$public fun streamExportFile(studyId: UUID, exportId: UUID, requestingUserId: String, outputStream: OutputStream): ExportJobInfo</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testConcurrentPipelineMappingAndJobDeletionCannotCommitAnOrphan()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDataQualityEvaluationWaitsForPurgeBeforeReadingStatistics()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionAccountabilityIsAtomicDurableAndRetrySafe()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionLedgerAndParticipantAccess()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionMutationBarrierHonorsModeLifecycle()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDiagnosticUploadWaitsForDeletionBeforeReadingErasureCutoff()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDirectAppendOnlyAuditPreservesLongDescriptions()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDurableWebhookRetryUsesStableDeliveryIdentity()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueLeaseRecoveryAndActiveErasureRevocation()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testFinalDeletionSweepTerminalizesExportCreatedAfterInitialSweep()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testJobWorkerPersistsLeasedTerminalStatesAndFailsCanceledPipeline()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLastActiveAclOwnerConstraintSerializesCompetingDeletes()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLifecycleServiceSchedulesAndCancelsOneAtomicArchivedStudyErasure()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testParticipantErasureDeletesPendingPausedAndTerminalScopedJobs()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPipelineAndJobStateMachineRejectsImpossibleTransitions()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testScopedUploadBufferDrainWaitsForConcurrentClaim()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStartedStudyErasureCannotBeCancelledOrHeldAsIfReversible()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyErasureCancellationRestoresOnlyWorkflowRevocations()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationFailsClosedOnUnsafeLateTableIdentifier()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationReconcilesTablesCreatedDuringQuarantine()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyParticipantRowsAreHiddenFromApplicationRoleDuringStudyQuarantine()</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testV115TombstonesAndDeletesKeysRetainedByErasuresCompletedBeforeV114()</ID>
     <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun assertStudyDiagnosticErasure(resumeVerifiedDiagnostics: Boolean)</ID>
-    <ID>CyclomaticComplexMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun sweepParticipantAssetErasure(finding: String)</ID>
-    <ID>CyclomaticComplexMethod:FreshEnrollmentNavigationRegressionTest.kt$FreshEnrollmentNavigationRegressionTest$@Test fun row3_freshInstallEnrollsAndDoneReachesMainWithCollectionScheduled()</ID>
-    <ID>CyclomaticComplexMethod:HardwareSensorService.kt$HardwareSensorService$override fun onCreate()</ID>
     <ID>CyclomaticComplexMethod:InteractionCollectionService.kt$InteractionCollectionService$override fun onAccessibilityEvent(event: AccessibilityEvent?)</ID>
     <ID>CyclomaticComplexMethod:InteractionCollectionService.kt$InteractionCollectionService$private fun scrollKinematics( eventType: InteractionEventType, scrollDeltaX: Int?, scrollDeltaY: Int?, dwellMillisSincePrev: Long?, ): ScrollKinematics</ID>
     <ID>CyclomaticComplexMethod:LayoutChecks.kt$LayoutChecks$private fun checkView(view: View, root: View, bars: Rect, issues: MutableList&lt;String&gt;)</ID>
-    <ID>CyclomaticComplexMethod:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$private fun preserveDiagnosticsBeforeErasure(directory: File)</ID>
-    <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun showNextExemptionDialog()</ID>
-    <ID>CyclomaticComplexMethod:MobileApiSignatureFilter.kt$MobileApiSignatureFilter$@Suppress("LongMethod", "ReturnCount") override fun doFilterInternal( request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain )</ID>
-    <ID>CyclomaticComplexMethod:ParticipantCollectionAcknowledgmentService.kt$ParticipantCollectionAcknowledgmentService$public open fun &lt;T&gt; withCollectionUploadRecheck( studyId: UUID, participantId: String, deviceId: UUID, uploadModules: Set&lt;CollectionModuleId&gt;, settingsVersion: Int?, allowPartial: Boolean, latestCapturedAt: Instant? = null, allowQueuedCaptures: Boolean = false, write: (CollectionUploadAuthorization) -&gt; T, ): T</ID>
-    <ID>CyclomaticComplexMethod:ParticipantCollectionAcknowledgmentService.kt$internal fun collectionUploadAuthorization( latest: AndroidDataCollectionSetting, revisions: List&lt;AndroidDataCollectionSetting&gt;, currentDecisions: Map&lt;CollectionModuleId, IssuedCollectionDecision&gt;, capturedDecisions: Map&lt;CollectionModuleId, IssuedCollectionDecision&gt;, modules: Set&lt;CollectionModuleId&gt;, capturedVersion: Int?, ): CollectionUploadAuthorization?</ID>
     <ID>CyclomaticComplexMethod:ParticipantFormAccessFilter.kt$ParticipantFormAccessFilter$private fun target(request: HttpServletRequest): Target?</ID>
-    <ID>CyclomaticComplexMethod:ParticipantFormAccessService.kt$ParticipantFormAccessService$@Suppress("TooGenericExceptionCaught") public fun exchangeAccessCode(rawAccessCode: String): ExchangedParticipantFormSession?</ID>
     <ID>CyclomaticComplexMethod:PgTapSuiteTest.kt$PgTapSuiteTest$private fun checkFunctionsAndWriteCoverage(connection: Connection): List&lt;String&gt;</ID>
-    <ID>CyclomaticComplexMethod:RejectedUploadBatch.kt$internal fun replayRejectedUploadRows(db: ChronicleDb, server: UploadServerEntity, type: EncryptedPayloadType)</ID>
     <ID>CyclomaticComplexMethod:ResearchPersistenceGate.kt$ResearchPersistenceGate$internal fun stop(operation: PrivacyOperation?, completed: () -&gt; Boolean = { true }, resolved: (() -&gt; Boolean)? = null, stopAction: () -&gt; Unit)</ID>
-    <ID>CyclomaticComplexMethod:ResearcherNotificationScopeTest.kt$ResearcherNotificationScopeTest$@Test fun `participant identity in a researcher message is scoped deleted and fenced on withdrawal`()</ID>
-    <ID>CyclomaticComplexMethod:RestoreContinuityFixture.kt$RestoreContinuityFixture$fun cleanFixture()</ID>
-    <ID>CyclomaticComplexMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `absent completed purge restores proof and preserves a later hold`()</ID>
-    <ID>CyclomaticComplexMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `expired checkpoint key markers override V115 and are swept before checkpoint consumption`()</ID>
     <ID>CyclomaticComplexMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `purge replay preserves its original watermark and accepts captures before restore`()</ID>
     <ID>CyclomaticComplexMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `shared erasure predicate distinguishes every mode and lifecycle status`()</ID>
-    <ID>CyclomaticComplexMethod:RoomMigrationJvmCorpusTest.kt$RoomMigrationJvmCorpusTest$private fun seedEveryTable(db: SupportSQLiteDatabase, payload: ByteArray): Map&lt;String, ContentValues&gt;</ID>
-    <ID>CyclomaticComplexMethod:RuntimeOwnedTablesMigrationTest.kt$RuntimeOwnedTablesMigrationTest$@Test fun testV84AdoptsLegacyServiceTablesWithoutLosingDataAndAppliesRls()</ID>
     <ID>CyclomaticComplexMethod:SensorRuntimeController.kt$SensorRuntimeController$private fun flushUnderLease(): ModuleResult</ID>
     <ID>CyclomaticComplexMethod:SensorRuntimeController.kt$SensorRuntimeController$public fun recordSample( sensorType: AndroidSensorType, values: FloatArray, accuracy: Int?, timestamp: OffsetDateTime = OffsetDateTime.now(), origin: CollectionPersistenceGuard = observationAdmission(sensorType), )</ID>
-    <ID>CyclomaticComplexMethod:SensorSettingsRefreshWorker.kt$SensorSettingsRefreshWorker$private fun doLegacyRefresh(): Result</ID>
-    <ID>CyclomaticComplexMethod:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$private fun doSave()</ID>
     <ID>CyclomaticComplexMethod:SettingsHomeFragment.kt$SettingsHomeFragment$private fun bindControls(view: View)</ID>
     <ID>CyclomaticComplexMethod:SettingsHomeFragment.kt$SettingsHomeFragment$private fun renderRefresh(view: View, state: SettingsRefreshState)</ID>
-    <ID>CyclomaticComplexMethod:SingleEnrollmentPolicy.kt$fun resolveSingleEnrollment( existing: List&lt;UploadServerEntity&gt;, requestedUrl: String, requestedStudyId: String, requestedParticipantId: String, nowEpochMillis: Long = System.currentTimeMillis(), ): SingleEnrollmentResolution</ID>
     <ID>CyclomaticComplexMethod:StorageAdmission.kt$StorageAdmission$fun allowed(context: Context, usableBytes: Long): Boolean</ID>
-    <ID>CyclomaticComplexMethod:StudyController.kt$StudyController$@Timed @GetMapping( path = [STUDY_ID_PATH + SETTINGS_PATH + SETTING_TYPE_PATH], produces = [MediaType.APPLICATION_JSON_VALUE] ) override fun getStudySetting( @PathVariable(STUDY_ID) studyId: UUID, @PathVariable(SETTING_TYPE) settingsKey: StudySettingType, ): StudySetting</ID>
-    <ID>CyclomaticComplexMethod:StudyModuleAuthorization.kt$internal fun configuredStudyModuleEnabled( server: UploadServerEntity?, studyId: UUID, participantId: String, moduleId: CollectionModuleId, currentState: CollectionModuleState? = null, ): Boolean</ID>
-    <ID>CyclomaticComplexMethod:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$public fun getPage( studyId: UUID, participantId: String? = null, deviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, ): AndroidDiagnosticsPage</ID>
-    <ID>CyclomaticComplexMethod:UploadExecutor.kt$UploadExecutor$fun uploadForServer(server: UploadServerEntity)</ID>
-    <ID>CyclomaticComplexMethod:UploadsFragment.kt$internal fun renderLocalUploadIssues( buckets: List&lt;LocalUploadIssueBucket&gt;, copy: CopyResolver = ENGLISH_UPLOADS, ): String</ID>
-    <ID>CyclomaticComplexMethod:UsageEventsChronicleSensor.kt$internal fun usageInteractionType(eventType: Int): String</ID>
+    <ID>CyclomaticComplexMethod:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$public fun getPage( studyId: UUID, participantId: String? = null, randomDeviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, ): AndroidDiagnosticsPage</ID>
     <ID>CyclomaticComplexMethod:Utils.kt$Utils$@JvmStatic fun normalizeTrustedServerUrl(url: String): String?</ID>
     <ID>DestructuringDeclarationWithTooManyEntries:ScreenLayoutTest.kt$ScreenLayoutTest$val (l, t, r, b) = device.bars.map { (it * density).toInt() }</ID>
     <ID>EmptyElseBlock:AndroidSweepReworkRegressionTest.kt$AndroidSweepReworkRegressionTest$if (fail) error("transient authorization query")</ID>
@@ -136,149 +49,36 @@
     <ID>EmptyElseBlock:EnrollmentFailureAuditTest.kt$EnrollmentFailureAuditTest$if (condition()) return</ID>
     <ID>EmptyElseBlock:RuntimeOperationsAuditTest.kt$RuntimeOperationsAuditTest$if(check())return</ID>
     <ID>EmptyElseBlock:RuntimeOperationsAuditTest.kt$RuntimeOperationsAuditTest.&lt;no name provided&gt;$if(name==Context.ALARM_SERVICE)throw SecurityException("unique-alarm-sentinel")</ID>
-    <ID>EmptyElseBlock:SettingsVersionAckAuditTest.kt$SettingsVersionAckAuditTest$if(!online)throw java.io.IOException("offline synthetic")</ID>
     <ID>EmptyWhileBlock:ReminderLinkActivityTest.kt$ReminderLinkActivityTest${}</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$deviceActivityExport</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$monitorThreshold</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$reportSummary</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeCaptureSource$shortcutSnapshot</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$appleDeviceActivity</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$exactParticipantSubmitted</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$externalShortcut</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$reportViewOnly</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeConfidence$thresholdEstimate</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$application</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$categorySummary</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$thresholdEvent</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$ScreenTimeUsageRowKind$webDomain</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationChoice$participant</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationChoice$someoneElse</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$appBecameActive</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$manualInApp</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$notificationAction</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$screenTimeThreshold</ID>
-    <ID>EnumNaming:ScreenTimeUsageUploadService.kt$UserIdentificationTrigger$shortcut</ID>
+    <ID>EnumNaming:ScreenTimeUsageEnvelope.kt$ScreenTimeUsageRowKind$application</ID>
+    <ID>EnumNaming:ScreenTimeUsageEnvelope.kt$ScreenTimeUsageRowKind$webDomain</ID>
     <ID>ForbiddenComment:UploadPolicy.kt$UploadPolicy$// TODO: Add battery level check (skip upload below threshold)</ID>
     <ID>ForbiddenComment:UploadPolicy.kt$UploadPolicy$// TODO: Add wifi-only check (respect user preference for metered data)</ID>
-    <ID>FunctionOnlyReturningConstant:AndroidSweepReworkRegressionTest.kt$AndroidSweepReworkRegressionTest.TriggerManager$@Implementation fun cancelTriggerSensor(@Suppress("UNUSED_PARAMETER") listener: TriggerEventListener, @Suppress("UNUSED_PARAMETER") sensor: Sensor): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:AndroidSweepReworkRegressionTest.kt$AndroidSweepReworkRegressionTest.TriggerManager$@Implementation fun requestTriggerSensor(@Suppress("UNUSED_PARAMETER") listener: TriggerEventListener, @Suppress("UNUSED_PARAMETER") sensor: Sensor): Boolean</ID>
     <ID>FunctionOnlyReturningConstant:AppNetworkEnrollmentPersistenceTest.kt$AppNetworkEnrollmentPersistenceTest.EmptyStats$@Implementation fun hasNextBucket(): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:ChronicleServerExceptionHandlerTest.kt$ChronicleServerExceptionHandlerTest.PostOnlyController$@org.springframework.web.bind.annotation.PostMapping("/reminders") fun reminders(): String</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionCollectionContributions.kt$DistributionCollectionContributions$@Suppress("UNUSED_PARAMETER") fun purgeAdditionalSamples(db: ChronicleDb, cutoff: String): Int</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionCollectionContributions.kt$DistributionCollectionContributions$fun collectAdditionalSamples( context: Context, schedule: ExpansionPullSchedule?, nowMs: Long, ): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionCollectionContributions.kt$DistributionCollectionContributions$fun pendingUploadCounts(db: ChronicleDb): RestrictedPendingUploadCounts?</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionCollectionContributions.kt$DistributionCollectionContributions$fun purgeAdditionalSamples(db: ChronicleDb, cutoff: String): Int</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionCollectionContributions.kt$DistributionCollectionContributions$fun uploadAdditionalStreams( delegate: ExpansionUploadWorkerDelegate, servers: List&lt;UploadServerEntity&gt;, ): Int</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun activityRecognitionAvailable(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun hardwareSensorsRunning(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun healthConnectAvailable(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun healthConnectGranted(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun interactionAccessibilityEnabled(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun notificationListenerAccessGranted(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun reportSensorAvailability( context: Context, studyId: UUID, participantId: String, deviceId: String, apiKey: String?, requestedSensors: Set&lt;AndroidSensorType&gt;, serverUrl: String, mobileSigningSecretOverride: String?, ): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun restoreRejectedSample(db: ChronicleDb, sample: Any): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun startHardwareSensors(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun tryStartHardwareSensors(context: Context): Boolean</ID>
-    <ID>FunctionOnlyReturningConstant:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fun uploadSensors(context: Context, db: ChronicleDb): Int</ID>
-    <ID>FunctionOnlyReturningConstant:FreshEnrollmentNavigationRegressionTest.kt$FreshEnrollmentNavigationRegressionTest.ShadowDeviceIdentity$@Implementation fun getOrCreate(context: Context): String</ID>
     <ID>InstanceOfCheckForException:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$exception is DeletionLeaseLostException</ID>
     <ID>InstanceOfCheckForException:DatabaseKeyManager.kt$DatabaseKeyManager$e is LocalStoreRecoveryRequiredException</ID>
     <ID>InstanceOfCheckForException:SensorDataContractTest.kt$SensorDataContractTest$e !is T</ID>
-    <ID>InstanceOfCheckForException:SensorSettingsRefreshWorker.kt$SensorSettingsRefreshWorker$e is ChronicleCallException</ID>
-    <ID>IteratorHasNextCallsNextMethod:ExportFileWriter.kt$ExportFileWriter.Companion$ClosingIterator&lt;T&gt; : IteratorAutoCloseable</ID>
-    <ID>IteratorNotThrowingNoSuchElementException:ExportFileWriter.kt$ExportFileWriter.Companion$ClosingIterator&lt;T&gt; : IteratorAutoCloseable</ID>
-    <ID>IteratorNotThrowingNoSuchElementException:ExportFileWriter.kt$ExportFileWriter.Companion$TypedCsvCursor : IteratorAutoCloseable</ID>
-    <ID>LargeClass:AppDecisionSurfaceContractTest.kt$AppDecisionSurfaceContractTest</ID>
-    <ID>LargeClass:CollectionAckFanoutTest.kt$CollectionAckFanoutTest</ID>
     <ID>LargeClass:CollectionLoopCoordinator.kt$CollectionLoopCoordinator</ID>
     <ID>LargeClass:DataDeletionOrchestrator.kt$DataDeletionOrchestrator : AuditingComponent</ID>
     <ID>LargeClass:DataSharingFragment.kt$DataSharingFragment : Fragment</ID>
-    <ID>LargeClass:Enrollment.kt$Enrollment : AppCompatActivity</ID>
-    <ID>LargeClass:ExportFileWriter.kt$ExportFileWriter$Companion</ID>
-    <ID>LargeClass:ExportFileWriterTest.kt$ExportFileWriterTest</ID>
-    <ID>LargeClass:ExportService.kt$ExportService</ID>
-    <ID>LargeClass:ExportServiceTest.kt$ExportServiceTest</ID>
     <ID>LargeClass:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest</ID>
     <ID>LargeClass:HazelcastAuthorizationService.kt$HazelcastAuthorizationService : AuthorizationManager</ID>
     <ID>LargeClass:MobileApiSignatureFilterTest.kt$MobileApiSignatureFilterTest</ID>
-    <ID>LargeClass:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest</ID>
-    <ID>LargeClass:ResearchErasureRegressionTest.kt$ResearchErasureRegressionTest</ID>
+    <ID>LargeClass:RestoreContinuityReconciler.kt$RestoreContinuityReconciler</ID>
     <ID>LargeClass:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest</ID>
     <ID>LargeClass:SensorRuntimeControllerTest.kt$SensorRuntimeControllerTest</ID>
     <ID>LargeClass:StudyControllerTest.kt$StudyControllerTest</ID>
-    <ID>LongMethod:ActualDataDumpInstrumentedTest.kt$ActualDataDumpInstrumentedTest$@Test fun dumpCurrentLocalValues()</ID>
-    <ID>LongMethod:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$public fun upload( studyId: UUID, participantId: String, deviceId: UUID, data: List&lt;AndroidSensorSample&gt; ): Int</ID>
-    <ID>LongMethod:ApiKeyService.kt$ApiKeyService$public open fun installMobileApiKey( studyId: UUID, participantId: String, deviceId: UUID, enrollmentAttemptId: UUID, proposedApiKey: String, name: String = "device-${deviceId.toString().take(8)}", expiresInDays: Long = 365, ): ApiKeyCreateResponse</ID>
-    <ID>LongMethod:AppDecisionSurfaceContractTest.kt$AppDecisionSurfaceContractTest$@Test fun perServerNetworkPathsPropagateSigningOverride()</ID>
-    <ID>LongMethod:AppDecisionSurfaceContractTest.kt$AppDecisionSurfaceContractTest$@Test fun userIdentificationDecisionsUseResponsiveScrollableLayout()</ID>
     <ID>LongMethod:AppTestState.kt$AppTestState$fun enrollActiveStudy( enabledModules: Set&lt;CollectionModuleId&gt; = emptySet(), userIdentificationEnabled: Boolean = false, ): Long</ID>
-    <ID>LongMethod:AudioUploadWorker.kt$AudioUploadWorkerDelegate$private fun &lt;T, D&gt; uploadStream( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (RestrictedChronicleStudyApi, UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, ): Int</ID>
-    <ID>LongMethod:AuthTokenController.kt$AuthTokenController$@Suppress("ReturnCount", "TooGenericExceptionCaught") @RateLimit(type = RateLimitType.AUTH) @PostMapping( path = ["/testing-login"], consumes = [MediaType.APPLICATION_JSON_VALUE], produces = [MediaType.APPLICATION_JSON_VALUE] ) public fun testingLogin( @RequestBody(required = false) body: Map&lt;String, String&gt;?, request: HttpServletRequest, response: HttpServletResponse ): ResponseEntity&lt;Map&lt;String, Any&gt;&gt;</ID>
-    <ID>LongMethod:BatteryUploadWorker.kt$BatteryUploadWorkerDelegate$fun execute(): Int</ID>
-    <ID>LongMethod:CollectionCapability.kt$CollectionCapabilityResolver$public fun resolve( moduleId: CollectionModuleId, environment: CapabilityEnvironment, copy: CopyResolver = ENGLISH_CAPABILITY, ): CollectionCapability</ID>
-    <ID>LongMethod:CollectionConsentCopy.kt$CollectionConsentCopy$private fun restrictedTemplates(): Map&lt;CollectionModuleId, ModuleTemplate&gt;</ID>
-    <ID>LongMethod:CollectionHaltWriteAtomicityTest.kt$CollectionHaltWriteAtomicityTest$@Test fun historicalVersionCannotAuthorizePostRevisionCaptures()</ID>
-    <ID>LongMethod:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$private fun executeDisposition(moduleId: CollectionModuleId, disposition: CollectionDataDisposition)</ID>
-    <ID>LongMethod:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$private fun seedCurrentEnrollmentDecisions( studyId: UUID, fetched: AndroidDataCollectionSetting, accepted: Set&lt;CollectionModuleId&gt;, declined: Set&lt;CollectionModuleId&gt;, unavailable: Set&lt;CollectionModuleId&gt;, ): Boolean</ID>
-    <ID>LongMethod:CollectionLoopCoordinator.kt$CollectionLoopCoordinator.Companion$@JvmStatic fun retryPendingCollectionAcks( pending: List&lt;PendingCollectionAckRecord&gt;, servers: List&lt;UploadServerEntity&gt;, provisionalEnrollmentServer: UploadServerEntity? = null, report: (server: UploadServerEntity, studyId: UUID, acknowledgment: CollectionAcknowledgment) -&gt; Unit, onFailure: (server: UploadServerEntity, error: Exception) -&gt; Unit = { _, _ -&gt; }, onDiscard: ( record: PendingCollectionAckRecord, reason: PendingCollectionAckDiscardReason, ) -&gt; Unit = { _, _ -&gt; }, ): CollectionAckRetryResult</ID>
-    <ID>LongMethod:CombinedUploadWorker.kt$private fun runCombinedUploadOwned(context: Context, runAttemptCount: Int): ListenableWorker.Result</ID>
-    <ID>LongMethod:CompactNumericSensorPayloadValidator.kt$CompactNumericSensorPayloadValidator$fun validate(envelope: CompactNumericSensorPayload)</ID>
-    <ID>LongMethod:ConcurrentEditFilter.kt$ConcurrentEditFilter$internal fun guarded(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain)</ID>
     <ID>LongMethod:CreateReceiptFilterTest.kt$CreateReceiptFilterTest$@Test fun lostCreateResponsesReplayAcrossFilterInstancesWithoutIssuingAnotherCredential()</ID>
-    <ID>LongMethod:DashboardDataRepository.kt$DashboardDataRepository$suspend fun load(context: Context): DashboardSnapshot</ID>
-    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$internal open fun &lt;T&gt; quarantineParticipantAtomically( studyId: UUID, participantId: String, mode: DataDeletionMode, requestedBy: String, idempotencyKey: UUID, transaction: (Connection) -&gt; ParticipantQuarantineDecision&lt;T&gt;, ): ParticipantQuarantineTransactionResult&lt;T&gt;</ID>
-    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimDueOperation(requiredOperationId: UUID? = null): ClaimedDeletion?</ID>
     <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun completeOperation(claim: ClaimedDeletion, participantId: String?)</ID>
-    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun sweepRevokedExportArtifacts(connection: Connection, claim: ClaimedDeletion)</ID>
-    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun placeHold( operationId: UUID, studyId: UUID, reason: String, createdBy: String, reviewAt: OffsetDateTime, ): UUID</ID>
-    <ID>LongMethod:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun releaseHold( operationId: UUID, holdId: UUID, studyId: UUID, releasedBy: String, releaseReason: String, )</ID>
-    <ID>LongMethod:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$private fun enrollServer(context: Context, intent: Intent): DebugBroadcastResult</ID>
-    <ID>LongMethod:DeviceLifecycleCollectionModule.kt$DeviceLifecycleCollectionModule$private fun persistAdmitted(events: List&lt;ExtractedUsageEvent&gt;, abandoned: (Int) -&gt; Unit): ModuleResult</ID>
-    <ID>LongMethod:DirectBootBufferCleanup.kt$fun replayDirectBootJournalForErasure(context: Context, db: ChronicleDb)</ID>
-    <ID>LongMethod:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$fun drainWithSettingsVersion( expectedOwner: String = "test-owner", enrollmentCreatedAt: String? = null, persist: (List&lt;SensorSampleEntry&gt;, Int?) -&gt; DrainTransfer, ): DrainResult</ID>
-    <ID>LongMethod:DistributionCollectionContributions.kt$DistributionCollectionContributions$fun uploadAdditionalStreams( delegate: ExpansionUploadWorkerDelegate, servers: List&lt;UploadServerEntity&gt;, ): Int</ID>
-    <ID>LongMethod:Enrollment.kt$Enrollment$private fun doEnrollment( studyId: UUID, participantId: String, serverUrl: String, mobileSigningSecretOverride: String?, enrollmentAccessCode: String, fetched: AndroidDataCollectionSetting, preview: EnrollmentPreviewResponse, partition: com.openlattice.chronicle.collection.state.EnrollmentModulePartition, )</ID>
-    <ID>LongMethod:Enrollment.kt$Enrollment$private fun reviewThenEnroll()</ID>
-    <ID>LongMethod:EnrollmentRecoveryManager.kt$EnrollmentRecoveryManager$private fun recoverPendingEnrollment( context: Context, dao: UploadServerDao, row: UploadServerEntity, ): EnrollmentRecoveryResult</ID>
-    <ID>LongMethod:ExpansionUploadWorker.kt$ExpansionUploadWorkerDelegate$internal fun &lt;T, D&gt; uploadStream( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, ): Int</ID>
-    <ID>LongMethod:ExportFileWriterTest.kt$ExportFileWriterTest$@Test fun `retained diagnostic and quality alert exports keep schemas in every format including empty results`()</ID>
-    <ID>LongMethod:ExportFileWriterTest.kt$ExportFileWriterTest$@Test fun testMultiTypeCsvUsesStableTypedUnionSchemaAndClosesOneShotIterators()</ID>
-    <ID>LongMethod:ExportLegacyFormatMigrationTest.kt$ExportLegacyFormatMigrationTest$@Test fun testV77TerminalizesAndNormalizesInvalidLegacyFormatWithoutLosingCleanupPath()</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun completeExportAndEnqueue( claim: ClaimedExport, request: ExportRequest, dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, ): ExportWriteResult?</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun persistExportFailure( claim: ClaimedExport, format: ExportFormat, failure: Exception, )</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$internal fun loadDataForExport( studyId: UUID, participantIds: Set&lt;String&gt;, dataType: ParticipantDataType, startDate: OffsetDateTime, endDate: OffsetDateTime, ): Iterable&lt;Map&lt;String, Any&gt;&gt;</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$internal fun reserveExportCapacity(claim: ClaimedExport): Boolean</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$internal fun terminalizeOneExhaustedRecovery(): Boolean</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$private fun cleanupOneExpiredExport(): Boolean</ID>
-    <ID>LongMethod:ExportService.kt$ExportService$public fun streamExportFile(studyId: UUID, exportId: UUID, requestingUserId: String, outputStream: OutputStream): ExportJobInfo</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testActiveJobHoldsLeaseFenceUntilTerminalCommit()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testAndroidDiagnosticsHistoryPaginatesAndRespectsStudyRls()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testConcurrentPipelineMappingAndJobDeletionCannotCommitAnOrphan()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testCorpusAppliedCleanly()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDataQualityEvaluationWaitsForPurgeBeforeReadingStatistics()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDataQualityServiceRetainsYearOldAlerts()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionAccountabilityIsAtomicDurableAndRetrySafe()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionLedgerAndParticipantAccess()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionMutationBarrierHonorsModeLifecycle()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDiagnosticUploadWaitsForDeletionBeforeReadingErasureCutoff()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDirectAppendOnlyAuditPreservesLongDescriptions()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDurableWebhookRetryUsesStableDeliveryIdentity()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testErasedDiagnosticReplayWithAheadClockCannotResurrectAfterPurge()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportCapacityReservationsFenceIndependentWorkersAndLeaseOwnership()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueLeaseRecoveryAndActiveErasureRevocation()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueRejectsFormatCorruptionAndTerminalizesRequestMismatch()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testFinalDeletionSweepTerminalizesExportCreatedAfterInitialSweep()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testIosScreenTimeDeltaProjectionAcrossDstAndMidnight()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testJobWorkerPersistsLeasedTerminalStatesAndFailsCanceledPipeline()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLastActiveAclOwnerConstraintSerializesCompetingDeletes()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLifecycleServiceSchedulesAndCancelsOneAtomicArchivedStudyErasure()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testMissingCompletedExportIsPersistedAsFailed()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testParticipantErasureDeletesPendingPausedAndTerminalScopedJobs()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPipelineAndJobStateMachineRejectsImpossibleTransitions()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPoisonedRecoveryCleanupBacksOffWithoutStarvingPendingWork()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testReissuedOrphanObjects()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testScopedUploadBufferDrainWaitsForConcurrentClaim()</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStartedStudyErasureCannotBeCancelledOrHeldAsIfReversible()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyCancellationAndLifecycleMutationRollBackTogether()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyErasureCancellationRestoresOnlyWorkflowRevocations()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationFailsClosedOnUnsafeLateTableIdentifier()</ID>
@@ -287,244 +87,80 @@
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyQuarantineAndLifecycleMutationRollBackTogether()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testUploadBufferDrainExcludesDeletionBlockedRowsEvenWithoutRls()</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun assertStudyDiagnosticErasure(resumeVerifiedDiagnostics: Boolean)</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun assertStudyWithdrawalPolicy(mode: com.openlattice.chronicle.study.WithdrawalMode?)</ID>
     <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun sweepWebhookErasure(inFlight: Boolean)</ID>
-    <ID>LongMethod:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest.Companion$@BeforeClass @JvmStatic fun setUp()</ID>
-    <ID>LongMethod:FreshEnrollmentNavigationRegressionTest.kt$FreshEnrollmentNavigationRegressionTest$@Test fun row3_freshInstallEnrollsAndDoneReachesMainWithCollectionScheduled()</ID>
-    <ID>LongMethod:HardwareSensorService.kt$HardwareSensorService$override fun onCreate()</ID>
-    <ID>LongMethod:HealthOverlapAuditTest.kt$HealthOverlapAuditTest$@Test fun lateRecordRemainsInsideOverlapAfterProcessRestartAndConsentFloor()</ID>
     <ID>LongMethod:HzAuthzTest.kt$HzAuthzTest$@Test fun expiredAceIsExcludedFromEveryAuthorizationReadAndOwnerPath()</ID>
     <ID>LongMethod:InteractionCollectionService.kt$InteractionCollectionService$override fun onAccessibilityEvent(event: AccessibilityEvent?)</ID>
     <ID>LongMethod:InteractionGridReducerTest.kt$InteractionGridReducerTest$@Test fun entryMapsToWireEventPreservingFields()</ID>
-    <ID>LongMethod:InteractionUploadWorker.kt$InteractionUploadWorkerDelegate$fun execute(): Int</ID>
-    <ID>LongMethod:Migration17to18.kt$&lt;no name provided&gt;$override fun migrate(db: SupportSQLiteDatabase)</ID>
-    <ID>LongMethod:MinimalPlayArtifactContractTest.kt$MinimalPlayArtifactContractTest$@Test fun approvedRegistryMatchesTheActualWireAndLocalDiagnosticsContracts()</ID>
-    <ID>LongMethod:MinimalPlayArtifactContractTest.kt$MinimalPlayArtifactContractTest$@Test fun verifierCoversEveryDeliveredSplitAndRejectsPackageReplacement()</ID>
     <ID>LongMethod:MobileApiSecurityConfig.kt$MobileApiSecurityConfig$@Bean @Order(Ordered.HIGHEST_PRECEDENCE + 10) public fun mobileApiSignatureFilter(): Filter</ID>
-    <ID>LongMethod:MobileApiSigningInterceptorTest.kt$MobileApiSigningInterceptorTest$@Test fun signatureBindsMethodPathTimestampNonceAndBody()</ID>
-    <ID>LongMethod:MobileReminderController.kt$MobileReminderController$private fun buildForms( studyId: UUID, participantId: String, device: ApiKeyAuthenticationToken, mintAccessCodes: Boolean, ): List&lt;MobileReminderForm&gt;</ID>
-    <ID>LongMethod:NotificationService.kt$NotificationService$override fun sendResearcherNotifications( connection: Connection, studyId: UUID, researcherNotifications: List&lt;ResearcherNotification&gt;, html: Boolean, principal: Principal, ): Int</ID>
-    <ID>LongMethod:ParticipantFormAccessService.kt$ParticipantFormAccessService$@Suppress("TooGenericExceptionCaught") public fun exchangeAccessCode(rawAccessCode: String): ExchangedParticipantFormSession?</ID>
-    <ID>LongMethod:ParticipantFormSubmissionReceiptService.kt$ParticipantFormSubmissionReceiptService$@Suppress("TooGenericExceptionCaught") private fun execute( scope: ParticipantFormAccessScope, formKind: ParticipantFormKind, resourceKey: String, idempotencyKey: UUID, payload: Any, action: (Connection) -&gt; UUID?, ): IdempotentSubmissionResult&lt;UUID?&gt;</ID>
     <ID>LongMethod:ParticipantStatsOwnedTransactionTest.kt$ParticipantStatsOwnedTransactionTest$@Test fun `cold stats read and merge use the owner and delayed stale store preserves merged dates`()</ID>
     <ID>LongMethod:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `android-sensor-data fixtures commit directly and idempotently to final storage`()</ID>
-    <ID>LongMethod:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `ios-sensorkit-data fixtures ingest through SensorDataUploadService and the ios mover`()</ID>
-    <ID>LongMethod:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `screen-time-usage fixtures ingest through ScreenTimeUsageUploadService and the ios mover`()</ID>
     <ID>LongMethod:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$private fun assertDirectFamilyContract( familyName: String, expectedHandler: Class&lt;*&gt;, idColumn: String, ingest: (UUID, String, File) -&gt; Int, )</ID>
     <ID>LongMethod:PermanentOwnerBootstrapMigrationTest.kt$PermanentOwnerBootstrapMigrationTest$@Test fun testV67AcceptsAndProtectsSelfOwnedBootstrapRolesOnlyOnTheirOwnAcls()</ID>
     <ID>LongMethod:PgTapSuiteTest.kt$PgTapSuiteTest$private fun checkFunctionsAndWriteCoverage(connection: Connection): List&lt;String&gt;</ID>
-    <ID>LongMethod:PipelineJobRunner.kt$PipelineJobRunner$@Suppress("TooGenericExceptionCaught", "NestedBlockDepth") override fun runJob(connection: Connection, job: ChronicleJob): List&lt;AuditableEvent&gt;</ID>
-    <ID>LongMethod:PlaySettingsSummaryTest.kt$PlaySettingsSummaryTest$@Test fun notificationListenerAccessRequiresAnActiveAcceptedModuleAndNoWithdrawal()</ID>
-    <ID>LongMethod:RestoreContinuityFixture.kt$RestoreContinuityFixture$fun cleanFixture()</ID>
     <ID>LongMethod:RestoreContinuityFixture.kt$RestoreContinuityFixture$fun createContinuitySchema(connection: Connection)</ID>
     <ID>LongMethod:RestoreContinuityFixture.kt$RestoreContinuityFixture$fun seedContinuityCheckpoint()</ID>
     <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$internal fun reconcile(): RestoreContinuityResult?</ID>
-    <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun finalizeReconciliation( checkpoint: RestoreContinuityCheckpoint, alreadyProtectedDeletionCount: Long, completedDeletionCount: Long, )</ID>
-    <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun loadAlreadyProtectedCompletedOperationIds(connection: Connection): Set&lt;UUID&gt;</ID>
+    <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun applyRestoredAuthorities(checkpoint: RestoreContinuityCheckpoint)</ID>
     <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun restoreCompletedErasureOfAbsentSubject(operation: RestoredDeletionOperation)</ID>
-    <ID>LongMethod:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$private fun validateCheckpointRelations(connection: Connection, alreadyProtectedOperationIds: Set&lt;UUID&gt;)</ID>
-    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `a tombstone V115 synthesized at restore takes the checkpoint's kind and original expiry`()</ID>
-    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `absent completed purge restores proof and preserves a later hold`()</ID>
-    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `cancelled study erasure remains cancelled and restores form access`()</ID>
-    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `completed purge already in the backup does not conflict with a later held operation`()</ID>
-    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `expired checkpoint key markers override V115 and are swept before checkpoint consumption`()</ID>
+    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `expired checkpoint key markers override public markers and are swept before checkpoint consumption`()</ID>
+    <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `older restore cannot roll back collection authority or resurrect enrollment invitations`()</ID>
     <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `purge replay preserves its original watermark and accepts captures before restore`()</ID>
     <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `shared erasure predicate distinguishes every mode and lifecycle status`()</ID>
     <ID>LongMethod:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$private fun seedAlreadyProtectedPublicState()</ID>
-    <ID>LongMethod:RoomMigrationJvmCorpusTest.kt$RoomMigrationJvmCorpusTest$private fun seedEveryTable(db: SupportSQLiteDatabase, payload: ByteArray): Map&lt;String, ContentValues&gt;</ID>
-    <ID>LongMethod:RuntimeOwnedTablesMigrationTest.kt$RuntimeOwnedTablesMigrationTest$@Test fun testV84AdoptsLegacyServiceTablesWithoutLosingDataAndAppliesRls()</ID>
     <ID>LongMethod:RuntimePermissionBreakpointTest.kt$RuntimePermissionBreakpointTest$@Test fun platformPermissionStateMatchesCapabilityState()</ID>
-    <ID>LongMethod:SensitiveStorageInvariantTest.kt$SensitiveStorageInvariantTest$@Test fun roomEnforcesOneEnrollmentRow()</ID>
     <ID>LongMethod:SensorRuntimeController.kt$SensorRuntimeController$private fun flushUnderLease(): ModuleResult</ID>
-    <ID>LongMethod:SensorSettingsRefreshWorker.kt$SensorSettingsRefreshWorker$private fun doLegacyRefresh(): Result</ID>
-    <ID>LongMethod:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$fun execute(): Int</ID>
-    <ID>LongMethod:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$private fun uploadBatch( server: UploadServerEntity, batch: List&lt;SensorSampleEntry&gt;, samples: List&lt;AndroidSensorSample&gt;, serverDao: com.openlattice.chronicle.storage.UploadServerDao, statsSink: UploadStatsSink, currentFailureCounts: MutableMap&lt;Long, Int&gt;, diagnosticCursors: MutableMap&lt;Long, String?&gt;, onStatsFailure: () -&gt; Unit, onReceipt: (SensorUploadReceipt) -&gt; Unit, ): Boolean</ID>
-    <ID>LongMethod:ServerBatchMigrationRegressionTest.kt$ServerBatchMigrationRegressionTest$@Test fun legacyPausedAndCompletedCutoffsUseTransactionalEvidenceBeforeLaterAnnotations()</ID>
-    <ID>LongMethod:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$private fun doSave()</ID>
     <ID>LongMethod:SettingsHomeFragment.kt$SettingsHomeFragment$private fun bindControls(view: View)</ID>
     <ID>LongMethod:SettingsHomeFragment.kt$SettingsHomeFragment$private fun renderRefresh(view: View, state: SettingsRefreshState)</ID>
     <ID>LongMethod:StorageAdmission.kt$StorageAdmission$fun allowed(context: Context, usableBytes: Long): Boolean</ID>
-    <ID>LongMethod:StorageAdmissionTest.kt$StorageAdmissionTest$@Test fun pauseRecordingDoesNotHoldAdmissionMonitorWhileWaitingBehindStop()</ID>
-    <ID>LongMethod:StudyController.kt$StudyController$@RateLimit(type = RateLimitType.WRITE, keyStrategy = RateLimitKeyStrategy.PARTICIPANT_STUDY) @PostMapping( path = [STUDY_ID_PATH + PARTICIPANT_PATH + PARTICIPANT_ID_PATH + ANDROID_PATH + SOURCE_DEVICE_ID_PATH] ) @Deprecated("Use v4 uploadAndroidUsageEventDataV4 instead") override fun uploadAndroidUsageEventData( @PathVariable(STUDY_ID) studyId: UUID, @PathVariable(PARTICIPANT_ID) participantId: String, @PathVariable(SOURCE_DEVICE_ID) datasourceId: String, @Valid @RequestBody @Size(max = 10_000) data: ChronicleData, ): Int</ID>
-    <ID>LongMethod:StudyController.kt$StudyController$@Timed @GetMapping( path = [STUDY_ID_PATH + PARTICIPANTS_PATH + DATA_PATH], produces = [MediaType.APPLICATION_JSON_VALUE, CustomMediaType.TEXT_CSV_VALUE] ) @RateLimit(type = RateLimitType.SENSITIVE, keyStrategy = RateLimitKeyStrategy.STUDY) public fun getParticipantsData( @PathVariable(STUDY_ID) studyId: UUID, @RequestParam(value = DATA_TYPE) dataType: ParticipantDataType, @RequestParam(value = PARTICIPANT_ID) @Size(max = SynchronousExportLimits.MAX_PARTICIPANTS) participantIds: Set&lt;String&gt;, @RequestParam(value = START_DATE) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) startDateTime: OffsetDateTime?, @RequestParam(value = END_DATE) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) endDateTime: OffsetDateTime?, @RequestParam(value = RESPONSE_TYPE, defaultValue = "csv") fileType: FileType, @RequestParam(value = FILE_NAME) @Size(max = 64) fileName: String?, @RequestParam(value = "sensorTypes", required = false) sensorTypes: Set&lt;String&gt;?, response: HttpServletResponse, ): Iterable&lt;Map&lt;String, Any&gt;&gt;</ID>
     <ID>LongMethod:StudyControllerTest.kt$StudyControllerTest$@Test fun testPausedAndCompletedBatchUploadsReachPerRecordAdmission()</ID>
-    <ID>LongMethod:StudyControllerTest.kt$StudyControllerTest$private fun mobileUploadCalls( studyId: UUID, participantId: String, sourceDeviceId: String, capturedAt: OffsetDateTime? = OffsetDateTime.parse("2026-07-12T03:10:17Z"), includeAcknowledgment: Boolean = true, ): List&lt;Pair&lt;String, () -&gt; Unit&gt;&gt;</ID>
-    <ID>LongMethod:StudyDeletionScheduleLinkMigrationTest.kt$StudyDeletionScheduleLinkMigrationTest$@Test fun testV85AdoptsLedgerAndPreLedgerSchedulesWithoutLosingRestorationState()</ID>
+    <ID>LongMethod:StudyControllerTest.kt$StudyControllerTest$private fun mobileUploadCalls( studyId: UUID, participantId: String, sourceRandomDeviceId: String, capturedAt: OffsetDateTime? = OffsetDateTime.parse("2026-07-12T03:10:17Z"), includeAcknowledgment: Boolean = true, ): List&lt;Pair&lt;String, () -&gt; Unit&gt;&gt;</ID>
     <ID>LongMethod:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$@Test fun `queued study finalizer and another study drain follow one table lock order`()</ID>
     <ID>LongMethod:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$@Test fun `study finalization completes while another study holds a sensor writer lock`()</ID>
-    <ID>LongMethod:StudyLifecycleService.kt$StudyLifecycleService$private fun scheduleStudyDeletionAtomically( studyId: UUID, userId: String, deleteAfter: OffsetDateTime, idempotencyKey: UUID, ): UUID</ID>
     <ID>LongMethod:StudyLifecycleService.kt$StudyLifecycleService$public open fun cloneStudy(studyId: UUID, userId: String, request: StudyCloneRequest): UUID</ID>
     <ID>LongMethod:StudyService.kt$StudyService$override fun registerParticipant(connection: Connection, studyId: UUID, participant: Participant): UUID</ID>
     <ID>LongMethod:TimeUseDiaryController.kt$TimeUseDiaryController$@Timed @PostMapping( path = [STUDY_ID_PATH + PARTICIPANT_PATH + PARTICIPANT_ID_PATH], consumes = [MediaType.APPLICATION_JSON_VALUE], produces = [MediaType.APPLICATION_JSON_VALUE] ) // reason: boundary catch — must record an audit failure event for any error type and rethrow on the submission path @Suppress("TooGenericExceptionCaught") override fun submitTimeUseDiary( @PathVariable(STUDY_ID) studyId: UUID, @PathVariable(PARTICIPANT_ID) participantId: String, @Valid @RequestBody @Size(max = 10_000) responses: List&lt;TimeUseDiaryResponse&gt; ): UUID</ID>
     <ID>LongMethod:TwilioPoolTest.kt$TwilioPoolTest$@Test fun `enabled sms uses the job connection for its study phone lookup`()</ID>
-    <ID>LongMethod:TwoStepOperationFaultTest.kt$TwoStepOperationFaultTest$@Test fun `DEL-04 ledger failure rolls back status and retry succeeds`()</ID>
-    <ID>LongMethod:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$public fun getPage( studyId: UUID, participantId: String? = null, deviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, ): AndroidDiagnosticsPage</ID>
-    <ID>LongMethod:UploadExecutor.kt$UploadExecutor$fun uploadForServer(server: UploadServerEntity)</ID>
-    <ID>LongMethod:UploadServerDao.kt$UploadServerDao$@Transaction fun reserveSingleEnrollment( server: UploadServerEntity, ownerNonce: String = java.util.UUID.randomUUID().toString(), nowEpochMillis: Long = System.currentTimeMillis(), leaseMillis: Long = ENROLLMENT_RESERVATION_LEASE_MILLIS, ): SingleEnrollmentReservation</ID>
-    <ID>LongMethod:UploadsFragment.kt$UploadsFragment$private fun bind(view: View, snapshot: DashboardSnapshot)</ID>
-    <ID>LongMethod:UsageModuleCollectionDelegate.kt$UsageModuleCollectionDelegate$override fun monitorUsage(): Boolean</ID>
-    <ID>LongMethod:UsageMonitoringWorker.kt$UsageCollectionDelegate$override fun monitorUsage(): Boolean</ID>
+    <ID>LongMethod:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$public fun getPage( studyId: UUID, participantId: String? = null, randomDeviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, ): AndroidDiagnosticsPage</ID>
     <ID>LongMethod:WebhookService.kt$WebhookService$@Suppress("TooGenericExceptionCaught") private fun deliverWebhook(claim: ClaimedDelivery): DeliveryOutcome</ID>
     <ID>LongMethod:WebhookService.kt$WebhookService$private fun deliverWebhook(connection: Connection, claim: ClaimedDelivery, httpUrl: HttpUrl, client: OkHttpClient): DeliveryOutcome</ID>
-    <ID>LongParameterList:ActiveEnrollmentServerPolicyTest.kt$ActiveEnrollmentServerPolicyTest$( url: String = "https://$TEST_SERVER_HOST", studyId: String = this.studyId.toString(), participantId: String = this.participantId, sourceDeviceId: String = "device-a", authMode: String = AUTH_MODE_API_KEY, apiKey: String? = "test-api-key", enabled: Boolean = true, enrollmentSetupComplete: Boolean = true, )</ID>
-    <ID>LongParameterList:AudioUploadWorker.kt$AudioUploadWorkerDelegate$( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (RestrictedChronicleStudyApi, UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, )</ID>
-    <ID>LongParameterList:ChronicleStudyApi.kt$ChronicleStudyApi$( @Path(STUDY_ID) studyId: UUID, @Path(PARTICIPANT_ID) participantId: String, @Header(DEVICE_ID_HEADER) deviceInstanceId: String, @Body datasource: SourceDevice, @Header("X-Chronicle-Enrollment-Code") enrollmentCode: String? = null, @Header("X-Chronicle-Manifest-Digest") manifestDigest: String? = null, @Header("X-Chronicle-Enrollment-Attempt-Id") enrollmentAttemptId: String? = null, @Header("X-Chronicle-Proposed-Api-Key") proposedApiKey: String? = null, )</ID>
-    <ID>LongParameterList:ChronicleUploadSink.kt$ChronicleUploadSink$( private val studyId: UUID, private val participantId: String, private val deviceId: String, private val apiKey: String?, private val studyApi: ChronicleStudyApi, /** * The study's cached payload-encryption setting (HIPAA-2028 W2), or null when none is * cached. When [PayloadSealer.isEncryptionEnabled] is true the batch is sealed and posted to * the encrypted endpoint; otherwise the existing plaintext upload is used, unchanged. */ private val encryptionSetting: StudyEncryptionSetting? = null, /** * Whether this study is known to require e2ee ([EncryptionSettingStore.isEncryptionRequired]). * When true but [encryptionSetting] carries no usable key, the sink fails closed (throws) rather * than uploading PHI in plaintext, so the batch is retained and retried. */ private val encryptionRequired: Boolean = false, private val onShortWrite: (Int) -&gt; Unit, private val batchIdentity: () -&gt; String = { "" }, private val batchVersion: () -&gt; Int? = { null }, )</ID>
+    <ID>LongParameterList:ChronicleStudyApi.kt$ChronicleStudyApi$( @Path(STUDY_ID) studyId: UUID, @Path(PARTICIPANT_ID) participantId: String, @Header(RANDOM_DEVICE_ID_HEADER) randomDeviceId: String, @Body datasource: SourceDevice, @Header(ChronicleHeaders.ENROLLMENT_CODE_HEADER) enrollmentCode: String? = null, @Header(ChronicleHeaders.MANIFEST_DIGEST_HEADER) manifestDigest: String? = null, @Header(ChronicleHeaders.ENROLLMENT_ATTEMPT_ID_HEADER) enrollmentAttemptId: String? = null, @Header(ChronicleHeaders.PROPOSED_API_KEY_HEADER) proposedApiKey: String? = null, )</ID>
     <ID>LongParameterList:CollectionAckRetryStore.kt$PendingCollectionAckRecord.Companion$( server: UploadServerEntity, accepted: Set&lt;CollectionModuleId&gt;, declined: Set&lt;CollectionModuleId&gt;, unavailable: Set&lt;CollectionModuleId&gt; = emptySet(), trigger: ConsentTrigger, acknowledgedAt: OffsetDateTime, settingsVersion: Int? = null, appVersion: String? = currentAppVersion(), )</ID>
-    <ID>LongParameterList:CollectionLoopCoordinator.kt$CollectionLoopCoordinator.Companion$( servers: List&lt;UploadServerEntity&gt;, accepted: Set&lt;CollectionModuleId&gt;, declined: Set&lt;CollectionModuleId&gt;, unavailable: Set&lt;CollectionModuleId&gt; = emptySet(), trigger: ConsentTrigger, acknowledgedAt: OffsetDateTime, settingsVersion: Int? = null, appVersion: String? = currentAppVersion(), report: (server: UploadServerEntity, studyId: UUID, acknowledgment: CollectionAcknowledgment) -&gt; Unit, onFailure: (server: UploadServerEntity, error: Exception) -&gt; Unit = { _, _ -&gt; }, )</ID>
-    <ID>LongParameterList:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$( connection: Connection, operationId: UUID, studyId: UUID, eventType: AuditEventType, actor: String, description: String, data: Map&lt;String, Any&gt;, holdId: UUID? = null, )</ID>
-    <ID>LongParameterList:DeviceLifecycleCollectionModule.kt$DeviceLifecycleCollectionModule$( private val sink: LifecycleEventSink, private val dedupeStore: LifecycleDedupeStore, /** * Enrollment check seam. Production supplies a lambda over * `EnrollmentSettings(context).getParticipationStatus() == ENROLLED`; tests pass a * fixed boolean. A non-enrolled participant skips the write (no row persisted). */ private val enrolled: () -&gt; Boolean, /** * Queue-size update seam, invoked with the new `dataQueue` depth after a successful * write. Production supplies `Utils.updateUploadQueueSize(context, depth)`; tests * capture the value. Mirrors the legacy `recordNow` post-write side effect. */ private val updateQueueSize: (Int) -&gt; Unit, /** * Queue-entry serialization seam. Production supplies * `JsonSerializer::serializeQueueEntry`; tests pass a stub. This keeps the module * free of the `:app`-module `JsonSerializer` (which pulls in Olingo and the app wire boundary) * so `:collection-lifecycle` carries no `:app` dependency. The serialized bytes are * byte-identical to the legacy `JsonSerializer.serializeQueueEntry` output. */ private val serializeQueueEntry: (ChronicleData) -&gt; ByteArray, /** * Queue write-cursor seam. `QueueEntry.writeTimestamp` is the upload cursor, not a timestamp: * a row written behind the cursor is never uploaded and is pruned as delivered. Production * supplies `ChronicleDb.nextQueueWriteTimestamp`, which advances past anything already queued * or uploaded so a backward device-clock step cannot lose the row. The default is identity * (wall clock unchanged) for tests that do not exercise ordering. */ private val nextWriteTimestamp: (wallClockMillis: Long) -&gt; Long = { it }, private val clock: CollectionClock = CollectionClock.SYSTEM, private val log: CollectionLog = CollectionLog.LOGCAT, private val gateRefused: (Int) -&gt; Unit = {}, private val originOwner: () -&gt; UploadServerEntity? = { null }, private val accountLossForOwner: (UploadServerEntity?, String, Int) -&gt; Unit = { _, _, _ -&gt; }, )</ID>
-    <ID>LongParameterList:DeviceLifecycleCollectionModuleTest.kt$DeviceLifecycleCollectionModuleTest$( dao: FakeStorageQueue = FakeStorageQueue(), dedupe: LifecycleDedupeStore = AlwaysAcceptLifecycleDedupeStore(), enrolled: () -&gt; Boolean = { true }, onQueueSize: (Int) -&gt; Unit = {}, clock: FixedCollectionClock = FixedCollectionClock(50_000L), log: com.openlattice.chronicle.collection.core.CollectionLog = NoOpCollectionLog, guard: CollectionPersistenceGuard = CollectionPersistenceGuard.ALLOW, onLoss: (UploadServerEntity?, String, Int) -&gt; Unit = { _, _, _ -&gt; }, )</ID>
-    <ID>LongParameterList:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$( context: Context, studyId: UUID, participantId: String, deviceId: String, apiKey: String?, requestedSensors: Set&lt;AndroidSensorType&gt;, serverUrl: String, mobileSigningSecretOverride: String?, )</ID>
-    <ID>LongParameterList:Enrollment.kt$Enrollment$( studyId: UUID, participantId: String, serverUrl: String, mobileSigningSecretOverride: String?, enrollmentAccessCode: String, fetched: AndroidDataCollectionSetting, preview: EnrollmentPreviewResponse, partition: com.openlattice.chronicle.collection.state.EnrollmentModulePartition, )</ID>
-    <ID>LongParameterList:EnrollmentReplayProtocol.kt$PendingEnrollmentReplayRequest$( val serverId: Long, val ownerNonce: String, val serverUrl: String, val mobileSigningSecretOverride: String?, val studyId: String, val participantId: String, val sourceDeviceId: String, val sourceDeviceJson: String, val manifestDigest: String, val attemptId: String, val accessCode: String, val proposedApiKey: String, val inviteExpiresAtEpochMillis: Long, val firstRequestAtEpochMillis: Long?, val replayDeadlineEpochMillis: Long?, )</ID>
-    <ID>LongParameterList:ExpansionUploadWorker.kt$ExpansionUploadWorkerDelegate$( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, )</ID>
     <ID>LongParameterList:MalformedSampleQuarantine.kt$( db: ChronicleDb, server: UploadServerEntity, sourceTable: String, sourceId: String, rawData: ByteArray, family: LocalUploadModuleFamily, count: Int = 1, reason: String = LocalOperationalIssue.SAMPLE_QUARANTINED.name, httpStatus: Int? = null, settingsVersion: Int? = null, removeFromActiveQueue: () -&gt; Unit = {}, )</ID>
-    <ID>LongParameterList:ParticipantCollectionAcknowledgmentService.kt$ParticipantCollectionAcknowledgmentService$( studyId: UUID, participantId: String, deviceId: UUID, uploadModules: Set&lt;CollectionModuleId&gt;, settingsVersion: Int?, allowPartial: Boolean, latestCapturedAt: Instant? = null, allowQueuedCaptures: Boolean = false, write: (CollectionUploadAuthorization) -&gt; T, )</ID>
     <ID>LongParameterList:ParticipantFormAccessService.kt$ParticipantFormAccessService$( studyId: UUID, participantId: String, formKind: ParticipantFormKind, resourceId: UUID?, logicalDate: LocalDate?, requestedExpiresAt: OffsetDateTime?, issuerType: ParticipantAccessCodeIssuerType, issuedBy: String, )</ID>
-    <ID>LongParameterList:RejectedUploadBatch.kt$(db: ChronicleDb, server: UploadServerEntity, type: EncryptedPayloadType, status: Int, sourceTable: String, rows: List&lt;T&gt;, idOf: (T) -&gt; String, remove: (List&lt;String&gt;) -&gt; Unit, rawOf: (T) -&gt; ByteArray = { serializeMalformedRow(it as Any) })</ID>
-    <ID>LongParameterList:SensorAvailabilityReporter.kt$SensorAvailabilityReporter$( context: Context, studyId: UUID, participantId: String, deviceId: String, apiKey: String?, requestedSensors: Set&lt;AndroidSensorType&gt;, serverUrl: String, mobileSigningSecretOverride: String? = null )</ID>
-    <ID>LongParameterList:SensorRuntimeController.kt$SensorRuntimeController$( private val gateway: SensorGateway, private val settings: SensorRuntimeSettings, private val sink: SensorSampleWriter, private val scheduler: SensorRuntimeScheduler, private val collectionGate: (AndroidSensorType) -&gt; Boolean = { true }, private val collectionAdmission: () -&gt; Boolean = { true }, private val prepareCollection: () -&gt; Boolean = collectionAdmission, private val sampleLease: (() -&gt; Unit) -&gt; Unit = { it() }, private val retainOnStop: Boolean = false, private val observationAdmission: (AndroidSensorType) -&gt; CollectionPersistenceGuard = { CollectionPersistenceGuard.ALLOW }, private val log: CollectionLog = CollectionLog.LOGCAT, /** Redacted count of already-collected samples affected by a local loss path. */ private val reportLoss: (String, Int) -&gt; Unit = { _, _ -&gt; }, /** Direct-boot capacity refusal has already been counted in its encrypted journal. */ private val zeroWrittenIsCountedLoss: Boolean = false, )</ID>
-    <ID>LongParameterList:SensorUploadWorkerDelegate.kt$( enabledDestinations: List&lt;Destination&gt;, loadOldest: (Int) -&gt; List&lt;SensorSampleEntry&gt;, isAcknowledged: (Destination, List&lt;String&gt;) -&gt; Boolean, mapEntry: (SensorSampleEntry) -&gt; Payload, deliver: (Destination, List&lt;SensorSampleEntry&gt;, List&lt;Payload&gt;) -&gt; Boolean, acknowledgeAndDelete: (List&lt;Destination&gt;, List&lt;String&gt;) -&gt; Int, quarantineMalformed: (List&lt;Pair&lt;SensorSampleEntry, Exception&gt;&gt;) -&gt; Unit, batchSize: Int = SENSOR_UPLOAD_BATCH_SIZE, )</ID>
-    <ID>LongParameterList:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$( server: UploadServerEntity, batch: List&lt;SensorSampleEntry&gt;, samples: List&lt;AndroidSensorSample&gt;, serverDao: com.openlattice.chronicle.storage.UploadServerDao, statsSink: UploadStatsSink, currentFailureCounts: MutableMap&lt;Long, Int&gt;, diagnosticCursors: MutableMap&lt;Long, String?&gt;, onStatsFailure: () -&gt; Unit, onReceipt: (SensorUploadReceipt) -&gt; Unit, )</ID>
-    <ID>LongParameterList:SleepActivityReceiver.kt$SleepActivityReceiver$( appContext: Context, db: ChronicleDb, intent: Intent, nowMillis: Long, elapsedNowNanos: Long, owner: com.openlattice.chronicle.storage.UploadServerEntity?, origin: com.openlattice.chronicle.collection.state.CollectionPersistenceGuard, floor: Long, )</ID>
-    <ID>LongParameterList:StudyApi.kt$StudyApi$( @Path(STUDY_ID) studyId: UUID, @Query("participantId") participantId: String? = null, @Query("deviceId") deviceId: UUID? = null, @Query("from") fromDay: LocalDate? = null, @Query("to") toDay: LocalDate? = null, @Query("moduleFamily") moduleFamily: String? = null, @Query("issueCode") issueCode: String? = null, @Query("cursor") cursor: String? = null, @Query("limit") limit: Int = 50, )</ID>
+    <ID>LongParameterList:SensorRuntimeController.kt$SensorRuntimeController$( private val gateway: SensorGateway, private val settings: SensorRuntimeSettings, private val sink: SensorSampleWriter, private val scheduler: SensorRuntimeScheduler, private val collectionGate: (AndroidSensorType) -&gt; Boolean = { true }, private val collectionAdmission: () -&gt; Boolean = { true }, private val prepareCollection: () -&gt; Boolean = collectionAdmission, private val sampleLease: (() -&gt; Unit) -&gt; Unit = { it() }, private val retainOnStop: Boolean = false, private val observationAdmission: (AndroidSensorType) -&gt; CollectionPersistenceGuard = { CollectionPersistenceGuard.ALLOW }, /** Redacted count of already-collected samples affected by a local loss path. */ private val reportLoss: (String, Int) -&gt; Unit = { _, _ -&gt; }, /** Direct-boot capacity refusal has already been counted in its encrypted journal. */ private val zeroWrittenIsCountedLoss: Boolean = false, )</ID>
+    <ID>LongParameterList:StudyApi.kt$StudyApi$( @Path(STUDY_ID) studyId: UUID, @Query("participantId") participantId: String? = null, @Query("randomDeviceId") randomDeviceId: UUID? = null, @Query("from") fromDay: LocalDate? = null, @Query("to") toDay: LocalDate? = null, @Query("moduleFamily") moduleFamily: String? = null, @Query("issueCode") issueCode: String? = null, @Query("cursor") cursor: String? = null, @Query("limit") limit: Int = 50, )</ID>
     <ID>LongParameterList:StudyService.kt$StudyService$( private val storageResolver: StorageResolver, private val authorizationService: AuthorizationManager, private val candidateService: CandidateManager, private val enrollmentService: EnrollmentManager, private val surveysManager: SurveysManager, private val idGenerationService: HazelcastIdGenerationService, private val studyLimitsMgr: StudyLimitsManager, override val auditingManager: AuditingManager, hazelcast: HazelcastInstance, private val participantStatsCache: ParticipantStatsCache, private val webhookService: WebhookService, )</ID>
-    <ID>LongParameterList:StudySettingsAuditService.kt$StudySettingsAuditService$( studyId: UUID, changedBy: String, sourceIp: String?, settingKey: StudySettingType, beforeValue: Any?, afterValue: Any, changeSummary: String, connection: java.sql.Connection? = null, )</ID>
-    <ID>LongParameterList:UploadDiagnosticDao.kt$LocalDataQuarantineDao$(sources: List&lt;String&gt;, studyId: String, participantId: String, deviceId: String, epochPrefix: String, reasonPrefix: String, currentReasons: List&lt;String&gt;, retryBefore: String, limit: Int)</ID>
-    <ID>LongParameterList:UploadDiagnosticDao.kt$UploadDiagnosticDao$(studyId: String, participantId: String, deviceId: String, epoch: String, day: String, family: String, issue: String, status: Int?, errorType: String?)</ID>
-    <ID>LongParameterList:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$( studyId: UUID, participantId: String? = null, deviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, )</ID>
-    <ID>LongParameterList:UploadServerDao.kt$UploadServerDao$( id: Long, name: String, sourceDeviceId: String, authMode: String, apiKey: String?, mobileSigningSecretOverride: String?, studyDisclosureJson: String?, disclosureVersion: String?, manifestDigest: String?, ownerNonce: String, issuedAtEpochMillis: Long, )</ID>
-    <ID>LongParameterList:UploadServerDao.kt$UploadServerDao$( id: Long, ownerNonce: String, name: String, sourceDeviceId: String, authMode: String, apiKey: String, mobileSigningSecretOverride: String?, studyDisclosureJson: String, disclosureVersion: String, manifestDigest: String, pendingAcceptedModuleIds: String, pendingDeclinedModuleIds: String, pendingUnavailableModuleIds: String, enrollmentAttemptId: String, issuedAtEpochMillis: Long, )</ID>
-    <ID>LongParameterList:UploadServerDao.kt$UploadServerDao$( id: Long, ownerNonce: String, name: String, sourceDeviceId: String, mobileSigningSecretOverride: String?, studyDisclosureJson: String?, disclosureVersion: String?, manifestDigest: String?, pendingAcceptedModuleIds: String?, pendingDeclinedModuleIds: String?, pendingUnavailableModuleIds: String?, pendingEnrollmentAttemptId: String, pendingEnrollmentAccessCode: String, pendingEnrollmentInviteExpiresAtEpochMillis: Long, pendingProposedApiKey: String, pendingEnrollmentSourceDeviceJson: String, )</ID>
-    <ID>LongParameterList:UploadServerDao.kt$UploadServerDao$( reservation: SingleEnrollmentReservation, requestedUrl: String, requestedStudyId: String, requestedParticipantId: String, name: String, sourceDeviceId: String, authMode: String, apiKey: String?, mobileSigningSecretOverride: String?, studyDisclosureJson: String? = null, disclosureVersion: String? = null, manifestDigest: String? = null, )</ID>
+    <ID>LongParameterList:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$( studyId: UUID, participantId: String? = null, randomDeviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, )</ID>
     <ID>LoopWithTooManyJumpStatements:CollectionModuleCoverageMatrixTest.kt$CollectionModuleCoverageMatrixTest$for</ID>
-    <ID>LoopWithTooManyJumpStatements:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$while</ID>
     <ID>LoopWithTooManyJumpStatements:MobileApiSignatureFilter.kt$MobileApiSignatureFilter$while</ID>
-    <ID>LoopWithTooManyJumpStatements:ParticipantCollectionAcknowledgmentService.kt$while</ID>
     <ID>LoopWithTooManyJumpStatements:ParticipantWithdrawalManager.kt$ParticipantWithdrawalWorker$for</ID>
-    <ID>LoopWithTooManyJumpStatements:RejectedUploadBatch.kt$for</ID>
-    <ID>LoopWithTooManyJumpStatements:SensorUploadWorkerDelegate.kt$while</ID>
-    <ID>LoopWithTooManyJumpStatements:UploadExecutor.kt$UploadExecutor$while</ID>
-    <ID>MaxLineLength:ChronicleDataAssetRegistry.kt$ChronicleDataAssetRegistry$"CASE WHEN ${PostgresEventColumns.SENSOR_TYPE.name} = '${SensorType.deviceUsage.name}' THEN ${PostgresEventColumns.END_DATE_TIME.name} END)"</ID>
-    <ID>MaxLineLength:ChronicleServerSecurityPod.kt$ChronicleServerSecurityPod$http.addFilterAfter(JwtBlocklistFilter(jwtBlocklist!!, java.time.Duration.ofMinutes(chronicleAuthConfiguration.sessionIdleMinutes)), BearerTokenAuthenticationFilter::class.java)</ID>
-    <ID>MaxLineLength:CreateReceiptFilterTest.kt$CreateReceiptFilterTest$assertEquals("""{"status":400,"message":"Idempotency-Key must contain 1–128 letters, digits, underscores or hyphens"}""", response.contentAsString)</ID>
-    <ID>MaxLineLength:CreateReceiptFilterTest.kt$CreateReceiptFilterTest$assertEquals("""{"status":409,"message":"This create already completed; its original result cannot be replayed"}""", unavailableReplay.contentAsString)</ID>
-    <ID>MaxLineLength:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$"Saved sync config strategy=${config.strategy.configValue} interval=${config.intervalMinutes}m batteryNotLow=${config.requiresBatteryNotLow}"</ID>
-    <ID>MaxLineLength:DeletionSubtypeTest.kt$DeletionSubtypeTest$val definition = mapper.readValue("""{"@type":"$name","studyId":"$study","participantIds":["p1"]}""", ChronicleJobDefinition::class.java)</ID>
-    <ID>MaxLineLength:DirectBootBufferCleanup.kt$// nosemgrep: chronicle-uuid-from-string -- Malformed journal ID needs a stable fallback so replay does not duplicate its diagnostic.</ID>
-    <ID>MaxLineLength:DirectBootBufferCleanup.kt$// nosemgrep: chronicle-uuid-from-string -- Stable encrypted-file incident key prevents counting the same corrupt payload twice during cleanup.</ID>
-    <ID>MaxLineLength:DirectBootDiagnosticsJournalTest.kt$DirectBootDiagnosticsJournalTest$val bytes = cipher.encrypt("""{"a":{"a":"study","b":"participant","c":"device","d":"epoch"},"b":[{"a":"incident","b":"DIRECT_BOOT_CORRUPT_RECORD","c":1,"d":"2026-09-29T00:00:00Z","e":null}]}""".toByteArray())</ID>
-    <ID>MaxLineLength:DirectBootSampleBufferTest.kt$DirectBootSampleBufferTest$"""{"a":"test-owner","b":[{"a":"old","b":"accelerometer","c":"2026-07-15T18:18:09.282Z","d":"UTC","e":0.1,"f":-9.8,"g":0.02,"h":null,"i":3,"j":null}]}"""</ID>
     <ID>MaxLineLength:EnrollmentDecisionTest.kt$EnrollmentDecisionTest$assertEquals("", activity.findViewById&lt;com.google.android.material.textfield.TextInputEditText&gt;(R.id.participantIdText).text.toString())</ID>
-    <ID>MaxLineLength:EnrollmentFailureAuditTest.kt$EnrollmentFailureAuditTest$"chronicle://enroll?studyId=${preview.manifest.studyId}&amp;participantId=${preview.manifest.participantId}&amp;serverUrl=https%3A%2F%2Flocalhost#accessCode=$code"</ID>
     <ID>MaxLineLength:EnrollmentResponseDeserializerTest.kt$EnrollmentResponseDeserializerTest$val json = """{"chronicleId":"550e8400-e29b-41d4-a716-446655440000","enrollmentId":"4d254a0f-7840-49c6-995d-28082ceb5a59","apiKey":"ck_abc12345_xyzkeyvalue"}"""</ID>
     <ID>MaxLineLength:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$ VALUES ('</ID>
     <ID>MaxLineLength:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$statement.setString(3, """{"@type":"EmptyJobDefinition","studyId":"${fixture.studyId}","participantIds":["${fixture.participantId}"]}""")</ID>
-    <ID>MaxLineLength:IosSensorPoisonedUploadTest.kt$IosSensorPoisonedUploadTest$sample().copy(sensor = SensorType.accelerometer, data = """{"schemaVersion":3,"encoding":"ieee754-binary64-xor-bytepack-zlib-base64","sampleCount":1,"provenance":"system_recorded","timeUnit":"seconds","uncompressedByteCount":1,"channels":[null],"payload":"eA=="}""")</ID>
-    <ID>MaxLineLength:IosSensorPoisonedUploadTest.kt$IosSensorPoisonedUploadTest$sample().copy(sensor = SensorType.deviceUsage, data = """{"totalScreenWakes":0,"totalUnlocks":0,"totalUnlockDuration":0,"appUsage":{"apps":[null]},"webUsage":{}}""")</ID>
-    <ID>MaxLineLength:IosSensorPoisonedUploadTest.kt$IosSensorPoisonedUploadTest$sample().copy(sensor = SensorType.deviceUsage, data = """{"totalScreenWakes":0,"totalUnlocks":0,"totalUnlockDuration":0,"appUsage":{"apps":null},"webUsage":{}}""")</ID>
-    <ID>MaxLineLength:JwtBlocklistFilterTest.kt$JwtBlocklistFilterTest$assertEquals("""{"error":"token_revocation_unavailable","message":"Token revocation status could not be verified"}""", response.contentAsString)</ID>
-    <ID>MaxLineLength:JwtIdleSessionTest.kt$JwtIdleSessionTest$org.junit.Assert.assertEquals("""{"error":"token_revoked","message":"Session has expired due to inactivity"}""", response.contentAsString)</ID>
-    <ID>MaxLineLength:LegacyResearcherNotificationScopeMigrationTest.kt$LegacyResearcherNotificationScopeMigrationTest$it.setString(3, """{"@type":"com.openlattice.chronicle.services.notifications.Notification","studyId":"$studyId","participantId":"$participant"}""")</ID>
-    <ID>MaxLineLength:LocalUploadDiagnosticsImportTest.kt$LocalUploadDiagnosticsImportTest$"""[{"day":"2001-01-01","moduleFamily":"SENSOR","issue":"APP_CRASH","count":1,"id":"old","firstOccurredAt":"2001-01-01T00:00:00Z","lastOccurredAt":"2001-01-01T00:00:00Z"}]"""</ID>
-    <ID>MaxLineLength:LocalUploadDiagnosticsImportTest.kt$LocalUploadDiagnosticsImportTest$"""{"day":"2001-01-01","moduleFamily":"FUTURE_FAMILY","issue":"FUTURE_CODE","count":${index + 1},"id":"id-$index","firstOccurredAt":"2001-01-01T00:00:00Z","lastOccurredAt":"2001-01-01T00:00:00Z"}"""</ID>
-    <ID>MaxLineLength:LocalUploadDiagnosticsStore.kt$RoomUploadDiagnosticsPersistence$// nosemgrep: chronicle-uuid-from-string -- Legacy import coordinates identify one bucket consistently when the import transaction is replayed.</ID>
-    <ID>MaxLineLength:Migration28to29.kt$&lt;no name provided&gt;$"`index_upload_diagnostics_studyId_participantId_deviceId_enrollmentEpoch_day_moduleFamily_issueCode_deliveryState_sealedForUpload` ON `upload_diagnostics` (`studyId`, `participantId`, `deviceId`, `enrollmentEpoch`, `day`, `moduleFamily`, `issueCode`, `deliveryState`, `sealedForUpload`)"</ID>
-    <ID>MaxLineLength:MobileApiSignatureFilter.kt$MobileApiSignatureFilter.Companion$Regex("""^/chronicle/v3/study/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/settings/type/(?:AndroidSensor|Sensor|DataCollection|Encryption)$""")</ID>
-    <ID>MaxLineLength:MobileWithdrawalIntentBinder.kt$MobileWithdrawalIntentBinder$"Participant ${com.openlattice.chronicle.audit.AuditService.participantReference(participantId)} withdrew from study $studyId; collection stopped"</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"live","stationary":true,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"os_buffered","stationary":false,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"low"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"os_buffered","stationary":false,"walking":true,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":1,"provenance":"os_buffered","stationary":true,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"certain"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$"""{"schemaVersion":2,"provenance":"os_buffered","stationary":true,"walking":false,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":1,"frequencyHz":50.0,"provenance":"system_recorded","samples":[{"offsetSeconds":0.0,"xG":0.1,"yG":0.2,"zG":0.9}]}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":1,"provenance":"os_buffered","numberOfSteps":267,"distanceMeters":183.19096727995202,"floorsAscended":1,"floorsDescended":2,"averageActivePaceSecondsPerMeter":0.8123456789012345,"currentCadenceStepsPerSecond":1.9876543210987654}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":1,"provenance":"os_buffered","stationary":false,"walking":true,"running":false,"automotive":false,"cycling":false,"unknown":false,"confidence":"high"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":2,"encoding":"delta-zigzag-varint-zlib-base64","sampleCount":1,"provenance":"system_recorded","timeUnit":"nanoseconds","uncompressedByteCount":4,"channels":[{"name":"x","unit":"g","scale":0.000244140625},{"name":"y","unit":"g","scale":0.000244140625},{"name":"z","unit":"g","scale":0.000244140625}],"payload":"aW52YWxpZA=="}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":2,"encoding":"delta-zigzag-varint-zlib-base64","sampleCount":3,"nominalFrequencyHz":50.0,"provenance":"system_recorded","timeUnit":"nanoseconds","uncompressedByteCount":19,"channels":[{"name":"x","unit":"g","scale":0.000244140625},{"name":"y","unit":"g","scale":0.000244140625},{"name":"z","unit":"g","scale":0.000244140625}],"payload":"eNpjaNjSKfyNcTYTK9N3RgbWqQ4MTAA+wQVA"}"""</ID>
-    <ID>MaxLineLength:MoveToIosEventStorageTaskTest.kt$MoveToIosEventStorageTaskTest$val payload = """{"schemaVersion":3,"encoding":"ieee754-binary64-xor-bytepack-zlib-base64","sampleCount":3,"nominalFrequencyHz":50.0,"provenance":"system_recorded","timeUnit":"seconds","uncompressedByteCount":82,"channels":[{"name":"x","unit":"g"},{"name":"y","unit":"g"},{"name":"z","unit":"g"}],"payload":"eNpjYIAADvspVQ/d14lUixswsOhPfrLbfudMEJhVyMjxX+vyHdmUaZH7T8KF9uV8b4tOzDpk//4/GIjLQ2im/R8AKY8o6Q=="}"""</ID>
-    <ID>MaxLineLength:ResearchErasureFence.kt$ResearchErasureFence.Companion$"${owner.id}:${owner.createdAt}:${owner.enrollmentIssuedAtEpochMillis}:${owner.studyId}:${owner.participantId}:${owner.sourceDeviceId}".toByteArray(Charsets.UTF_8)</ID>
-    <ID>MaxLineLength:ResearcherNotificationScopeTest.kt$ResearcherNotificationScopeTest$"INSERT INTO study_participants (study_id, participant_id, candidate_id, participation_status) VALUES ('$study', '$participant', '${UUID.randomUUID()}', 'ENROLLED')"</ID>
-    <ID>MaxLineLength:RestoreContinuityReconciler.kt$RestoreContinuityReconciler.Companion$.</ID>
+    <ID>MaxLineLength:ResearchErasureFence.kt$ResearchErasureFence.Companion$"${owner.id}:${owner.createdAt}:${owner.enrollmentIssuedAtEpochMillis}:${owner.studyId}:${owner.participantId}:${owner.sourceRandomDeviceId}".toByteArray(Charsets.UTF_8)</ID>
     <ID>MaxLineLength:ServerSweepConcurrencyTest.kt$ServerSweepConcurrencyTest$ VALUES ('</ID>
-    <ID>MaxLineLength:StudyService.kt$StudyService$"Set participation status of participant ${com.openlattice.chronicle.audit.AuditService.participantReference(participantId)} in study $studyId to $participationStatus"</ID>
-    <ID>MaxLineLength:StudyService.kt$StudyService$"Updated annotations for participant ${com.openlattice.chronicle.audit.AuditService.participantReference(participantId)} in study $studyId"</ID>
-    <ID>MaxLineLength:SurveysService.kt$SurveysService$"SELECT EXISTS (SELECT 1 FROM ${QUESTIONNAIRE_SUBMISSIONS.name} WHERE ${STUDY_ID.name} = ? AND ${QUESTIONNAIRE_ID.name} = ?)"</ID>
-    <ID>MaxLineLength:SweepRevisionRegressionTest.kt$SweepRevisionRegressionTest$ VALUES ('</ID>
-    <ID>MaxLineLength:SweepRevisionRegressionTest.kt$SweepRevisionRegressionTest$"INSERT INTO upload_buffer (study_id, participant_id, data, uploaded_at, upload_type, device_id) VALUES ('$it', '$participant', '[]', '2000-01-01', 'Ios', '${UUID.randomUUID()}')"</ID>
     <ID>MaxLineLength:TestChronicleDataSerialization.kt$TestChronicleDataSerialization$val json = """[{"@class":"${ExtractedUsageEvent::class.java.name}","appPackageName":"com.example.app","interactionType":"Activity Resumed","timestamp":"2026-07-09T12:34:56Z","timezone":"UTC","user":"0","applicationLabel":"Example"}]"""</ID>
-    <ID>MaxLineLength:V109RevisionMigrationTest.kt$V109RevisionMigrationTest$ VALUES ('</ID>
-    <ID>NestedBlockDepth:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$public fun upload( studyId: UUID, participantId: String, deviceId: UUID, data: List&lt;AndroidSensorSample&gt; ): Int</ID>
-    <ID>NestedBlockDepth:AndroidUsageErasureReplayTest.kt$AndroidUsageErasureReplayTest$@Test fun receiptDependentProductionPrimaryKeyCannotRestoreOldEventsWithANewUploadTime()</ID>
     <ID>NestedBlockDepth:AndroidUsageErasureReplayTest.kt$AndroidUsageErasureReplayTest$private fun withFixture(bufferedOnly: Boolean = false, block: (Fixture) -&gt; Unit)</ID>
-    <ID>NestedBlockDepth:AudioUploadWorker.kt$AudioUploadWorkerDelegate$private fun &lt;T, D&gt; uploadStream( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (RestrictedChronicleStudyApi, UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, ): Int</ID>
-    <ID>NestedBlockDepth:AuditService.kt$AuditService$private fun flushOneBatch()</ID>
     <ID>NestedBlockDepth:AuthTokenControllerTest.kt$AuthTokenControllerTest$@Test fun logoutRejectsCapturedCookieAndBearerReplay()</ID>
-    <ID>NestedBlockDepth:BatteryUploadWorker.kt$BatteryUploadWorkerDelegate$fun execute(): Int</ID>
     <ID>NestedBlockDepth:ChronicleContractTestSchema.kt$ChronicleContractTestSchema$fun waitForQueryReady(container: PostgreSQLContainer&lt;*&gt;, timeout: Duration = Duration.ofMinutes(2))</ID>
     <ID>NestedBlockDepth:ChronicleDataAssetRegistryTest.kt$ChronicleDataAssetRegistryTest$@Test fun purgeObservationExpressionsMatchPersistedColumns()</ID>
-    <ID>NestedBlockDepth:ChronicleDb.kt$ChronicleDb.Companion$private fun migrateUnencryptedDb(context: Context)</ID>
     <ID>NestedBlockDepth:ChronicleJson.kt$AndroidDataCollectionSettingJsonAdapterFactory$override fun create( type: Type, annotations: MutableSet&lt;out Annotation&gt;, moshi: Moshi, ): JsonAdapter&lt;*&gt;?</ID>
-    <ID>NestedBlockDepth:CollectionHaltWriteAtomicityTest.kt$CollectionHaltWriteAtomicityTest$@Test fun pausedAndCompletedEnrollmentAcceptsOnlyDatedCapturesBeforeItsCutoff()</ID>
-    <ID>NestedBlockDepth:ConcurrentEditFilter.kt$ConcurrentEditFilter$internal fun guarded(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain)</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimDueOperation(requiredOperationId: UUID? = null): ClaimedDeletion?</ID>
     <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun claimPendingDeletionAuditEvent(): ClaimedDeletionAuditEvent?</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun completeOperation(claim: ClaimedDeletion, participantId: String?)</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun eraseAsset( claim: ClaimedDeletion, participantId: String, asset: ParticipantDataAsset, )</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun eraseStudyTable( claim: ClaimedDeletion, assetId: String, tableName: String, )</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun reconcileParticipantSteps(claim: ClaimedDeletion, participantId: String)</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$private fun retainPostPurgeBuffer(connection: Connection, studyId: UUID, participantId: String, cutoff: OffsetDateTime)</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun placeHold( operationId: UUID, studyId: UUID, reason: String, createdBy: String, reviewAt: OffsetDateTime, ): UUID</ID>
-    <ID>NestedBlockDepth:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$public open fun releaseHold( operationId: UUID, holdId: UUID, studyId: UUID, releasedBy: String, releaseReason: String, )</ID>
-    <ID>NestedBlockDepth:DataQualityService.kt$DataQualityService$public open fun generateAlerts(studyId: UUID): Int</ID>
-    <ID>NestedBlockDepth:DatabaseKeyManager.kt$DatabaseKeyManager$internal fun encryptAndVerifyRecoveryArtifact(source: File, destination: File): String</ID>
     <ID>NestedBlockDepth:DatabaseKeyManager.kt$DatabaseKeyManager$private fun verifyRecoveryArtifact(artifact: File, key: SecretKey): ByteArray</ID>
     <ID>NestedBlockDepth:DeletionStudyFenceTest.kt$DeletionStudyFenceTest$@Test fun quarantineWaitsForWritersAndCompetingDeletions()</ID>
-    <ID>NestedBlockDepth:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$private fun decodeAll(file: File): DecodeResult</ID>
-    <ID>NestedBlockDepth:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$private fun writeRecords(destination: File, entries: List&lt;OwnedSample&gt;)</ID>
-    <ID>NestedBlockDepth:EnrollmentMonitoringWorker.kt$EnrollmentMonitoringWorker$override fun runWork(): Result</ID>
-    <ID>NestedBlockDepth:EnrollmentService.kt$EnrollmentService$private fun registerDeviceOrGetId( studyId: UUID, participantId: String, deviceType: SourceDeviceType, deviceId: UUID, sourceDevice: SourceDevice, ): UUID</ID>
-    <ID>NestedBlockDepth:ExpansionUploadWorker.kt$ExpansionUploadWorkerDelegate$internal fun &lt;T, D&gt; uploadStream( servers: List&lt;UploadServerEntity&gt;, getOldest: (Int) -&gt; List&lt;T&gt;, getByIds: (List&lt;String&gt;) -&gt; List&lt;T&gt;, idOf: (T) -&gt; String, toDto: (T) -&gt; D, payloadType: EncryptedPayloadType, deleteByIds: (List&lt;String&gt;) -&gt; Unit, plainUpload: (UUID, UploadServerEntity, List&lt;D&gt;, Int?) -&gt; Unit, label: String, ): Int</ID>
-    <ID>NestedBlockDepth:ExportFileWriter.kt$ExportFileWriter.Companion$@Suppress("DEPRECATION") private fun writeMultiSheetExcel( dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, filePath: Path, budget: ExportBudget, )</ID>
-    <ID>NestedBlockDepth:ExportFileWriter.kt$ExportFileWriter.Companion$private fun writeCsv( dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, filePath: Path, budget: ExportBudget, )</ID>
-    <ID>NestedBlockDepth:ExportFileWriter.kt$ExportFileWriter.Companion$private fun writeJson( datasets: Iterable&lt;Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, filePath: Path, budget: ExportBudget, )</ID>
-    <ID>NestedBlockDepth:ExportFileWriterTest.kt$ExportFileWriterTest$@Test fun usageExportsPopulateEventTypeAndTransportTimestamps()</ID>
-    <ID>NestedBlockDepth:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun completeExportAndEnqueue( claim: ClaimedExport, request: ExportRequest, dataByType: Map&lt;String, Iterable&lt;Map&lt;String, Any&gt;&gt;&gt;, ): ExportWriteResult?</ID>
-    <ID>NestedBlockDepth:ExportService.kt$ExportService$@Suppress("TooGenericExceptionCaught") private fun releaseExportStudyLock(connection: Connection, studyId: UUID, exportId: UUID)</ID>
-    <ID>NestedBlockDepth:ExportService.kt$ExportService$private fun cleanupOneExpiredExport(): Boolean</ID>
-    <ID>NestedBlockDepth:ExportService.kt$ExportService$private fun requireDownloadOwner(connection: Connection, studyId: UUID, createdBy: String?, requestingUserId: String)</ID>
-    <ID>NestedBlockDepth:ExportService.kt$ExportService$public fun streamExportFile(studyId: UUID, exportId: UUID, requestingUserId: String, outputStream: OutputStream): ExportJobInfo</ID>
     <ID>NestedBlockDepth:ExternalCallbackCrashRegressionTest.kt$ExternalCallbackCrashRegressionTest$@Test fun privacyPolicyTapReportsMissingBrowserWithoutCrashing()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun auditIdRetryCountsCommittedEntriesAsDelivered()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testActiveJobHoldsLeaseFenceUntilTerminalCommit()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testCancelledIosNameBackfillDoesNotUpdateTheDeletionLedger()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testCollectedPurgeKeepsExchangedEnrollmentCodeThatWithdrawalErases()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testConcurrentPipelineMappingAndJobDeletionCannotCommitAnOrphan()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDataQualityEvaluationWaitsForPurgeBeforeReadingStatistics()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDataQualityServiceRetainsYearOldAlerts()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionAccountabilityIsAtomicDurableAndRetrySafe()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDeletionLedgerAndParticipantAccess()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDiagnosticErasureTombstonesSupportNonBypassOwnerAndTransactionalRollback()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDiagnosticUploadWaitsForDeletionBeforeReadingErasureCutoff()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testDurableWebhookRetryUsesStableDeliveryIdentity()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testErasedDiagnosticReplayWithAheadClockCannotResurrectAfterPurge()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testErasurePredicatesUseUuidAndTextStudyIndexes()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportCapacityReservationsFenceIndependentWorkersAndLeaseOwnership()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueLeaseRecoveryAndActiveErasureRevocation()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testExportQueueRejectsFormatCorruptionAndTerminalizesRequestMismatch()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testFinalDeletionSweepTerminalizesExportCreatedAfterInitialSweep()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testInstallingKeyMaterialWaitsForAnotherDeviceThatOwnsTheSameHash()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testIosScreenTimeDeltaProjectionAcrossDstAndMidnight()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testJobWorkerPersistsLeasedTerminalStatesAndFailsCanceledPipeline()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLastActiveAclOwnerConstraintSerializesCompetingDeletes()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testLifecycleServiceSchedulesAndCancelsOneAtomicArchivedStudyErasure()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testMissingCompletedExportIsPersistedAsFailed()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testParticipantErasureDeletesPendingPausedAndTerminalScopedJobs()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPipelineAndJobMigrationRepairsLegacyState()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testPoisonedRecoveryCleanupBacksOffWithoutStarvingPendingWork()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testResearcherKeyRotationRollsBackRevocationOnReplacementFailure()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testScopedUploadBufferDrainWaitsForConcurrentClaim()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyCancellationAndLifecycleMutationRollBackTogether()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationFailsClosedOnUnsafeLateTableIdentifier()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyFinalizationReconcilesTablesCreatedDuringQuarantine()</ID>
@@ -532,43 +168,22 @@
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testStudyQuarantineAndLifecycleMutationRollBackTogether()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testSweepDeviceQuarantineAndErasureRespectCollectedPurgeVersusWithdrawal()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testSweepFinalVerificationDoesNotInvertStudyRevisionWriters()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testSweepOrdinaryDrainAndSensorRecalculationDoNotBlockReinsertion()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testSweepRepeatedPurgeCutoffIsDurableAndLeavesWithWithdrawal()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testSweepSecondDeviceAcknowledgesWithdrawalDuringQuarantineAndAfterErasure()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testTombstonedOrRevokedDeviceKeyMaterialIsNeverInstalledAgain()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testUploadBufferDrainExcludesDeletionBlockedRowsEvenWithoutRls()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testV107AcceptsEveryDiagnosticFamilyAndIssueCodePair()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testV109SupplementalCleanupOfCompletedWithdrawalsAndStudyErasures()</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$@Test fun testV115TombstonesAndDeletesKeysRetainedByErasuresCompletedBeforeV114()</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun assertStudyDiagnosticErasure(resumeVerifiedDiagnostics: Boolean)</ID>
-    <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun assertStudyWithdrawalPolicy(mode: com.openlattice.chronicle.study.WithdrawalMode?)</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun readJobState(jobId: UUID): PersistedJobState?</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun sweepParticipantAssetErasure(finding: String)</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun tombstoneExpiry(rawKey: String): OffsetDateTime?</ID>
     <ID>NestedBlockDepth:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$private fun tombstoneKind(rawKey: String): String?</ID>
     <ID>NestedBlockDepth:HazelcastIdNetworkDeadlineTest.kt$HazelcastIdNetworkDeadlineTest$@Test fun `live Hazelcast connection with stalled network cannot exceed the consumer deadline`()</ID>
-    <ID>NestedBlockDepth:ImportControllerConnectionTest.kt$ImportControllerConnectionTest$private fun withController(studies: StudyService = mock(), action: (ImportController, HikariDataSource) -&gt; Unit)</ID>
-    <ID>NestedBlockDepth:InteractionUploadWorker.kt$InteractionUploadWorkerDelegate$fun execute(): Int</ID>
-    <ID>NestedBlockDepth:IosSensorErasureReplayTest.kt$IosSensorErasureReplayTest$@Test fun `buffered-only purge acknowledges old only and mixed retries and keeps fresh samples`()</ID>
-    <ID>NestedBlockDepth:IosSensorErasureReplayTest.kt$IosSensorErasureReplayTest$@Test fun `legacy SensorKit device usage reread after purge is fenced by its recorded time`()</ID>
-    <ID>NestedBlockDepth:IosSensorPoisonedUploadTest.kt$IosSensorPoisonedUploadTest$@After fun removeTestPayloads()</ID>
-    <ID>NestedBlockDepth:IosSensorPoisonedUploadTest.kt$IosSensorPoisonedUploadTest$@Test fun quarantinesIndividualLegacyRowsAndDrainsHealthyRowsIdempotently()</ID>
     <ID>NestedBlockDepth:JobService.kt$JobService$@Suppress("TooGenericExceptionCaught") private fun executeNextJob()</ID>
-    <ID>NestedBlockDepth:JwtBlocklist.kt$JwtBlocklist$private fun readState(map: IMap&lt;String, Long&gt;, key: String): Long?</ID>
     <ID>NestedBlockDepth:JwtBlocklistTest.kt$JwtBlocklistTest$@Test fun durableWritesPurgeOnlyABoundedBatchOfExpiredState()</ID>
-    <ID>NestedBlockDepth:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$fun preserveAndReset( context: Context, reason: LocalStoreRecoveryReason, confirmation: LocalStoreResetConfirmation, enrollmentOwner: Pair&lt;String, String&gt;? = null, legacyDiagnostics: String? = null, legacyDiagnosticsVerified: Boolean = false, ): LocalStoreResetResult</ID>
     <ID>NestedBlockDepth:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$internal fun eraseForScope(root: File, digest: String?, preserveDiagnostics: Boolean = true)</ID>
     <ID>NestedBlockDepth:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$private fun preserveDiagnosticsBeforeErasure(directory: File)</ID>
-    <ID>NestedBlockDepth:MoveAndroidSensorDataToStorageTask.kt$MoveAndroidSensorDataToStorageTask$@Suppress("TooGenericExceptionCaught") private fun moveToStorage(): MoveResult</ID>
-    <ID>NestedBlockDepth:OrganizationOwnerMembershipTest.kt$OrganizationOwnerMembershipTest$private fun memberRole(organizationId: UUID, userId: String): String?</ID>
-    <ID>NestedBlockDepth:ParticipantFormAccessService.kt$ParticipantFormAccessService$@Suppress("TooGenericExceptionCaught") public fun exchangeAccessCode(rawAccessCode: String): ExchangedParticipantFormSession?</ID>
-    <ID>NestedBlockDepth:ParticipantFormAccessService.kt$ParticipantFormAccessService$public fun resolveSession( rawSessionToken: String, mutationCsrfToken: String?, requireCsrf: Boolean, ): ParticipantFormAccessScope?</ID>
-    <ID>NestedBlockDepth:ParticipantFormSessionTabsTest.kt$ParticipantFormSessionTabsTest$@Test fun diarySubmissionsThroughBothTransactionOwnersFitOneConnection()</ID>
     <ID>NestedBlockDepth:ParticipantStatsMapstore.kt$ParticipantStatsMapstore$@Timed override fun storeAll(map: Map&lt;ParticipantKey, ParticipantStats&gt;)</ID>
     <ID>NestedBlockDepth:ParticipantStatsOwnedTransactionTest.kt$ParticipantStatsOwnedTransactionTest$@Test fun `cold stats read and merge use the owner and delayed stale store preserves merged dates`()</ID>
-    <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Suppress("LongParameterList") private fun assertSensorDataRows( family: String, table: String, studyId: UUID, participantId: String, expectedCount: Int, expectedDistinctSampleIds: Int, expectedStart: OffsetDateTime, expectedEnd: OffsetDateTime, expectedExactRecorded: OffsetDateTime, expectedSampleId: UUID, )</ID>
-    <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `ios-sensorkit-data fixtures ingest through SensorDataUploadService and the ios mover`()</ID>
-    <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$@Test fun `legacy buffer claim is bounded by rows rather than participant pairs`()</ID>
     <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$private fun assertDirectFamilyContract( familyName: String, expectedHandler: Class&lt;*&gt;, idColumn: String, ingest: (UUID, String, File) -&gt; Int, )</ID>
     <ID>NestedBlockDepth:PayloadFixtureIngestionTest.kt$PayloadFixtureIngestionTest$private fun persistedEventTimestamps( table: String, idColumn: String, studyId: UUID, participantId: String, ): Map&lt;String, OffsetDateTime&gt;</ID>
     <ID>NestedBlockDepth:PgTapSuiteTest.kt$PgTapSuiteTest$@Test fun sqlContractsAndEveryPublicPlpgsqlFunctionPass()</ID>
@@ -576,268 +191,143 @@
     <ID>NestedBlockDepth:PgTapSuiteTest.kt$PgTapSuiteTest$private fun executeTap(connection: Connection, sql: String): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:RLSRequestContextTest.kt$RLSRequestContextTest$@Test fun `withdrawal enrollment scope restores every caller setting after success and failure`()</ID>
     <ID>NestedBlockDepth:ResearcherApiKeyAccessTest.kt$ResearcherApiKeyAccessTest$@Test fun routeTableReachesOnlyTheIntendedHandlers()</ID>
-    <ID>NestedBlockDepth:ResearcherNotificationScopeTest.kt$ResearcherNotificationScopeTest$@Test fun `participant identity in a researcher message is scoped deleted and fenced on withdrawal`()</ID>
-    <ID>NestedBlockDepth:ResearcherNotificationScopeTest.kt$ResearcherNotificationScopeTest$@Test fun `researcher email and SMS create study scoped jobs that deserialize for delivery`()</ID>
-    <ID>NestedBlockDepth:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `a busy export leaves its study due and does not consume the unrelated deletion budget`()</ID>
     <ID>NestedBlockDepth:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `a signed purge confirmation has one operation and one watermark across retries`()</ID>
     <ID>NestedBlockDepth:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `older backup preserves manual pause completion and study archive`()</ID>
     <ID>NestedBlockDepth:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `purge replay preserves its original watermark and accepts captures before restore`()</ID>
     <ID>NestedBlockDepth:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$@Test fun `shared erasure predicate distinguishes every mode and lifecycle status`()</ID>
     <ID>NestedBlockDepth:RestoreContinuityReconcilerTest.kt$RestoreContinuityReconcilerTest$private fun tombstoneExpiry(): java.time.OffsetDateTime?</ID>
     <ID>NestedBlockDepth:ResultSetAdapters.kt$ResultSetAdapters.Companion$internal fun forEachUsageEventChunk(rs: ResultSet, consume: (List&lt;UsageEventQueueEntry&gt;) -&gt; Unit)</ID>
-    <ID>NestedBlockDepth:RoomMigrationJvmCorpusTest.kt$RoomMigrationJvmCorpusTest$@Test fun everyReleasedSchemaThreeThroughTwentyNinePreservesRowsKeysAndCursors()</ID>
-    <ID>NestedBlockDepth:RoomMigrationJvmCorpusTest.kt$RoomMigrationJvmCorpusTest$private fun assertRows(db: SupportSQLiteDatabase, version: Int, rows: Map&lt;String, ContentValues&gt;)</ID>
-    <ID>NestedBlockDepth:RoomMigrationJvmCorpusTest.kt$RoomMigrationJvmCorpusTest$private fun seedEveryTable(db: SupportSQLiteDatabase, payload: ByteArray): Map&lt;String, ContentValues&gt;</ID>
-    <ID>NestedBlockDepth:RuntimeOwnedTablesMigrationTest.kt$RuntimeOwnedTablesMigrationTest$@Test fun testV84AdoptsLegacyServiceTablesWithoutLosingDataAndAppliesRls()</ID>
-    <ID>NestedBlockDepth:SecretRotationService.kt$SecretRotationService$@Suppress("TooGenericExceptionCaught") private fun refreshRotationStatus()</ID>
     <ID>NestedBlockDepth:SensorRuntimeController.kt$SensorRuntimeController$private fun flushUnderLease(): ModuleResult</ID>
     <ID>NestedBlockDepth:SensorRuntimeController.kt$SensorRuntimeController$private fun runScheduledFlush()</ID>
-    <ID>NestedBlockDepth:SensorSettingsRefreshWorker.kt$SensorSettingsRefreshWorker$private fun doLegacyRefresh(): Result</ID>
-    <ID>NestedBlockDepth:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$private fun uploadBatch( server: UploadServerEntity, batch: List&lt;SensorSampleEntry&gt;, samples: List&lt;AndroidSensorSample&gt;, serverDao: com.openlattice.chronicle.storage.UploadServerDao, statsSink: UploadStatsSink, currentFailureCounts: MutableMap&lt;Long, Int&gt;, diagnosticCursors: MutableMap&lt;Long, String?&gt;, onStatsFailure: () -&gt; Unit, onReceipt: (SensorUploadReceipt) -&gt; Unit, ): Boolean</ID>
     <ID>NestedBlockDepth:ServerSweepConcurrencyTest.kt$ServerSweepConcurrencyTest$@Test fun filteredAppsReadAndReloadRespectDurableStudyErasure()</ID>
-    <ID>NestedBlockDepth:ServerSweepConcurrencyTest.kt$ServerSweepConcurrencyTest$private fun awaitBlocked(name: String)</ID>
-    <ID>NestedBlockDepth:ServerSweepConcurrencyTest.kt$ServerSweepConcurrencyTest$private fun queuedRace(studyId: UUID, rowSelect: String, rowUpdate: String, write: (StorageResolver) -&gt; Unit)</ID>
     <ID>NestedBlockDepth:SharedUsagePolicyEraser.kt$internal fun eraseSharedQueueModule(db: ChronicleDb, moduleId: CollectionModuleId)</ID>
     <ID>NestedBlockDepth:StorageResolver.kt$StorageResolver$public fun resolveDataSourceName(studyId: UUID): String</ID>
     <ID>NestedBlockDepth:StudyControllerTest.kt$StudyControllerTest$@Test fun testPausedAndCompletedBatchUploadsReachPerRecordAdmission()</ID>
-    <ID>NestedBlockDepth:StudyDeletionSchedulerTest.kt$StudyDeletionSchedulerTest$@Test fun overdueReviewIncludesOnlyUnreleasedHoldsBeforeTheDeadline()</ID>
     <ID>NestedBlockDepth:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$@Test fun `a study arriving after the fence census waits for the next drain`()</ID>
     <ID>NestedBlockDepth:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$@Test fun `queued study finalizer and another study drain follow one table lock order`()</ID>
     <ID>NestedBlockDepth:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$@Test fun `study finalization completes while another study holds a sensor writer lock`()</ID>
-    <ID>NestedBlockDepth:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$@Test fun `two study finalizers acquire table inventory before export writes without a lock upgrade deadlock`()</ID>
     <ID>NestedBlockDepth:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$private fun awaitFinalizationBarrier(connection: Connection, applicationName: String)</ID>
     <ID>NestedBlockDepth:StudyErasureFinalizerConcurrencyTest.kt$StudyErasureFinalizerConcurrencyTest$private fun awaitQueryLock(connection: Connection, applicationName: String, queryPattern: String)</ID>
-    <ID>NestedBlockDepth:StudyLifecycleService.kt$StudyLifecycleService$private fun getPreDeletionStatus(connection: Connection, studyId: UUID): StudyLifecycleStatus</ID>
-    <ID>NestedBlockDepth:StudyTests.kt$StudyTests$@Test fun mixedCutoffUsageUploadAcknowledgesEveryRowAndStoresOnlyPreStopCaptures()</ID>
+    <ID>NestedBlockDepth:StudyService.kt$StudyService$override fun getStudyId(studyId: UUID): UUID?</ID>
+    <ID>NestedBlockDepth:StudyService.kt$StudyService$override fun getStudySettings(studyId: UUID): Map&lt;StudySettingType, StudySetting&gt;</ID>
     <ID>NestedBlockDepth:SweepRevisionRegressionTest.kt$SweepRevisionRegressionTest$@Test fun drainCensusFencesAtMostOneBatchOfEligibleStudies()</ID>
     <ID>NestedBlockDepth:SweepRevisionRegressionTest.kt$SweepRevisionRegressionTest$@Test fun notificationEnqueuePassesAQueuedFinalizerInGlobalTableOrder()</ID>
-    <ID>NestedBlockDepth:SweepRevisionRegressionTest.kt$SweepRevisionRegressionTest$@Test fun scopedFlushDoesNotFenceAnotherStudysBacklog()</ID>
     <ID>NestedBlockDepth:SweepRevisionRegressionTest.kt$SweepRevisionRegressionTest$private fun awaitBlocked(name: String)</ID>
-    <ID>NestedBlockDepth:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$public fun getPage( studyId: UUID, participantId: String? = null, deviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, ): AndroidDiagnosticsPage</ID>
-    <ID>NestedBlockDepth:UsageEventTimestampContractTest.kt$UsageEventTimestampContractTest$@Test fun nullAndEmptyActivityClassesEachRetainOneRetry()</ID>
-    <ID>NestedBlockDepth:V111DeviceNameMigrationTest.kt$V111DeviceNameMigrationTest$@Test fun iosDeviceNamesAreReplacedByPerDeviceKeys()</ID>
+    <ID>NestedBlockDepth:UploadDiagnosticsQueryService.kt$UploadDiagnosticsQueryService$public fun getPage( studyId: UUID, participantId: String? = null, randomDeviceId: UUID? = null, fromDay: LocalDate? = null, toDay: LocalDate? = null, moduleFamily: String? = null, issueCode: String? = null, cursor: String? = null, limit: Int = 50, ): AndroidDiagnosticsPage</ID>
     <ID>NestedBlockDepth:WebhookService.kt$WebhookService$public fun getDeliveries(studyId: UUID, webhookId: UUID): List&lt;WebhookDeliveryInfo&gt;</ID>
-    <ID>NestedBlockDepth:WebhookServiceTest.kt$WebhookServiceTest$@Test fun terminalDeliveryPruningKeepsPendingAndRecentRows()</ID>
-    <ID>ReturnCount:BatteryUploadWorker.kt$BatteryUploadWorkerDelegate$fun execute(): Int</ID>
     <ID>ReturnCount:CollectionCapability.kt$CollectionCapabilityResolver$public fun resolve( moduleId: CollectionModuleId, environment: CapabilityEnvironment, copy: CopyResolver = ENGLISH_CAPABILITY, ): CollectionCapability</ID>
     <ID>ReturnCount:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$fun sync(): Boolean</ID>
     <ID>ReturnCount:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$private fun applyDecisionsIf( accepted: Set&lt;CollectionModuleId&gt;, declined: Set&lt;CollectionModuleId&gt;, trigger: ConsentTrigger, reportChanges: Boolean = true, precondition: () -&gt; Boolean, ): DecisionApplicationOutcome</ID>
     <ID>ReturnCount:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$private fun seedCurrentEnrollmentDecisions( studyId: UUID, fetched: AndroidDataCollectionSetting, accepted: Set&lt;CollectionModuleId&gt;, declined: Set&lt;CollectionModuleId&gt;, unavailable: Set&lt;CollectionModuleId&gt;, ): Boolean</ID>
-    <ID>ReturnCount:CollectionSettingsResolver.kt$CollectionSettingsResolver$private fun findViolation(moduleId: CollectionModuleId, setting: CollectionModuleSetting): String?</ID>
     <ID>ReturnCount:ConcurrentEditFilter.kt$ConcurrentEditFilter$internal fun guarded(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain)</ID>
     <ID>ReturnCount:CreateReceiptFilter.kt$CreateReceiptFilter$internal fun guarded(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain)</ID>
-    <ID>ReturnCount:DashboardDataRepository.kt$DashboardDataRepository$internal fun loadServerHealth( context: Context, servers: List&lt;UploadServerEntity&gt;, online: Boolean, participationStop: ParticipationStop? = null, blockedUploads: Boolean = false, ): ServerHealthSummary</ID>
     <ID>ReturnCount:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$@Suppress("TooGenericExceptionCaught") public open fun publishPendingDeletionAuditEvents(limit: Int = MAX_AUDIT_PUBLISH_BATCH): Int</ID>
-    <ID>ReturnCount:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$private fun classifyEnrollmentFailure(error: Throwable): String</ID>
-    <ID>ReturnCount:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$private fun enrollServer(context: Context, intent: Intent): DebugBroadcastResult</ID>
-    <ID>ReturnCount:Enrollment.kt$Enrollment$private fun reviewThenEnroll()</ID>
-    <ID>ReturnCount:EnrollmentRecoveryManager.kt$EnrollmentRecoveryManager$private fun recoverPendingEnrollment( context: Context, dao: UploadServerDao, row: UploadServerEntity, ): EnrollmentRecoveryResult</ID>
-    <ID>ReturnCount:EnrollmentReplayProtocol.kt$internal fun planEnrollmentReplay( pending: PendingEnrollmentReplayRequest, nowEpochMillis: Long, ): EnrollmentReplayPlan</ID>
     <ID>ReturnCount:InteractionCollectionService.kt$InteractionCollectionService$override fun onAccessibilityEvent(event: AccessibilityEvent?)</ID>
     <ID>ReturnCount:MfaClaimValidator.kt$MfaClaimValidator$override fun validate(token: Jwt): OAuth2TokenValidatorResult</ID>
-    <ID>ReturnCount:MobileApiSigningInterceptor.kt$MobileApiSigningInterceptor$override fun intercept(chain: Interceptor.Chain): Response</ID>
-    <ID>ReturnCount:ParticipantCollectionAcknowledgmentService.kt$internal fun collectionIsHalted( latestSettings: AndroidDataCollectionSetting, issuedRevisions: List&lt;AndroidDataCollectionSetting&gt;, decisions: Map&lt;CollectionModuleId, IssuedCollectionDecision&gt;, uploadModules: Set&lt;CollectionModuleId&gt; = emptySet(), ): Boolean</ID>
     <ID>ReturnCount:ParticipantFormAccessFilter.kt$ParticipantFormAccessFilter$private fun target(request: HttpServletRequest): Target?</ID>
-    <ID>ReturnCount:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$private fun doSave()</ID>
-    <ID>ReturnCount:UsageModuleCollectionDelegate.kt$UsageModuleCollectionDelegate$override fun monitorUsage(): Boolean</ID>
-    <ID>ReturnCount:UsageMonitoringWorker.kt$UsageCollectionDelegate$override fun monitorUsage(): Boolean</ID>
     <ID>ReturnCount:WebhookService.kt$WebhookService$private fun deliverWebhook(connection: Connection, claim: ClaimedDelivery, httpUrl: HttpUrl, client: OkHttpClient): DeliveryOutcome</ID>
-    <ID>SpreadOperator:AndroidSweepReview2RegressionTest.kt$AndroidSweepReview2RegressionTest$(dao, *(args ?: emptyArray()))</ID>
     <ID>SpreadOperator:AndroidSweepReview2RegressionTest.kt$AndroidSweepReview2RegressionTest$(editor, *(values ?: emptyArray()))</ID>
     <ID>SpreadOperator:AndroidSweepReview2RegressionTest.kt$AndroidSweepReview2RegressionTest$(rawFence, *(args ?: emptyArray()))</ID>
-    <ID>SpreadOperator:AndroidSweepReview3RegressionTest.kt$AndroidSweepReview3RegressionTest$(dao, *(args ?: emptyArray()))</ID>
-    <ID>SpreadOperator:AndroidSweepReview4RegressionTest.kt$AndroidSweepReview4RegressionTest$(dao, *(args ?: emptyArray()))</ID>
     <ID>SpreadOperator:AndroidSweepReview4RegressionTest.kt$AndroidSweepReview4RegressionTest$(editor, *(values ?: emptyArray()))</ID>
     <ID>SpreadOperator:AndroidSweepReview4RegressionTest.kt$AndroidSweepReview4RegressionTest$(raw, *(args ?: emptyArray()))</ID>
     <ID>SpreadOperator:AndroidSweepReview5RecoveryTest.kt$AndroidSweepReview5RecoveryTest$(dao, *(args ?: emptyArray()))</ID>
-    <ID>SpreadOperator:AndroidSweepReview6RegressionTest.kt$AndroidSweepReview6RegressionTest$(dao, *(args ?: emptyArray()))</ID>
-    <ID>SpreadOperator:AndroidSweepReworkRegressionTest.kt$AndroidSweepReworkRegressionTest$(delegate, *(args ?: emptyArray()))</ID>
-    <ID>SpreadOperator:ChronicleDb.kt$ChronicleDb.Companion$(*ALL_MIGRATIONS)</ID>
-    <ID>SpreadOperator:ChronicleServerExceptionHandler.kt$ChronicleServerExceptionHandler$(*allowed.toTypedArray())</ID>
     <ID>SpreadOperator:CopyResolver.kt$(id, *args)</ID>
     <ID>SpreadOperator:CopyResolver.kt$(template, *args)</ID>
-    <ID>SpreadOperator:DirectBootErasureRegressionTest.kt$DirectBootErasureRegressionTest$(admissionPrefs, *(args ?: emptyArray()))</ID>
-    <ID>SpreadOperator:DirectBootStorageAdmissionTest.kt$DirectBootStorageAdmissionTest$(delegate, *(args ?: emptyArray()))</ID>
     <ID>SwallowedException:BatterySampleMappingTest.kt$BatterySampleMappingTest$e: Exception</ID>
     <ID>SwallowedException:BatterySampleMappingTest.kt$BatterySampleMappingTest$e: IllegalArgumentException</ID>
-    <ID>SwallowedException:ConcurrentEditFilter.kt$ConcurrentEditFilter$denied: com.geekbeast.controllers.exceptions.ForbiddenException</ID>
     <ID>SwallowedException:CreateReceiptFilter.kt$CreateReceiptFilter$denied: com.geekbeast.controllers.exceptions.ForbiddenException</ID>
     <ID>SwallowedException:DashboardDataRepository.kt$DashboardDataRepository$e: Exception</ID>
-    <ID>SwallowedException:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$e: Exception</ID>
-    <ID>SwallowedException:Enrollment.kt$Enrollment$e: Exception</ID>
     <ID>SwallowedException:Enrollment.kt$Enrollment$error: IllegalArgumentException</ID>
     <ID>SwallowedException:Enrollment.kt$Enrollment$error: SingleEnrollmentConflictException</ID>
     <ID>SwallowedException:ExternalLinks.kt$ExternalLinks$e: ActivityNotFoundException</ID>
     <ID>SwallowedException:HardwareSensorService.kt$HardwareSensorService$e: IllegalArgumentException</ID>
     <ID>SwallowedException:PackageLabels.kt$PackageLabels$e: Exception</ID>
     <ID>SwallowedException:ParticipantWithdrawalManager.kt$WithdrawalStateStore$error: IllegalArgumentException</ID>
-    <ID>SwallowedException:PayloadSealerTest.kt$PayloadSealerTest$e: Exception</ID>
     <ID>SwallowedException:PermissionActivity.kt$e: PackageManager.NameNotFoundException</ID>
     <ID>SwallowedException:ReminderLinkActivity.kt$ReminderLinkActivity$e: ActivityNotFoundException</ID>
     <ID>SwallowedException:SensorSettings.kt$SensorSettings$e: IllegalArgumentException</ID>
-    <ID>SwallowedException:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$e: Exception</ID>
     <ID>SwallowedException:Utils.kt$Utils$e: IllegalArgumentException</ID>
-    <ID>SwallowedException:WebhookService.kt$WebhookService$ex: RejectedExecutionException</ID>
     <ID>SwallowedException:WebhookService.kt$WebhookService$ex: SSLException</ID>
-    <ID>ThrowingExceptionFromFinally:ExportService.kt$ExportService$throw restoreFailure</ID>
-    <ID>ThrowingExceptionFromFinally:FlywayMigrationCorpusTest.kt$FlywayMigrationCorpusTest$throw exception</ID>
-    <ID>ThrowingExceptionsWithoutMessageOrCause:SensorUploadWorkerDelegateTest.kt$SensorUploadWorkerDelegateTest$IllegalStateException()</ID>
     <ID>ThrowsCount:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$@Suppress("TooGenericExceptionCaught") private fun eraseAndVerify(claim: ClaimedDeletion)</ID>
     <ID>ThrowsCount:DatabaseKeyManager.kt$DatabaseKeyManager$fun getPassphrase(context: Context, allowCreate: Boolean): ByteArray</ID>
     <ID>ThrowsCount:HazelcastIdGenerationService.kt$HazelcastIdGenerationService$public open fun getNextId(): UUID</ID>
-    <ID>ThrowsCount:JsonSerializer.kt$JsonSerializer$@JvmStatic fun deserializeLegacyQueueEntry(bytes: ByteArray): LegacyChronicleData</ID>
     <ID>ThrowsCount:ParticipantFormAccessController.kt$ParticipantFormAccessController$@PostMapping( path = [ "/v3/study/{studyId}/participant/{participantId}/form-access-codes", "/chronicle/v3/study/{studyId}/participant/{participantId}/form-access-codes", "/v4/study/{studyId}/participant/{participantId}/form-access-codes", "/chronicle/v4/study/{studyId}/participant/{participantId}/form-access-codes", ] ) public fun createAccessCode( @PathVariable studyId: UUID, @PathVariable participantId: String, @Valid @RequestBody request: CreateParticipantFormAccessCodeRequest, authentication: Authentication, response: HttpServletResponse, ): ParticipantFormAccessCodeResponse</ID>
     <ID>ThrowsCount:SsrfValidator.kt$SsrfValidator$private fun validateAndResolveAll( host: String, config: SsrfConfig, resolver: (String) -&gt; Array&lt;InetAddress&gt;, ): List&lt;InetAddress&gt;</ID>
-    <ID>ThrowsCount:UploadServerDao.kt$UploadServerDao$@Transaction fun reserveSingleEnrollment( server: UploadServerEntity, ownerNonce: String = java.util.UUID.randomUUID().toString(), nowEpochMillis: Long = System.currentTimeMillis(), leaseMillis: Long = ENROLLMENT_RESERVATION_LEASE_MILLIS, ): SingleEnrollmentReservation</ID>
     <ID>ThrowsCount:WebhookService.kt$WebhookService$private fun resolveWithDeadline(host: String): Array&lt;InetAddress&gt;</ID>
     <ID>TooGenericExceptionCaught:AccessLossDiagnostics.kt$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ActivityRecognitionSampleSink.kt$ActivityRecognitionSampleSink$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AndroidHealthMetricSource.kt$AndroidHealthMetricSource$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AndroidHealthMetricSource.kt$AndroidHealthMetricSource$error: Exception</ID>
     <ID>TooGenericExceptionCaught:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$ex: Exception</ID>
-    <ID>TooGenericExceptionCaught:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$restoreFailure: Exception</ID>
-    <ID>TooGenericExceptionCaught:AndroidSensorDataUploadService.kt$AndroidSensorDataUploadService$rollbackFailure: Exception</ID>
     <ID>TooGenericExceptionCaught:AndroidSweepReview3RegressionTest.kt$AndroidSweepReview3RegressionTest$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:AndroidSweepReview4RegressionTest.kt$AndroidSweepReview4RegressionTest$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:AndroidSweepReview5RecoveryTest.kt$AndroidSweepReview5RecoveryTest$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:AndroidSweepReview6RegressionTest.kt$AndroidSweepReview6RegressionTest$error: Throwable</ID>
-    <ID>TooGenericExceptionCaught:AppDataUploadService.kt$AppDataUploadService$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:AppNetworkUsageCollectionModule.kt$AppNetworkUsageCollectionModule$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:AppNetworkUsageSampleSink.kt$AppNetworkUsageSampleSink$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AudioCaptureController.kt$AudioCaptureController$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AudioUploadWorker.kt$AudioUploadWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:AudioUploadWorker.kt$AudioUploadWorkerDelegate$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:AuditService.kt$AuditService$e: Exception</ID>
     <ID>TooGenericExceptionCaught:BasePostgresIterable.kt$PreparedStatementHolderSupplier$cleanup: Throwable</ID>
     <ID>TooGenericExceptionCaught:BasePostgresIterable.kt$PreparedStatementHolderSupplier$failure: Throwable</ID>
     <ID>TooGenericExceptionCaught:BatteryCollectionWorker.kt$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:BatterySampleSink.kt$BatterySampleSink$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:BatteryTelemetryCollectionModule.kt$BatteryTelemetryCollectionModule$e: Exception</ID>
     <ID>TooGenericExceptionCaught:BatteryUploadWorker.kt$BatteryUploadWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:BatteryUploadWorker.kt$BatteryUploadWorkerDelegate$e: Exception</ID>
     <ID>TooGenericExceptionCaught:BatteryUploadWorker.kt$BatteryUploadWorkerDelegate$statsError: Exception</ID>
     <ID>TooGenericExceptionCaught:ChronicleDb.kt$ChronicleDb.Companion$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ChronicleSyncWorker.kt$ChronicleSyncWorker$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ChronicleSyncWorker.kt$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:ChronicleUploadSink.kt$ChronicleUploadSink$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ChronicleUploadSink.kt$ChronicleUploadSink$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:CollectionAckRetryStore.kt$EncryptedPrefsCollectionAckRetryPersistence$e: Exception</ID>
     <ID>TooGenericExceptionCaught:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$e: Exception</ID>
     <ID>TooGenericExceptionCaught:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$error: Exception</ID>
     <ID>TooGenericExceptionCaught:CollectionLoopCoordinator.kt$CollectionLoopCoordinator.Companion$e: Exception</ID>
     <ID>TooGenericExceptionCaught:CollectionLoopStore.kt$CollectionGate$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:CollectionModules.kt$CollectionModules$e: Exception</ID>
     <ID>TooGenericExceptionCaught:CollectionSettingsSyncWorker.kt$CollectionSettingsSyncWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:CombinedUploadOrchestrator.kt$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:CombinedUploadWorker.kt$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ConcurrentEditFilter.kt$ConcurrentEditFilter$failure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ConnectivityStateCollectionModule.kt$ConnectivityStateCollectionModule$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ConnectivityStateSampleSink.kt$ConnectivityStateSampleSink$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DashboardDataRepository.kt$DashboardDataRepository$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DashboardDataRepository.kt$DashboardDataRepository$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$failure: Exception</ID>
-    <ID>TooGenericExceptionCaught:DataDeletionOrchestrator.kt$DataDeletionOrchestrator$lockFailure: Exception</ID>
-    <ID>TooGenericExceptionCaught:DataQualityService.kt$DataQualityService$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:DatabaseKeyManager.kt$DatabaseKeyManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DatabaseKeyManager.kt$DatabaseKeyManager$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DeviceLifecycleEvents.kt$DeviceLifecycleEventRecorder$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DeviceLifecycleEvents.kt$DeviceLifecycleEventRecorder$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:DeviceSettingsCollectionModule.kt$DeviceSettingsCollectionModule$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:DeviceSettingsSampleSink.kt$DeviceSettingsSampleSink$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DeviceUnlockMonitoringService.kt$UnlockMonitoringRuntimeStatus$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:DirectBootDrainWorker.kt$DirectBootDrainWorker$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:DirectBootDrainWorker.kt$DirectBootDrainWorker$quarantineError: Exception</ID>
-    <ID>TooGenericExceptionCaught:DirectBootDrainWorker.kt$DirectBootDrainWorker.Companion$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:DirectBootSampleBuffer.kt$DirectBootSampleBuffer$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DirectBootSnapshotWriter.kt$DirectBootSnapshotWriter$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:DirectBootStorageAdmission.kt$DirectBootStorageAdmission$error: Exception</ID>
     <ID>TooGenericExceptionCaught:EncryptedPrefsHelper.kt$EncryptedPrefsHelper$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:EncryptionSettingStore.kt$EncryptionSettingStore$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:Enrollment.kt$Enrollment$e: Exception</ID>
     <ID>TooGenericExceptionCaught:Enrollment.kt$Enrollment$error: Exception</ID>
     <ID>TooGenericExceptionCaught:EnrollmentMonitoringWorker.kt$EnrollmentMonitoringWorker$e: Exception</ID>
     <ID>TooGenericExceptionCaught:EnrollmentRecoveryManager.kt$EnrollmentRecoveryManager$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:EnrollmentService.kt$EnrollmentService$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:EnrollmentSettings.kt$EnrollmentSettings$error: Exception</ID>
     <ID>TooGenericExceptionCaught:EnrollmentSettings.kt$EnrollmentSettings$error: RuntimeException</ID>
     <ID>TooGenericExceptionCaught:ExpansionCollectionWorker.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ExpansionUploadWorker.kt$ExpansionUploadWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExpansionUploadWorker.kt$ExpansionUploadWorkerDelegate$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportFileWriter.kt$ExportFileWriter.Companion$cleanupFailure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportFileWriter.kt$ExportFileWriter.Companion$failure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$deferFailure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$ex: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$lockFailure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$restoreFailure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ExportService.kt$ExportService$rollbackFailure: Exception</ID>
     <ID>TooGenericExceptionCaught:HardwareSensorService.kt$HardwareSensorService$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:HardwareSensorService.kt$HardwareSensorService.Companion.&lt;no name provided&gt;$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:HardwareSensorsCollectionModule.kt$HardwareSensorsCollectionModule$e: Exception</ID>
     <ID>TooGenericExceptionCaught:HazelcastIdGenerationService.kt$HazelcastIdGenerationService$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:HealthConnectUploadLeaseRegressionTest.kt$HealthConnectUploadLeaseRegressionTest$error: Exception</ID>
     <ID>TooGenericExceptionCaught:HealthMetricCollectionModule.kt$HealthMetricCollectionModule$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:HealthMetricSampleSink.kt$HealthMetricSampleSink$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ImportController.kt$ImportController$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:InteractionCollectionService.kt$InteractionCollectionService$e: Exception</ID>
     <ID>TooGenericExceptionCaught:InteractionCollectionService.kt$InteractionCollectionService$error: RuntimeException</ID>
     <ID>TooGenericExceptionCaught:InteractionPolicySettings.kt$InteractionPolicySettings$error: RuntimeException</ID>
     <ID>TooGenericExceptionCaught:InteractionUploadWorker.kt$InteractionUploadWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:InteractionUploadWorker.kt$InteractionUploadWorkerDelegate$e: Exception</ID>
     <ID>TooGenericExceptionCaught:InternalHealthController.kt$InternalHealthController$ex: Exception</ID>
-    <ID>TooGenericExceptionCaught:JobService.kt$JobService$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:JsonSerializer.kt$JsonSerializer$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:LegacySensorSettingSource.kt$EncryptedPrefsSensorSettingSource$e: Exception</ID>
     <ID>TooGenericExceptionCaught:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager$error: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$error: RuntimeException</ID>
-    <ID>TooGenericExceptionCaught:MinifiedRuntimeProofReceiver.kt$MinifiedRuntimeProofReceiver$error: Throwable</ID>
-    <ID>TooGenericExceptionCaught:MinimalPlayArtifactState.kt$MinimalPlayArtifactState$error: RuntimeException</ID>
-    <ID>TooGenericExceptionCaught:MinimalPlayBoundaryWorker.kt$MinimalPlayBoundaryWorker$error: Exception</ID>
     <ID>TooGenericExceptionCaught:NotificationDismissedReceiver.kt$NotificationDismissedReceiver$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:NotificationService.kt$NotificationService$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:NotificationsWorker.kt$NotificationsWorker$e: Exception</ID>
     <ID>TooGenericExceptionCaught:NotificationsWorker.kt$NotificationsWorker$error: Exception</ID>
     <ID>TooGenericExceptionCaught:NotificationsWorker.kt$error: Exception</ID>
     <ID>TooGenericExceptionCaught:PackageLabels.kt$PackageLabels$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:ParticipantCollectionAcknowledgmentService.kt$ParticipantCollectionAcknowledgmentService$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:ParticipantFormAccessService.kt$ParticipantFormAccessService$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:ParticipantFormAccessService.kt$ParticipantFormAccessService$failure: Exception</ID>
-    <ID>TooGenericExceptionCaught:ParticipantPurgeCutoff.kt$ParticipantPurgeCutoff$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:ParticipantStatsMapstore.kt$ParticipantStatsMapstore$guardFailure: Exception</ID>
     <ID>TooGenericExceptionCaught:ParticipantWithdrawalManager.kt$ParticipantWithdrawalManager$error: Exception</ID>
     <ID>TooGenericExceptionCaught:ParticipantWithdrawalManager.kt$ParticipantWithdrawalWorker$error: Exception</ID>
     <ID>TooGenericExceptionCaught:ParticipantWithdrawalManager.kt$ParticipantWithdrawalWorker$error: RuntimeException</ID>
     <ID>TooGenericExceptionCaught:ParticipantWithdrawalManager.kt$WithdrawalStateStore$error: RuntimeException</ID>
-    <ID>TooGenericExceptionCaught:PipelineService.kt$PipelineService$ex: Exception</ID>
-    <ID>TooGenericExceptionCaught:PostgresAuditingManager.kt$PostgresAuditingManager$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:PowerSaveModeReceiver.kt$PowerSaveModeReceiver$error: Exception</ID>
     <ID>TooGenericExceptionCaught:ProcessExitDiagnostics.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:QuestionnaireCollectionModule.kt$QuestionnaireCollectionModule$e: Exception</ID>
     <ID>TooGenericExceptionCaught:QuestionnaireModuleHolder.kt$QuestionnaireModuleHolder.AlarmManagerQuestionnaireScheduler$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:QueueWriteTransactionTest.kt$QueueWriteTransactionTest$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:ResearchPersistenceGate.kt$ResearchPersistenceGate$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:RestoreContinuityReconciler.kt$RestoreContinuityReconciler$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:SensorAvailabilityReporter.kt$SensorAvailabilityReporter$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SensorDataContractTest.kt$SensorDataContractTest$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:SensorRuntimeController.kt$SensorRuntimeController$error: Exception</ID>
     <ID>TooGenericExceptionCaught:SensorRuntimeController.kt$SensorRuntimeController$error: RuntimeException</ID>
-    <ID>TooGenericExceptionCaught:SensorSampleSink.kt$SensorSampleSink$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorSettingsRefreshWorker.kt$SensorSettingsRefreshWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorUploadWorker.kt$SensorUploadWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$statsError: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorUploadWorkerDelegate.kt$SensorUploadWorkerDelegate$statusError: Exception</ID>
-    <ID>TooGenericExceptionCaught:SensorUploadWorkerDelegate.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ServerEnrollmentActivity.kt$ServerEnrollmentActivity$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:ServerMigrationHelper.kt$ServerMigrationHelper$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SleepActivityCaptureController.kt$SleepActivityCaptureController$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SleepActivityReceiver.kt$SleepActivityReceiver$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:SleepSampleSink.kt$SleepSampleSink$e: Exception</ID>
     <ID>TooGenericExceptionCaught:StartOnBoot.kt$StartOnBoot$error: Exception</ID>
     <ID>TooGenericExceptionCaught:StorageAdmission.kt$StorageAdmission$error: Exception</ID>
     <ID>TooGenericExceptionCaught:StorageFailureBoundary.kt$error: Exception</ID>
@@ -848,95 +338,45 @@
     <ID>TooGenericExceptionCaught:SurveysService.kt$SurveysService$failure: Exception</ID>
     <ID>TooGenericExceptionCaught:TargetUserRouter.kt$TargetUserRouter$error: Exception</ID>
     <ID>TooGenericExceptionCaught:UploadDiagnosticsUploader.kt$UploadDiagnosticsUploader$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:UploadExecutor.kt$UploadExecutor$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:UploadStatsSink.kt$UploadStatsSink$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:UploadWorker.kt$UploadWorker$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:UploadWorkerDelegate.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:UsageCollectionDelegateBase.kt$UsageCollectionDelegateBase$e: Exception</ID>
     <ID>TooGenericExceptionCaught:UsageEventSink.kt$UsageEventSink$e: Exception</ID>
     <ID>TooGenericExceptionCaught:UsageEventSink.kt$UsageEventSink$error: Exception</ID>
     <ID>TooGenericExceptionCaught:UsageEventsCollectionModule.kt$UsageEventsCollectionModule$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:UsageMonitoringWorker.kt$UsageMonitoringWorker$e: Exception</ID>
     <ID>TooGenericExceptionCaught:UserIdentificationCollectionModule.kt$UserIdentificationCollectionModule$e: Exception</ID>
     <ID>TooGenericExceptionCaught:WebhookService.kt$WebhookService$ex: Exception</ID>
     <ID>TooGenericExceptionCaught:WorkSchedulingStatus.kt$WorkSchedulingStatus$error: Exception</ID>
     <ID>TooGenericExceptionThrown:BatteryTelemetryCollectionModuleTest.kt$BatteryTelemetryCollectionModuleTest.FakeBatterySampleDao$throw RuntimeException("battery_samples insert boom")</ID>
-    <ID>TooGenericExceptionThrown:CombinedUploadOrchestratorTest.kt$CombinedUploadOrchestratorTest$throw RuntimeException("simulated cleanup failure")</ID>
     <ID>TooGenericExceptionThrown:FakeDaos.kt$FakeSensorSampleDao$throw RuntimeException("simulated sensor_samples write failure")</ID>
     <ID>TooGenericExceptionThrown:FakeDaos.kt$FakeStorageQueue$throw RuntimeException("simulated dataQueue write failure")</ID>
     <ID>TooGenericExceptionThrown:FakeDaos.kt$FakeUploadStatsDao$throw RuntimeException("simulated upload_stats write failure")</ID>
     <ID>TooGenericExceptionThrown:FakeTargetUserStore.kt$FakeTargetUserStore$throw RuntimeException("simulated userQueue write failure")</ID>
-    <ID>TooGenericExceptionThrown:FakeUploadCollaborators.kt$FakeUploadStateProbe$throw RuntimeException("simulated dataQueue read failure")</ID>
-    <ID>TooGenericExceptionThrown:FakeUploadCollaborators.kt$FakeUploadStateProbe$throw RuntimeException("simulated sensor_samples read failure")</ID>
-    <ID>TooGenericExceptionThrown:FakeUploadCollaborators.kt$FakeUploadStateProbe$throw RuntimeException("simulated upload_servers read failure")</ID>
-    <ID>TooGenericExceptionThrown:FakeUploadCollaborators.kt$FakeUploadStateProbe$throw RuntimeException("simulated upload_stats read failure")</ID>
-    <ID>TooGenericExceptionThrown:JsonSerializer.kt$JsonSerializer$throw RuntimeException("Failed to deserialize legacy queue entry", e)</ID>
-    <ID>TooGenericExceptionThrown:UploadExecutor.kt$UploadExecutor$throw Exception("Upload to server '${server.name}' returned failure")</ID>
     <ID>TooManyFunctions:AndroidSweepReworkRegressionTest.kt$AndroidSweepReworkRegressionTest</ID>
     <ID>TooManyFunctions:ChronicleStudyApi.kt$ChronicleStudyApi</ID>
-    <ID>TooManyFunctions:CollectionConsentCopy.kt$CollectionConsentCopy</ID>
     <ID>TooManyFunctions:CollectionLoopCoordinator.kt$CollectionLoopCoordinator</ID>
     <ID>TooManyFunctions:CollectionStateMachine.kt$CollectionStateMachine</ID>
     <ID>TooManyFunctions:DataDeletionOrchestrator.kt$DataDeletionOrchestrator : AuditingComponent</ID>
     <ID>TooManyFunctions:DataDownloadService.kt$DataDownloadService$Companion</ID>
     <ID>TooManyFunctions:DataSharingFragment.kt$DataSharingFragment : Fragment</ID>
-    <ID>TooManyFunctions:DeviceLifecycleEvents.kt$DeviceLifecycleEventRecorder : Observer</ID>
-    <ID>TooManyFunctions:DirectBootErasureRegressionTest.kt$DirectBootErasureRegressionTest</ID>
-    <ID>TooManyFunctions:DirectBootSampleBufferTest.kt$DirectBootSampleBufferTest</ID>
     <ID>TooManyFunctions:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime</ID>
     <ID>TooManyFunctions:EnrollmentManager.kt$EnrollmentManager</ID>
     <ID>TooManyFunctions:EnrollmentSettings.kt$EnrollmentSettings</ID>
-    <ID>TooManyFunctions:ExportService.kt$ExportService</ID>
     <ID>TooManyFunctions:LocalStoreRecoveryManager.kt$LocalStoreRecoveryManager</ID>
-    <ID>TooManyFunctions:ResearchErasureRegressionTest.kt$ResearchErasureRegressionTest</ID>
     <ID>TooManyFunctions:ResearchPersistenceGate.kt$ResearchPersistenceGate</ID>
-    <ID>TooManyFunctions:RestoreContinuityReconciler.kt$RestoreContinuityReconciler</ID>
     <ID>TooManyFunctions:SensorRuntimeController.kt$SensorRuntimeController : Discardable</ID>
     <ID>TooManyFunctions:SensorRuntimeControllerTest.kt$SensorRuntimeControllerTest</ID>
-    <ID>TooManyFunctions:SensorSampleDao.kt$SensorSampleDao</ID>
+    <ID>TooManyFunctions:SensorSampleDao.kt$SensorSampleDao : BoundedQueueWriter</ID>
     <ID>TooManyFunctions:SleepActivityCaptureController.kt$SleepActivityCaptureController</ID>
     <ID>TooManyFunctions:SsrfException.kt$SsrfException$Companion</ID>
-    <ID>TooManyFunctions:StorageQueue.kt$StorageQueue</ID>
-    <ID>TooManyFunctions:UploadDiagnosticDao.kt$UploadDiagnosticDao</ID>
+    <ID>TooManyFunctions:StorageQueue.kt$StorageQueue : BoundedQueueWriter</ID>
+    <ID>TooManyFunctions:StudyManager.kt$StudyManager</ID>
+    <ID>TooManyFunctions:StudyService.kt$StudyService : StudyManagerAuditingComponent</ID>
+    <ID>TooManyFunctions:UploadDiagnosticDao.kt$LocalDataQuarantineDao</ID>
+    <ID>TooManyFunctions:UploadDiagnosticDao.kt$UploadDiagnosticDao : BoundedQueueWriter</ID>
     <ID>TooManyFunctions:UploadServerDao.kt$UploadServerDao</ID>
     <ID>TooManyFunctions:UploadStatsDao.kt$UploadStatsDao</ID>
     <ID>TooManyFunctions:Utils.kt$Utils</ID>
-    <ID>TooManyFunctions:WebhookService.kt$WebhookService</ID>
-    <ID>UnusedParameter:ChronicleServerExceptionHandler.kt$ChronicleServerExceptionHandler$req: HttpServletRequest</ID>
-    <ID>UnusedParameter:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$disabled: List&lt;ModuleTransition&gt;</ID>
-    <ID>UnusedParameter:CollectionLoopCoordinator.kt$CollectionLoopCoordinator$modules: Set&lt;CollectionModuleId&gt;</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$context: Context</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$cutoff: String</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$db: ChronicleDb</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$delegate: ExpansionUploadWorkerDelegate</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$nowMs: Long</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$schedule: ExpansionPullSchedule?</ID>
-    <ID>UnusedParameter:DistributionCollectionContributions.kt$DistributionCollectionContributions$servers: List&lt;UploadServerEntity&gt;</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$apiKey: String?</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$configured: Set&lt;HealthConnectRecordType&gt;</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$context: Context</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$db: ChronicleDb</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$deviceId: String</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$fragment: Fragment</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$mobileSigningSecretOverride: String?</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$participantId: String</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$requestedSensors: Set&lt;AndroidSensorType&gt;</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$sample: Any</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$sensorType: String</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$sensorTypes: Set&lt;String&gt;</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$serverUrl: String</ID>
-    <ID>UnusedParameter:DistributionRestrictedRuntime.kt$DistributionRestrictedRuntime$studyId: UUID</ID>
-    <ID>UnusedParameter:FreshEnrollmentNavigationRegressionTest.kt$FreshEnrollmentNavigationRegressionTest.ShadowDeviceIdentity$context: Context</ID>
     <ID>UnusedParameter:HazelcastAuthorizationOwnerLockTest.kt$HazelcastAuthorizationOwnerLockTest$aclKey: AclKey</ID>
-    <ID>UnusedParameter:RateLimitFilter.kt$RateLimitFilter$clientIp: String</ID>
-    <ID>UnusedPrivateMember:ExportFileWriter.kt$ExportFileWriter.Companion$private fun spreadsheetSafeRow(row: Map&lt;String, Any&gt;): Map&lt;String, Any?&gt;</ID>
-    <ID>UnusedPrivateMember:StudyController.kt$StudyController$private fun buildParticipantDeletionJobs(studyId: UUID, participantIds: Set&lt;String&gt;): List&lt;ChronicleJob&gt;</ID>
-    <ID>UnusedPrivateMember:StudyController.kt$StudyController$private fun buildStudyDeletionAuditEvents( studyId: UUID, currentUser: com.openlattice.chronicle.authorization.SecurablePrincipal, jobIds: Iterable&lt;UUID&gt;, ): List&lt;AuditableEvent&gt;</ID>
-    <ID>UnusedPrivateProperty:HazelcastPrincipalsMapManager.kt$HazelcastPrincipalsMapManager$@Suppress("UnusedParameter") reservations: AclKeyReservationService</ID>
-    <ID>UseRequire:DebugSyncConfigReceiver.kt$DebugSyncConfigReceiver$throw IllegalArgumentException("no upload server matched")</ID>
     <ID>UseRequire:RLSRequestContextTest.kt$RLSRequestContextTest$throw IllegalArgumentException("caller failure")</ID>
-    <ID>UseRequire:UploadExecutor.kt$UploadExecutor$throw IllegalArgumentException("Legacy usage queue item is missing required fields")</ID>
     <ID>WildcardImport:HealthCheckpointAuditTest.kt$import androidx.work.*</ID>
-    <ID>WildcardImport:UploadExecutor.kt$import com.openlattice.chronicle.preferences.*</ID>
   </CurrentIssues>
 </SmellBaseline>

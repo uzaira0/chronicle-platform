@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 PMD_VERSION="7.18.0"
+WEB_E2E_TIMEOUT_SECONDS=900
 # Run the parts of GitHub CI that are meaningful on a developer workstation.
 #
 # This intentionally does not emulate GitHub-only plumbing such as artifact
@@ -9,6 +10,8 @@ PMD_VERSION="7.18.0"
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=tests/security/lib/selfhost-python.sh
+source "$ROOT_DIR/tests/security/lib/selfhost-python.sh"
 WEB_DIR="$ROOT_DIR/chronicle-web"
 LOCAL_BIN_DIR="${CHRONICLE_LOCAL_BIN_DIR:-$ROOT_DIR/.local/bin}"
 LOCAL_REPORT_DIR="${CHRONICLE_LOCAL_CI_REPORT_DIR:-}"
@@ -20,39 +23,64 @@ fi
 
 export PATH="$LOCAL_BIN_DIR:$PATH"
 
+# shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
+fast_jobs=(engineering preflight architecture duplication migration-safety web web-e2e api-probes web-a11y jvm-smoke repo-automation linkml-ssot dead-code security-layers dependency-sbom license-compliance android-unit selfhost-python diff-coverage)
+# shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
+security_jobs=(engineering gitleaks gradle-depcheck bun-audit deps-freshness detekt pmd bearer osv grype syft fuzz)
+# shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
+containers_jobs=(selfhost dockerfile-lint iac-scan container-structure upload-body-limit-edge android-replay route-surface-edge fluent-bit-config)
+# shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
+all_jobs=(fast security containers contract-drift parity k6-benchmarks)
+job_groups=(fast security containers all)
+
+job_group_members() {
+  local group="${1}_jobs[*]"
+  printf '%s\n' "${!group}"
+}
+
 usage() {
   cat <<'EOF'
 Usage: scripts/local-ci.sh <job> [job...]
 
 Fast jobs:
   preflight             Validate local toolchain and workspace basics
+  route-surface-edge    Public/retired routes across pinned Caddy, Nginx and Traefik
+  engineering           Native ast-grep and Semgrep defect rules and tests
   architecture          Source ownership, dependency boundaries, negative fixtures
-  migration-safety      Published migration immutability, additive SQL, version ordering
+  migration-safety      Fresh baseline SQL, destructive-change approval, unique versions
+  selfhost-restore      Restore continuity, failure, and orchestration fixture suites
+  selfhost-python       Strict operator Python suite with coverage
+  contract-drift        Shared contract values across current consumers
   diff-coverage         Require 80% coverage of changed executable lines per repository
   duplication           Reject new production clones against the CPD baseline
   migration-lint        Squawk only SQL migrations added since the base
   web                   chronicle-web audit, checks, tests, build, size
   web-a11y              chronicle-web axe WCAG 2 A/AA scans in Chromium (Playwright)
+  web-e2e               Every browser spec against the isolated Testcontainers backend
+  api-probes            Cross-study/admin/export authorization probes and GET Schemathesis against that backend
   jvm-smoke             Gradle project list, OpenAPI validation, shared/API/server tests, JaCoCo, Checkstyle, SpotBugs, PIT
   repo-automation       Compose config + repo guardrail scripts
   linkml-ssot           LinkML schema freshness and domain contract drift checks
-  cue-k8s               CUE deployment profile vs rendered Kubernetes checks
   dead-code             chronicle-web knip dead-code analysis
   security-layers       every offline tests/security/run-all-security.sh layer
   dependency-sbom       Backend CycloneDX SBOM generation
   license-compliance    Backend and frontend license checks
   detekt                Kotlin Detekt scan with the pinned CI CLI jar
+  android-unit          Android SAST, lintOpenRelease, verifier self-tests, unit tests of every app flavor
+  android-instrumented  Room/Keystore instrumented tests of every module on the attached device (ANDROID_SERIAL)
 
 Container/IaC jobs:
   selfhost              Turnkey setup, monitoring privacy, release bundle, supported matrix
   dockerfile-lint       Hadolint the Dockerfiles
   iac-scan              Checkov Dockerfile and compose scans
   container-structure   Build/test every shipped selfhost image structure
+  upload-body-limit-edge  Android maximum upload bodies through the shipped Caddy and server filters
+  android-replay        Android-captured enrollment, uploads, identity labels and survey links into server, export and web
   http-smoke-stack      Disposable-host only: build/start smoke stack, HTTP/upload tests, tear down
   http-security         Upload, load smoke and race tests against a disposable self-host fixture
+  selfhost-browser      Deployed archive journey; requires both listeners and dashboard password
 
 Operator evidence job:
-  operator-secret       Operator access and local secret-custody preflight
 
 Security/dependency jobs:
   depcheck-locks        Validate/optionally clean stale Dependency-Check locks
@@ -66,22 +94,27 @@ Security/dependency jobs:
   osv                   OSV-Scanner recursive SARIF scan
   grype                 Grype recursive repository scan
   syft                  Syft SPDX JSON SBOM
-  openapi-diff          oasdiff against BASE_SPEC and HEAD_SPEC
 
 Slow/specialized jobs:
   pit                   PIT mutation test for chronicle-server
   fuzz                  Jazzer fuzz tests
   parity                Kotlin and TypeScript parity tests
   web-mutation          Stryker mutation tests
-  android-unit          Android unit tests (collection modules + app)
+  k6-benchmarks         Every load script against explicitly enrolled synthetic devices
   ios-verify            iOS contract freshness + simulator test suite (macOS)
 
 Groups:
-  fast                  preflight duplication migration-safety web jvm-smoke repo-automation linkml-ssot cue-k8s dead-code security-layers dependency-sbom license-compliance
-  security              gradle-depcheck bun-audit deps-freshness detekt pmd bearer osv grype syft
-  containers            selfhost dockerfile-lint iac-scan container-structure fluent-bit-config
-  all                   fast security containers parity android-unit
+EOF
+  local group
+  for group in "${job_groups[@]}"; do
+    printf '  %-22s %s\n' "$group" "$(job_group_members "$group")"
+  done
+  printf '\n'
+  usage_environment
+}
 
+usage_environment() {
+  cat <<'EOF'
 Environment:
   NVD_API_KEY           Required for gradle-depcheck
   CHRONICLE_NVD_API_KEY_FILE
@@ -101,10 +134,9 @@ Environment:
   CHRONICLE_LOCAL_CI_REPORT_DIR
                         Optional report directory for scanner outputs. When unset,
                         outputs stay at the GitHub Actions-compatible paths.
-                        For operator-secret, the bundle is written directly to
+                        For, the bundle is written directly to
                         this directory.
-  BASE_SPEC, HEAD_SPEC  Inputs for openapi-diff
-  API_KEY, TEST_STUDY_ID, TEST_PARTICIPANT_ID, TEST_DEVICE_ID
+  API_KEY, TEST_STUDY_ID, TEST_PARTICIPANT_ID, TEST_RANDOM_DEVICE_ID
                         Enrolled sensor fixture required by http-security and http-smoke-stack
   BASE_URL, AUTH_TOKEN, MOBILE_SIGNING_SECRET
                         Fixture URL, researcher bearer and legacy HMAC secret for http-security
@@ -130,8 +162,6 @@ Environment:
   CHRONICLE_DEPCHECK_UPDATE_LOG
                         Optional path for the redacted fresh NVD update log.
                         Default: dependency-check-update.log in the report dir.
-  CHRONICLE_DEPCHECK_NVD_VALID_FOR_HOURS
-                        Fresh update window, default 0 for release evidence.
   CHRONICLE_DEPCHECK_CLEAN_STALE_LOCKS=1
                         Remove stale NVD database *.lock files before
                         a fresh update, but only when no Gradle/Dependency-Check
@@ -183,122 +213,16 @@ PY
 }
 
 run_with_timeout_logged() {
-  local seconds="$1"
-  local log_file="$2"
+  local seconds="$1" log_file="$2"
   shift 2
-
-  require_cmd python3 "install Python 3 or set CHRONICLE_DEPCHECK_UPDATE_TIMEOUT_SECONDS=0 for supervised runs"
+  require_cmd python3 "install Python 3"
   ensure_dir "$(dirname "$log_file")"
   : > "$log_file"
-
-  if [[ "$seconds" == "0" ]]; then
-    # python3 -c (not "python3 - <<heredoc"): a heredoc would replace the piped
-    # command output as stdin, leaving the pipe unread — nothing logged and the
-    # command blocks once the pipe buffer fills.
-    "$@" 2>&1 | python3 -c '
-import re
-import sys
-
-log_path = sys.argv[1]
-pattern = re.compile(r"(?i)(NVD_API_KEY|nvdApiKey|apiKey)(\s*[:=]\s*)([^ \t\r\n]+)")
-
-with open(log_path, "a", encoding="utf-8", errors="replace") as log:
-    for line in sys.stdin:
-        redacted = pattern.sub(r"\1\2[redacted]", line)
-        sys.stdout.write(redacted)
-        log.write(redacted)
-' "$log_file"
+  if [[ "$seconds" == 0 ]]; then
+    "$@" 2>&1 | python3 "$ROOT_DIR/scripts/local-ci-timeout.py" "$seconds" "$log_file"
     return "${PIPESTATUS[0]}"
   fi
-
-  require_cmd python3 "install Python 3 or set CHRONICLE_DEPCHECK_UPDATE_TIMEOUT_SECONDS=0 for supervised runs"
-  python3 - "$seconds" "$log_file" "$@" <<'PY'
-import os
-import re
-import selectors
-import signal
-import subprocess
-import sys
-import time
-
-timeout = float(sys.argv[1])
-log_path = sys.argv[2]
-cmd = sys.argv[3:]
-redact_pattern = re.compile(r"(?i)(NVD_API_KEY|nvdApiKey|apiKey)(\s*[:=]\s*)([^ \t\r\n]+)")
-
-def redact(text: str) -> str:
-    return redact_pattern.sub(r"\1\2[redacted]", text)
-
-def write(stream, log, text: str) -> None:
-    redacted = redact(text)
-    stream.write(redacted)
-    stream.flush()
-    log.write(redacted)
-    log.flush()
-
-with open(log_path, "a", encoding="utf-8", errors="replace") as log:
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-        preexec_fn=os.setsid,
-    )
-    assert proc.stdout is not None
-    assert proc.stderr is not None
-    selector = selectors.DefaultSelector()
-    selector.register(proc.stdout, selectors.EVENT_READ, sys.stdout)
-    selector.register(proc.stderr, selectors.EVENT_READ, sys.stderr)
-    deadline = time.monotonic() + timeout
-
-    while selector.get_map():
-        remaining = deadline - time.monotonic()
-        if remaining <= 0 and proc.poll() is None:
-            msg = f"[local-ci] command timed out after {int(timeout)}s: {' '.join(cmd)}\n"
-            write(sys.stderr, log, msg)
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            kill_deadline = time.monotonic() + 15
-            while time.monotonic() < kill_deadline:
-                if proc.poll() is not None:
-                    break
-                time.sleep(0.5)
-            if proc.poll() is None:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            proc.wait()
-            sys.exit(124)
-
-        events = selector.select(timeout=max(0.1, min(1.0, remaining)))
-        if not events:
-            if proc.poll() is not None:
-                for fileobj, stream in ((proc.stdout, sys.stdout), (proc.stderr, sys.stderr)):
-                    rest = fileobj.read()
-                    if rest:
-                        write(stream, log, rest)
-                    try:
-                        selector.unregister(fileobj)
-                    except KeyError:
-                        pass
-            continue
-
-        for key, _ in events:
-            line = key.fileobj.readline()
-            if line:
-                write(key.data, log, line)
-            else:
-                try:
-                    selector.unregister(key.fileobj)
-                except KeyError:
-                    pass
-
-    sys.exit(proc.wait())
-PY
+  python3 "$ROOT_DIR/scripts/local-ci-timeout.py" "$seconds" "$log_file" "$@"
 }
 
 dependency_check_data_snapshot() {
@@ -399,8 +323,11 @@ require_jdk21() {
     # Prefer manifest JDK from the usual local install dirs over whatever java is on PATH.
     local jdk_major cand
     jdk_major="$(yq -r '.jdk.build_runtime' "$ROOT_DIR/toolchain-manifest.yaml" 2>/dev/null || echo 25)"
+    # Homebrew's openjdk@N is not registered with /usr/libexec/java_home, so name its prefix too.
     for cand in "$HOME/.local/jdks/temurin-$jdk_major" "$HOME/.sdkman/candidates/java/current" \
-                "/usr/lib/jvm/temurin-$jdk_major-jdk" "/usr/lib/jvm/java-$jdk_major-openjdk"; do
+                "/usr/lib/jvm/temurin-$jdk_major-jdk" "/usr/lib/jvm/java-$jdk_major-openjdk" \
+                "${HOMEBREW_PREFIX:-/opt/homebrew}/opt/openjdk@$jdk_major/libexec/openjdk.jdk/Contents/Home" \
+                "/usr/local/opt/openjdk@$jdk_major/libexec/openjdk.jdk/Contents/Home"; do
       if [[ -x "$cand/bin/java" ]]; then
         export JAVA_HOME="$cand"
         break
@@ -430,18 +357,33 @@ require_jdk21() {
 sha256_check() {
   local expected="$1"
   local file="$2"
+  # The "<file>: OK" report goes to stderr: callers capture `ensure_<tool>; command -v <tool>`.
   if command -v sha256sum >/dev/null 2>&1; then
-    printf '%s  %s\n' "$expected" "$file" | sha256sum -c -
+    printf '%s  %s\n' "$expected" "$file" | sha256sum -c - >&2
   elif command -v shasum >/dev/null 2>&1; then
-    printf '%s  %s\n' "$expected" "$file" | shasum -a 256 -c -
+    printf '%s  %s\n' "$expected" "$file" | shasum -a 256 -c - >&2
   else
     printf '[local-ci] missing sha256sum/shasum for verifying %s\n' "$file" >&2
     exit 127
   fi
 }
 
+# Prints $1 distinct ports the OS reports free right now. A fixed default port collides with
+# whatever else listens on, or holds an outgoing connection from, this host.
+free_ports() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+sockets = [socket.socket() for _ in range(int(sys.argv[1]))]
+for server in sockets:
+    server.bind(('', 0))
+print(' '.join(str(server.getsockname()[1]) for server in sockets))
+PY
+}
+
 gradle() {
-  "$ROOT_DIR/gradlew" "$@"
+  CHRONICLE_TEST_HTTP_PORT="${CHRONICLE_TEST_HTTP_PORT:-$(free_ports 1)}" "$ROOT_DIR/gradlew" --no-daemon "$@"
 }
 
 ensure_dir() {
@@ -508,12 +450,28 @@ machine_os() {
   esac
 }
 
+export_docker_host_from_context() {
+  [[ -z "${DOCKER_HOST:-}" && "$(uname -s)" == Darwin ]] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  local host
+  host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" || return 0
+  [[ "$host" == unix://* && -S "${host#unix://}" ]] || return 0
+  export DOCKER_HOST="$host"
+  export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="${TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE:-/var/run/docker.sock}"
+}
+
 machine_arch() {
   case "$(uname -m)" in
     x86_64|amd64) echo amd64 ;;
     arm64|aarch64) echo arm64 ;;
     *) printf '[local-ci] unsupported architecture: %s\n' "$(uname -m)" >&2; exit 127 ;;
   esac
+}
+
+gate_tool_temp() {
+  local directory="$ROOT_DIR/build/tool-downloads"
+  ensure_dir "$directory"
+  mktemp "$@" "$directory/work.XXXXXX"
 }
 
 download_asset() {
@@ -531,13 +489,39 @@ download_asset() {
     -o "$output"
 }
 
+# Prints the sha256 toolchain-manifest.yaml commits for a gate tool's asset at this version and
+# platform (os-arch, or "any"). Exits when the manifest has no digest for it or names another version,
+# so every downloaded tool needs a committed digest.
+pinned_tool_sha256() {
+  local tool="$1" version="$2" platform="$3" manifest="$ROOT_DIR/toolchain-manifest.yaml" pinned_version sha
+  require_cmd yq
+  pinned_version="$(yq -r ".gate_tools.\"$tool\".version // \"\"" "$manifest")"
+  sha="$(yq -r ".gate_tools.\"$tool\".sha256.\"$platform\" // \"\"" "$manifest")"
+  if [[ "$pinned_version" != "$version" ]]; then
+    printf '[local-ci] %s %s: toolchain-manifest.yaml gate_tools pins version %s; update the version and digests together\n' \
+      "$tool" "$version" "${pinned_version:-none}" >&2
+    exit 1
+  fi
+  if [[ ! "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+    printf '[local-ci] %s %s: no committed sha256 for %s in toolchain-manifest.yaml gate_tools\n' "$tool" "$version" "$platform" >&2
+    exit 1
+  fi
+  printf '%s\n' "$sha"
+}
+
+# The committed digest is the trust root; the release's checksums file must agree with it.
 download_asset_with_checksum() {
-  local asset_url="$1"
-  local checksum_url="$2"
-  local asset_name="$3"
-  local output="$4"
+  local pinned="$1"
+  local asset_url="$2"
+  local checksum_url="$3"
+  local asset_name="$4"
+  local output="$5"
   local checksum_file expected
-  checksum_file="$(mktemp)"
+  if [[ ! "$pinned" =~ ^[0-9a-f]{64}$ ]]; then
+    printf '[local-ci] %s: no committed sha256 (toolchain-manifest.yaml gate_tools); refusing to download\n' "$asset_name" >&2
+    exit 1
+  fi
+  checksum_file="$(gate_tool_temp)"
   download_asset "$asset_url" "$output"
   download_asset "$checksum_url" "$checksum_file"
   expected="$(awk -v asset="$asset_name" '
@@ -561,7 +545,12 @@ download_asset_with_checksum() {
     printf '[local-ci] could not find checksum for %s in %s\n' "$asset_name" "$checksum_url" >&2
     exit 1
   fi
-  sha256_check "$expected" "$output"
+  if [[ "$expected" != "$pinned" ]]; then
+    printf '[local-ci] %s: release checksum %s differs from the committed digest %s (toolchain-manifest.yaml gate_tools)\n' \
+      "$asset_name" "$expected" "$pinned" >&2
+    exit 1
+  fi
+  sha256_check "$pinned" "$output"
 }
 
 extract_binary_from_tar() {
@@ -569,7 +558,7 @@ extract_binary_from_tar() {
   local binary_name="$2"
   local output="$3"
   local tmp_dir found
-  tmp_dir="$(mktemp -d)"
+  tmp_dir="$(gate_tool_temp -d)"
   tar -xzf "$archive" -C "$tmp_dir"
   found="$(find "$tmp_dir" -type f -name "$binary_name" -perm -111 | head -1)"
   if [[ -z "$found" ]]; then
@@ -591,7 +580,7 @@ extract_binary_from_zip() {
   local output="$3"
   local tmp_dir found
   require_cmd unzip
-  tmp_dir="$(mktemp -d)"
+  tmp_dir="$(gate_tool_temp -d)"
   unzip -q "$archive" -d "$tmp_dir"
   found="$(find "$tmp_dir" -type f -name "$binary_name" -perm -111 | head -1)"
   if [[ -z "$found" ]]; then
@@ -624,8 +613,9 @@ ensure_container_structure_test() {
     linux-arm64) asset="container-structure-test-linux-arm64" ;;
     *) printf '[local-ci] unsupported container-structure-test platform: %s-%s\n' "$os" "$arch" >&2; exit 127 ;;
   esac
-  tmp="$(mktemp)"
+  tmp="$(gate_tool_temp)"
   download_asset_with_checksum \
+    "$(pinned_tool_sha256 container-structure-test "$version" "$os-$arch")" \
     "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${version}/${asset}" \
     "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${version}/checksums.txt" \
     "$asset" \
@@ -634,13 +624,20 @@ ensure_container_structure_test() {
   chmod +x "$LOCAL_BIN_DIR/container-structure-test"
 }
 
+tool_has_version() {
+  local actual
+  actual="$("$1" --version 2>/dev/null)" || return 1
+  [[ "$actual" == "$2" ]]
+}
+
 ensure_hadolint() {
-  local bin="$LOCAL_BIN_DIR/hadolint"
-  if [[ -x "$bin" ]]; then
+  local bin="$LOCAL_BIN_DIR/hadolint" version="v2.14.0" expected
+  expected="Haskell Dockerfile Linter ${version#v}"
+  if [[ -x "$bin" ]] && tool_has_version "$bin" "$expected"; then
+    hash -r
     return 0
   fi
   ensure_dir "$LOCAL_BIN_DIR"
-  local version="v2.14.0"
   local os arch asset tmp
   os="$(machine_os)"
   arch="$(machine_arch)"
@@ -651,54 +648,63 @@ ensure_hadolint() {
     darwin-arm64) asset="hadolint-macos-arm64" ;;
     *) printf '[local-ci] unsupported hadolint platform: %s-%s\n' "$os" "$arch" >&2; exit 127 ;;
   esac
-  tmp="$(mktemp)"
+  tmp="$(gate_tool_temp)"
   download_asset_with_checksum \
+    "$(pinned_tool_sha256 hadolint "$version" "$os-$arch")" \
     "https://github.com/hadolint/hadolint/releases/download/${version}/${asset}" \
     "https://github.com/hadolint/hadolint/releases/download/${version}/${asset}.sha256" \
     "$asset" \
     "$tmp"
   mv "$tmp" "$bin"
   chmod +x "$bin"
+  hash -r
+  tool_has_version "$bin" "$expected" || {
+    printf '[local-ci] installed hadolint must report %s\n' "$expected" >&2
+    return 1
+  }
 }
 
 ensure_ast_grep() {
-  local bin="$LOCAL_BIN_DIR/ast-grep"
-  if command -v ast-grep >/dev/null 2>&1 && ast-grep --version >/dev/null 2>&1; then
+  local bin="$LOCAL_BIN_DIR/ast-grep" version="0.42.1" expected
+  expected="ast-grep $version"
+  if [[ -x "$bin" ]] && tool_has_version "$bin" "$expected"; then
+    hash -r
     return 0
   fi
-  if [[ -x "$bin" ]]; then
+  if command -v ast-grep >/dev/null 2>&1 && tool_has_version ast-grep "$expected"; then
     return 0
   fi
 
   ensure_dir "$LOCAL_BIN_DIR"
-  local version="0.42.1"
   local os arch asset sha tmp
   os="$(machine_os)"
   arch="$(machine_arch)"
   case "$os-$arch" in
     darwin-amd64)
       asset="app-x86_64-apple-darwin.zip"
-      sha="a038965bfd7fe44257c771cdf8918dc3467dd8ec0eef673b8b14f639b144cdbd"
       ;;
     darwin-arm64)
       asset="app-aarch64-apple-darwin.zip"
-      sha="c3961d8e8a4ee0ce2d0d98c7beeb168bb331cdc766b53630118a7b6c4fd39015"
       ;;
     linux-amd64)
       asset="app-x86_64-unknown-linux-gnu.zip"
-      sha="5de8b87cba67fc8dc3e239d54b6484802ad745a7ae3de76be4fe89661dc52657"
       ;;
     linux-arm64)
       asset="app-aarch64-unknown-linux-gnu.zip"
-      sha="3ba383839044cf9817929435f5ce0027f91d06931e8efb32d942e58d73d92be5"
       ;;
     *) printf '[local-ci] unsupported ast-grep platform: %s-%s\n' "$os" "$arch" >&2; exit 127 ;;
   esac
-  tmp="$(mktemp)"
+  sha="$(pinned_tool_sha256 ast-grep "$version" "$os-$arch")"
+  tmp="$(gate_tool_temp)"
   download_asset "https://github.com/ast-grep/ast-grep/releases/download/${version}/${asset}" "$tmp"
   sha256_check "$sha" "$tmp"
   extract_binary_from_zip "$tmp" ast-grep "$bin"
   rm -f "$tmp"
+  hash -r
+  tool_has_version "$bin" "$expected" || {
+    printf '[local-ci] installed ast-grep must report %s\n' "$expected" >&2
+    return 1
+  }
 }
 
 prepare_checkov_runtime() {
@@ -715,24 +721,9 @@ prepare_checkov_runtime() {
     return 0
   fi
 
-  require_cmd python3 "install Python 3 to bootstrap Checkov"
-  local version="3.3.0"
-  local venv="$LOCAL_BIN_DIR/checkov-${version}-venv"
-  local wrapper="$LOCAL_BIN_DIR/checkov"
-  if [[ ! -x "$venv/bin/checkov" ]]; then
-    log "bootstrapping Checkov ${version} into $venv"
-    rm -rf "$venv"
-    python3 -m venv "$venv"
-    "$venv/bin/python" -m pip install --disable-pip-version-check --upgrade pip wheel
-    "$venv/bin/python" -m pip install --disable-pip-version-check "checkov==${version}"
-  fi
-  cat > "$wrapper" <<EOF
-#!/usr/bin/env bash
-exec "$venv/bin/checkov" "\$@"
-EOF
-  chmod +x "$wrapper"
-  hash -r 2>/dev/null || true
-  checkov --version >/dev/null
+  # No unpinned pip bootstrap at gate time: the operator installs the pinned release.
+  require_cmd checkov "install Checkov 3.3.0, for example: pipx install checkov==3.3.0"
+  checkov --version
 }
 
 ensure_pmd() {
@@ -743,10 +734,12 @@ ensure_pmd() {
   fi
   require_cmd unzip
   ensure_dir "$LOCAL_BIN_DIR"
-  local zip tmp_dir
-  zip="$(mktemp)"
-  tmp_dir="$(mktemp -d)"
+  local zip tmp_dir sha
+  sha="$(pinned_tool_sha256 pmd "$version" any)"
+  zip="$(gate_tool_temp)"
+  tmp_dir="$(gate_tool_temp -d)"
   download_asset "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${version}/pmd-dist-${version}-bin.zip" "$zip"
+  sha256_check "$sha" "$zip"
   unzip -q "$zip" -d "$tmp_dir"
   rm -f "$zip"
   rm -rf "$pmd_home"
@@ -765,8 +758,9 @@ ensure_bearer() {
   os="$(machine_os)"
   arch="$(machine_arch)"
   asset="bearer_${version}_${os}_${arch}.tar.gz"
-  archive="$(mktemp)"
+  archive="$(gate_tool_temp)"
   download_asset_with_checksum \
+    "$(pinned_tool_sha256 bearer "$version" "$os-$arch")" \
     "https://github.com/Bearer/bearer/releases/download/v${version}/${asset}" \
     "https://github.com/Bearer/bearer/releases/download/v${version}/checksums.txt" \
     "$asset" \
@@ -786,8 +780,9 @@ ensure_osv_scanner() {
   os="$(machine_os)"
   arch="$(machine_arch)"
   asset="osv-scanner_${os}_${arch}"
-  tmp="$(mktemp)"
+  tmp="$(gate_tool_temp)"
   download_asset_with_checksum \
+    "$(pinned_tool_sha256 osv-scanner "$version" "$os-$arch")" \
     "https://github.com/google/osv-scanner/releases/download/${version}/${asset}" \
     "https://github.com/google/osv-scanner/releases/download/${version}/osv-scanner_SHA256SUMS" \
     "$asset" \
@@ -807,8 +802,9 @@ ensure_grype() {
   os="$(machine_os)"
   arch="$(machine_arch)"
   asset="grype_${version}_${os}_${arch}.tar.gz"
-  archive="$(mktemp)"
+  archive="$(gate_tool_temp)"
   download_asset_with_checksum \
+    "$(pinned_tool_sha256 grype "$version" "$os-$arch")" \
     "https://github.com/anchore/grype/releases/download/v${version}/${asset}" \
     "https://github.com/anchore/grype/releases/download/v${version}/grype_${version}_checksums.txt" \
     "$asset" \
@@ -828,38 +824,14 @@ ensure_syft() {
   os="$(machine_os)"
   arch="$(machine_arch)"
   asset="syft_${version}_${os}_${arch}.tar.gz"
-  archive="$(mktemp)"
+  archive="$(gate_tool_temp)"
   download_asset_with_checksum \
+    "$(pinned_tool_sha256 syft "$version" "$os-$arch")" \
     "https://github.com/anchore/syft/releases/download/v${version}/${asset}" \
     "https://github.com/anchore/syft/releases/download/v${version}/syft_${version}_checksums.txt" \
     "$asset" \
     "$archive"
   extract_binary_from_tar "$archive" syft "$bin"
-  rm -f "$archive"
-}
-
-ensure_oasdiff() {
-  local version="1.20.0"
-  local bin="$LOCAL_BIN_DIR/oasdiff"
-  if [[ -x "$bin" ]]; then
-    return 0
-  fi
-  ensure_dir "$LOCAL_BIN_DIR"
-  local os arch asset archive
-  os="$(machine_os)"
-  arch="$(machine_arch)"
-  if [[ "$os" == "darwin" ]]; then
-    asset="oasdiff_${version}_darwin_all.tar.gz"
-  else
-    asset="oasdiff_${version}_${os}_${arch}.tar.gz"
-  fi
-  archive="$(mktemp)"
-  download_asset_with_checksum \
-    "https://github.com/oasdiff/oasdiff/releases/download/v${version}/${asset}" \
-    "https://github.com/oasdiff/oasdiff/releases/download/v${version}/checksums.txt" \
-    "$asset" \
-    "$archive"
-  extract_binary_from_tar "$archive" oasdiff "$bin"
   rm -f "$archive"
 }
 
@@ -872,7 +844,8 @@ ensure_detekt() {
   ensure_dir "$LOCAL_BIN_DIR"
   local version="1.23.7"
   local jar="$LOCAL_BIN_DIR/detekt-cli-${version}-all.jar"
-  local sha256="84beded283012cb2b38bcaef4996452fcd6069d2e9ca74b50eaa79e0ad21897e"
+  local sha256
+  sha256="$(pinned_tool_sha256 detekt-cli "$version" any)"
   curl -fsSL --connect-timeout 20 --max-time 120 --retry-max-time 120 --retry 3 \
     "https://github.com/detekt/detekt/releases/download/v${version}/detekt-cli-${version}-all.jar" \
     -o "$jar"
@@ -884,12 +857,55 @@ job_preflight() {
   "$ROOT_DIR/scripts/chronicle-preflight.sh"
 }
 
+require_semgrep_pin() {
+  local pinned active
+  pinned="$(yq -r '.semgrep' "$ROOT_DIR/toolchain-manifest.yaml")"
+  require_cmd semgrep "install Semgrep $pinned: uv tool install semgrep==$pinned"
+  active="$(semgrep --version 2>/dev/null | head -1)"
+  if [[ "$active" != "$pinned" ]]; then
+    printf '[local-ci] semgrep %s is not the manifest pin %s\n' "${active:-unknown}" "$pinned" >&2
+    return 1
+  fi
+}
+
+job_engineering() {
+  local project
+  run_job detekt
+  require_cmd ruff "install Ruff"
+  require_cmd shellcheck "install ShellCheck"
+  python3 -m unittest discover -s "$ROOT_DIR/tests/quality" -p 'test_*.py' || return
+  python3 -m unittest discover -s "$ROOT_DIR/tests/security" -p 'test_*.py' || return
+  python3 "$ROOT_DIR/scripts/check-python-shell.py" || return
+  python3 "$ROOT_DIR/scripts/check-machine-paths.py" || return
+  require_semgrep_pin || return
+  python3 "$ROOT_DIR/scripts/generate-engineering-rules.py" --check || return
+  for project in "$ROOT_DIR" "$ROOT_DIR/chronicle" "$ROOT_DIR/chronicle-server" "$ROOT_DIR/chronicle-web"; do
+    (cd "$project" && ast-grep scan --config sgconfig.yml \
+      --globs '!**/lint/**' --globs '!tests/security/fixtures/**' --globs '!docker/**' --globs '!k8s/**' \
+      --globs '!tests/security/semgrep-tests/**' --globs '!chronicle-ios/**' . &&
+      ast-grep test --config sgconfig.yml --skip-snapshot-tests) || return
+  done
+  semgrep --test --config "$ROOT_DIR/tests/security/semgrep" "$ROOT_DIR/tests/security/semgrep-tests" || return
+  semgrep --error --metrics off --disable-version-check --no-git-ignore --timeout 0 \
+    --config "$ROOT_DIR/tests/security/semgrep" \
+    --include '*.kt' --include '*.java' --include '*.py' --include '*.ts' --include '*.tsx' \
+    --include '*.sh' --include '*.sql' --include '*.yml' \
+    --exclude '**/build/**' --exclude '**/node_modules/**' --exclude '**/.gradle/**' \
+    --exclude '**/.git/**' --exclude 'chronicle-ios/**' --exclude '.claude/**' --exclude 'docker/**' --exclude 'k8s/**' \
+    --exclude '**/lint/**' --exclude 'tests/security/fixtures/**' \
+    --exclude 'tests/security/semgrep-tests/**' --exclude 'chronicle-web/vendor/**' "$ROOT_DIR"
+}
+
 job_architecture() {
   require_cmd python3 "install Python 3"
+  require_cmd flock "install util-linux flock (macOS: brew install flock); the operation-writer tests run it"
   python3 "$ROOT_DIR/scripts/check-architecture-boundaries.py" --self-test
   python3 "$ROOT_DIR/scripts/check-architecture-boundaries.py"
   python3 "$ROOT_DIR/scripts/check-selfhost-capabilities.py"
-  python3 "$ROOT_DIR/tests/security/selfhost-monitoring.py"
+  python3 "$ROOT_DIR/tests/security/check-setting-readers.py"
+  selfhost_python "$ROOT_DIR/tests/security/selfhost-monitoring.py"
+  require_cmd uvx "install uv"
+  uvx --with types-PyYAML==6.0.12.20250915 --from mypy==1.18.2 mypy "$ROOT_DIR/selfhost/chronicle_ops"
 }
 
 job_migration_safety() {
@@ -905,7 +921,9 @@ job_diff_coverage() {
   if [[ -n "${CHRONICLE_DIFF_BASE:-}" ]]; then
     args=(--base "$CHRONICLE_DIFF_BASE")
   fi
-  (cd "$ROOT_DIR" && scripts/diff-coverage.py "${args[@]}")
+  bash "$ROOT_DIR/tests/quality/diff-coverage-selftest.sh" || return
+  # The fast group's own producers: jvm-smoke writes server JaCoCo, web writes chronicle-web lcov.
+  (cd "$ROOT_DIR" && scripts/diff-coverage.py "${args[@]}" --require chronicle-server=jacoco --require chronicle-web=lcov --require chronicle=jacoco --require .=cobertura)
 }
 
 job_duplication() {
@@ -915,6 +933,7 @@ job_duplication() {
   if [[ "${CHRONICLE_DUPLICATION_UPDATE_BASELINE:-0}" == "1" ]]; then
     args=(--update-baseline)
   fi
+  python3 "$ROOT_DIR/tests/quality/test_check_duplication.py"
   python3 "$ROOT_DIR/scripts/check-duplication.py" "${args[@]}"
 }
 
@@ -944,40 +963,82 @@ job_migration_lint() {
   return "$status"
 }
 
+job_selfhost_python() {
+  require_cmd python3 "install Python 3"
+  require_cmd uvx "install uv"
+  local coverage_dir="$ROOT_DIR/build/coverage"
+  mkdir -p "$coverage_dir"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${SELFHOST_PYTHON_PACKAGE:-$ROOT_DIR/selfhost}:$ROOT_DIR/tests/selfhost-py" \
+    uvx --python "$(command -v python3)" --with-requirements "$ROOT_DIR/requirements-dev.txt" --from coverage==7.6.1 \
+      coverage run --data-file="$coverage_dir/selfhost.coverage" --source="$ROOT_DIR/selfhost" \
+      "$ROOT_DIR/tests/selfhost-py/run_suite.py" discover -s "$ROOT_DIR/tests/selfhost-py" -v || return $?
+  uvx --python "$(command -v python3)" --from coverage==7.6.1 \
+    coverage xml --data-file="$coverage_dir/selfhost.coverage" -o "$coverage_dir/coverage.xml"
+}
+
 job_selfhost() {
   require_cmd docker "install Docker with Compose v2"
   require_cmd python3 "install Python 3"
-  python3 "$ROOT_DIR/tests/security/selfhost-monitoring.py"
+  require_cmd flock "install util-linux flock (macOS: brew install flock); the operation-writer tests run it"
+  selfhost_python "$ROOT_DIR/tests/security/selfhost-monitoring.py" || return $?
+  # Shipped alert rules through real Grafana (built from Dockerfile.grafana) to a webhook recorder.
+  selfhost_python "$ROOT_DIR/tests/security/selfhost-monitoring.py" --alert-delivery || return $?
+  run_job selfhost-python || return $?
+  selfhost_python -m unittest discover -s "$ROOT_DIR/tests/deployment" -p test_selfhost_client.py -v || return $?
   "$ROOT_DIR/tests/security/selfhost-release-bundle.sh"
+}
+
+job_selfhost_restore() {
+  local suite status=0
+  for suite in selfhost-restore-failclosed selfhost-restore-orchestration; do
+    "$ROOT_DIR/tests/security/$suite.sh" || status=1
+  done
+  run_selfhost_python_suite test_restore test_restore_deployment test_restore_schemas || status=1
+  return "$status"
+}
+
+job_contract_drift() {
+  selfhost_python "$ROOT_DIR/tests/security/contract-drift-diff.py" || return $?
+  selfhost_python "$ROOT_DIR/tests/security/test_contract_drift.py" || return $?
+  selfhost_python "$ROOT_DIR/tests/security/test_contract_generator.py" || return $?
+  (cd "$ROOT_DIR" && bun test ./tests/security/endpoint-consumers.test.ts ./tests/security/diagnostic-openapi.test.ts ./tests/security/string-length-contract.test.ts) || return $?
+  run_selfhost_python_suite test_ops_batch.OpsBatchTests.test_diagnostic_drift_in_each_consumer_fails
 }
 
 job_web() {
   require_cmd bun "install Bun 1.3.x"
   ensure_ast_grep
-  log "web dependency audit"
-  (cd "$WEB_DIR" && bun audit --audit-level=high)
+  run_job bun-audit
   log "web check"
   (cd "$WEB_DIR" && bun run check)
   log "web modern tests"
-  (cd "$WEB_DIR" && bun test --coverage src/modern src/core)
+  (cd "$WEB_DIR" && bun test --coverage --coverage-reporter=text --coverage-reporter=lcov src/modern scripts)
+  log "k6 probe self-tests"
+  (cd "$ROOT_DIR" && bun test tests/security/k6-race-conditions.test.ts)
   log "OpenAPI type generation check"
   (cd "$WEB_DIR" && bun run check:api-types)
   log "contract drift detection"
   (cd "$WEB_DIR" && bun test src/modern/state/contract-drift.test.ts)
-  log "legacy compatibility tests"
-  (
-    cd "$WEB_DIR"
-    failed=0
-    for f in src/bun-legacy/*.test.*; do
-      echo "--- $f ---"
-      bun test "$f" || failed=1
-    done
-    exit "$failed"
-  )
   log "web build"
   (cd "$WEB_DIR" && bun run build)
-  log "bundle size"
-  (cd "$WEB_DIR" && bun run size)
+}
+
+job_web_e2e() {
+  log "all browser specs against the isolated test backend"
+  run_with_timeout_logged "$WEB_E2E_TIMEOUT_SECONDS" "$(report_path "$ROOT_DIR/build/web-e2e.log" "web-e2e.log")" \
+    bash "$ROOT_DIR/scripts/run-web-e2e.sh"
+}
+
+job_api_probes() {
+  require_cmd schemathesis "install schemathesis 4.x"
+  bash "$ROOT_DIR/tests/security/backend-api-probes.sh"
+}
+
+job_selfhost_browser() {
+  : "${CHRONICLE_PROXY_BASE_URL:?Set the deployed management listener}"
+  : "${CHRONICLE_E2E_PUBLIC_BASE_URL:?Set the deployed public listener}"
+  : "${CHRONICLE_E2E_DASHBOARD_PASSWORD:?Set the deployed dashboard password}"
+  (cd "$WEB_DIR" && CHRONICLE_E2E_SELFHOST=1 bunx playwright test e2e/selfhost-journey.spec.ts --project=desktop-chromium)
 }
 
 job_web_a11y() {
@@ -996,14 +1057,7 @@ job_web_a11y() {
     if [[ -z "${CHRONICLE_PROXY_BASE_URL:-}" ]]; then
       require_cmd python3 "install Python 3"
       local proxy_port
-      proxy_port="$(python3 - <<'PY'
-import socket
-
-with socket.socket() as server:
-    server.bind(('127.0.0.1', 0))
-    print(server.getsockname()[1])
-PY
-      )" || exit $?
+      proxy_port="$(free_ports 1)" || exit $?
       export CHRONICLE_PROXY_BASE_URL="http://127.0.0.1:$proxy_port"
       log "CHRONICLE_PROXY_BASE_URL unset: using $CHRONICLE_PROXY_BASE_URL"
     fi
@@ -1014,68 +1068,39 @@ PY
 job_jvm_smoke() {
   require_jdk21
   log "Gradle project listing"
-  gradle projects --no-daemon
+  gradle projects
   log "OpenAPI spec validation"
-  gradle :chronicle-api:validateOpenApiSpec --build-cache --no-daemon
+  gradle :chronicle-api:validateOpenApiSpec --build-cache
   log "chronicle-api tests"
-  gradle :chronicle-api:test --build-cache --no-daemon
+  gradle :chronicle-api:test --build-cache
   log "shared models and rhizome tests"
-  gradle :chronicle-models:test :rhizome:test :rhizome-client:test --build-cache --no-daemon
+  gradle :chronicle-models:test :rhizome:test :rhizome-client:test --build-cache
+  log "rhizome documentation archive"
+  gradle :rhizome:javadocJar --build-cache
   log "chronicle-server tests"
-  gradle :chronicle-server:test --build-cache --no-daemon
+  gradle :chronicle-server:test --build-cache
   log "JaCoCo report"
-  gradle :chronicle-server:jacocoTestReport --build-cache --no-daemon
+  gradle :chronicle-server:jacocoTestReport --build-cache
   log "server Checkstyle and SpotBugs, rhizome SpotBugs"
-  gradle :chronicle-server:check :rhizome:spotbugsMain --build-cache --no-daemon
+  gradle :chronicle-server:check :rhizome:spotbugsMain --build-cache
   job_pit
 }
 
 job_repo_automation() {
-  job_architecture
-  require_cmd docker
-  log "Compose validation"
-  local compose_env compose_override
-  local docker_env_created=0
-  compose_env="$(mktemp)"
-  compose_override="$(mktemp)"
-  cp "$ROOT_DIR/docker/.env.example" "$compose_env"
-  {
-    echo "CROWDSEC_BOUNCER_API_KEY=ci-crowdsec-key"
-    echo "JWT_SECRET=ci-smoke-test-jwt-secret-not-for-production"
-    echo "HAZELCAST_SERVER_PASSWORD=ci-hz-server"
-    echo "HAZELCAST_CLIENT_PASSWORD=ci-hz-client"
-    echo "MOBILE_SIGNING_SECRET=ci-mobile-signing"
-    echo "MOBILE_SIGNING_ENABLED=true"
-    echo "MOBILE_SIGNING_REQUIRED=true"
-    echo "GRAFANA_ADMIN_PASSWORD=ci-grafana-admin"
-  } >> "$compose_env"
-  cat > "$compose_override" <<EOF
-services:
-  chronicle-backend:
-    env_file:
-      - "$compose_env"
-EOF
-  if [[ ! -e "$ROOT_DIR/docker/.env" ]]; then
-    cp "$compose_env" "$ROOT_DIR/docker/.env"
-    docker_env_created=1
-  fi
-  if ! docker compose --env-file "$compose_env" -f "$ROOT_DIR/docker/docker-compose.traefik.yml" -f "$compose_override" config -q; then
-    if [[ "$docker_env_created" -eq 1 ]]; then
-      rm -f "$ROOT_DIR/docker/.env"
-    fi
-    rm -f "$compose_env" "$compose_override"
-    return 1
-  fi
-  if [[ "$docker_env_created" -eq 1 ]]; then
-    rm -f "$ROOT_DIR/docker/.env"
-  fi
-  rm -f "$compose_env" "$compose_override"
+  run_job architecture
   log "toolchain manifest verification"
   bash "$ROOT_DIR/scripts/verify-toolchain.sh"
+  python3 "$ROOT_DIR/tests/security/semgrep-version-pin.py"
+  python3 "$ROOT_DIR/tests/security/local-ci-docker-host.py"
   log "trusted dependency script guard"
   bash "$ROOT_DIR/scripts/check-no-trusted-deps.sh"
   log "silent failure hunter"
   bash "$ROOT_DIR/scripts/silent-failure-hunter.sh"
+  log "Kotlin daemon state ignored and refused in every Kotlin repository"
+  python3 "$ROOT_DIR/tests/quality/test_kotlin_daemon_state_untracked.py"
+  log "JDK discovery and the web dependency age rule (gate tool digests run in verify-toolchain.sh)"
+  python3 "$ROOT_DIR/tests/quality/test_jdk_discovery.py"
+  python3 "$ROOT_DIR/tests/quality/test_web_dependency_age.py"
 }
 
 job_dead_code() {
@@ -1084,9 +1109,9 @@ job_dead_code() {
 }
 
 job_security_layers() {
-  # Every offline layer of the security runner; sca (network installs) and license (gradle) run elsewhere.
+  # SCA is owned by web/bun-audit, license by license-compliance; live fixtures have dedicated jobs.
   local layer failed=()
-  for layer in sast secrets iac sso deploy mobile auth injection crypto collection compliance; do
+  for layer in sast secrets iac deploy auth injection crypto collection compliance; do
     bash "$ROOT_DIR/tests/security/run-all-security.sh" "$layer" \
       "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/$layer" || failed+=("$layer")
   done
@@ -1095,14 +1120,16 @@ job_security_layers() {
 
 job_dependency_sbom() {
   require_jdk21
-  gradle :chronicle-server:cyclonedxBom --no-daemon
+  gradle :chronicle-server:cyclonedxBom
 }
 
-# Inventory the shipped roots, including nested overlays and init scripts.
+# Inventory selfhost, including nested overlays and init scripts; docker/ and k8s/ are frozen.
 deployment_files() {
-  rg --files --hidden "$ROOT_DIR/docker" "$ROOT_DIR/selfhost" "$ROOT_DIR/k8s" \
-    -g 'Dockerfile*' -g '*.sh' -g chronicle -g 'docker-compose*.yml' -g 'docker-compose*.yaml' \
-    -g '**/selfhost/overlays/*.yml' -g '**/selfhost/overlays/*.yaml' -g 'kustomization.yaml' | sort
+  {
+    rg --files --hidden "$ROOT_DIR/selfhost" \
+      -g 'Dockerfile*' -g '*.sh' -g chronicle -g 'docker-compose*.yml' -g 'docker-compose*.yaml' \
+      -g '**/selfhost/overlays/*.yml' -g '**/selfhost/overlays/*.yaml'
+  } | sort
 }
 
 job_dockerfile_lint() {
@@ -1118,46 +1145,106 @@ job_iac_scan() {
   prepare_checkov_runtime
   require_cmd shellcheck
   require_cmd conftest
-  require_cmd kustomize
-  conftest verify --policy "$ROOT_DIR/tests/security/policies" || return $?
-  local target rendered status
+  # Scan every target and report all failures together, so one red file cannot hide the rest.
+  local target
+  local -a failed=()
+  conftest verify --policy "$ROOT_DIR/tests/security/policies" || failed+=("conftest verify")
   while IFS= read -r target; do
     case "${target##*/}" in
       Dockerfile*)
-        checkov -f "$target" --framework dockerfile --quiet --skip-download || return $? ;;
+        checkov -f "$target" --framework dockerfile --quiet --skip-download || failed+=("$target") ;;
       *.sh|chronicle)
-        shellcheck -S warning "$target" || return $? ;;
-      kustomization.yaml)
-        [[ "$target" == "$ROOT_DIR/k8s/overlays/"* ]] || continue
-        rendered="$(mktemp)"
-        kustomize build "${target%/*}" >"$rendered" || { status=$?; rm -f "$rendered"; return "$status"; }
-        checkov -f "$rendered" --framework kubernetes --quiet --skip-download || { status=$?; rm -f "$rendered"; return "$status"; }
-        rm -f "$rendered" ;;
+        shellcheck -S warning "$target" || failed+=("$target") ;;
       *.yml|*.yaml)
-        conftest test "$target" --policy "$ROOT_DIR/tests/security/policies" || return $? ;;
+        conftest test "$target" --policy "$ROOT_DIR/tests/security/policies" || failed+=("$target") ;;
     esac
   done < <(deployment_files)
+  ((${#failed[@]} == 0)) && return 0
+  printf 'iac-scan: %d target(s) failed:\n' "${#failed[@]}" >&2
+  printf '  %s\n' "${failed[@]}" >&2
+  return 1
 }
 
 job_license_compliance() {
   require_jdk21
-  require_cmd bun "install Bun 1.3.x"
-  gradle :chronicle-server:checkLicense --no-daemon
-  (cd "$WEB_DIR" && bun install --frozen-lockfile)
+  gradle :chronicle-server:checkLicense
+  bash "$ROOT_DIR/tests/security/run-all-security.sh" license \
+    "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/license"
+  run_job bun-audit
+  # The allowlist that checkLicense reads must not admit a GPL-incompatible single license.
+  python3 "$ROOT_DIR/tests/selfhost-py/test_license_allowlist.py"
+  python3 "$ROOT_DIR/tests/quality/test_frontend_license_policy.py"
+  ensure_syft
   bash "$ROOT_DIR/scripts/check-frontend-licenses.sh"
+}
+
+build_selfhost_serving_image() {
+  docker build -f "$ROOT_DIR/selfhost/Dockerfile.frontend" -t chronicle-selfhost-frontend:test "$ROOT_DIR" || return $?
+  docker build -f "$ROOT_DIR/selfhost/Dockerfile.caddy" --build-context chronicle-selfhost-frontend:release=docker-image://chronicle-selfhost-frontend:test \
+    -t "$SELFHOST_CADDY_TEST_IMAGE" "$ROOT_DIR"
+}
+
+job_upload_body_limit_edge() (
+  require_cmd docker
+  require_jdk21
+  local work
+  mkdir -p "$ROOT_DIR/chronicle-server/build" || return $?
+  work="$(mktemp -d "${TMPDIR:-$ROOT_DIR/chronicle-server/build}/upload-edge.XXXXXX")" || return $?
+  trap 'rm -r -- "$work"' EXIT
+  export CHRONICLE_ANDROID_BATCH_DIR="$work/android-bodies"
+  export CHRONICLE_CADDY_SNIPPETS="$ROOT_DIR/selfhost/caddy/snippets.caddy"
+  export SELFHOST_CADDY_TEST_IMAGE="chronicle-selfhost-caddy:test"
+  build_selfhost_serving_image || return $?
+  (cd "$ROOT_DIR/chronicle" && ./gradlew --no-daemon :app:testOpenDebugUnitTest --rerun \
+    --tests '*CollectedRequestBatcherTest.maximumBodiesUseTheRealRetrofitBytesAndExportForCaddy') || return $?
+  gradle :chronicle-server:uploadBodyLimitEdgeTest
+)
+
+# The bytes the real Android client sends, captured by its unit tests, replayed into the server, its export and the web
+# survey page; the web invitation is produced first for the Android handoff consumer (EnrollmentHandoffUriTest).
+job_android_replay() (
+  require_cmd docker
+  require_cmd bun "install Bun 1.3.x"
+  require_jdk21
+  local work
+  mkdir -p "$ROOT_DIR/chronicle-server/build" || return $?
+  work="$(mktemp -d "$ROOT_DIR/chronicle-server/build/android-replay.XXXXXX")" || return $?
+  trap 'rm -r -- "$work"' EXIT
+  export TZ=America/Santiago
+  export CHRONICLE_ENROLLMENT_HANDOFF_FIXTURE="$work/enrollment-handoff.json"
+  export CHRONICLE_ANDROID_ENROLL_DIR="$work/enroll" CHRONICLE_ANDROID_PILOT_UPLOAD_DIR="$work/pilot-upload"
+  export CHRONICLE_ANDROID_IDENTITY_DIR="$work/identity" CHRONICLE_ANDROID_SURVEY_DIR="$work/survey"
+  (cd "$WEB_DIR" && bun test src/modern/routes/public-enrollment-page.test.tsx) || return $?
+  (cd "$ROOT_DIR/chronicle" && ./gradlew --no-daemon :app:testOpenDebugUnitTest --rerun \
+    --tests '*EnrollmentWireContractTest' --tests '*PilotUploadFixtureTest' --tests '*IdentityLabelUploadJourneyTest' \
+    --tests '*SurveyReminderTapJourneyTest' --tests '*EnrollmentHandoffUriTest') || return $?
+  gradle :chronicle-server:androidReplayTest || return $?
+  (cd "$WEB_DIR" && bun test src/modern/app/android-survey-replay.test.tsx)
+)
+
+job_route_surface_edge() {
+  require_cmd docker
+  export SELFHOST_CADDY_TEST_IMAGE="chronicle-selfhost-caddy:test"
+  build_selfhost_serving_image || return $?
+  selfhost_python -m unittest discover -s "$ROOT_DIR/tests/deployment" -p test_route_surface.py -v
 }
 
 job_container_structure() {
   require_cmd docker
+  require_cmd python3
   ensure_container_structure_test
   docker build -f "$ROOT_DIR/docker/Dockerfile.backend" -t chronicle-backend:test "$ROOT_DIR"
   container-structure-test test --image chronicle-backend:test --config "$ROOT_DIR/tests/container/backend.yaml"
-  docker build -f "$ROOT_DIR/docker/Dockerfile.frontend.prod" -t chronicle-frontend-prod:test "$ROOT_DIR"
-  container-structure-test test --image chronicle-frontend-prod:test --config "$ROOT_DIR/tests/container/frontend-prod.yaml"
   for component in frontend caddy backup; do
-    local context="$ROOT_DIR"
+    local context="$ROOT_DIR" serving=()
     [[ "$component" != backup ]] || context="$ROOT_DIR/selfhost"
-    docker build -f "$ROOT_DIR/selfhost/Dockerfile.$component" -t "chronicle-selfhost-$component:test" "$context"
+    [[ "$component" != caddy ]] || serving=(--build-context chronicle-selfhost-frontend:release=docker-image://chronicle-selfhost-frontend:test)
+    docker build -f "$ROOT_DIR/selfhost/Dockerfile.$component" "${serving[@]}" -t "chronicle-selfhost-$component:test" "$context"
+    if [[ "$component" == caddy ]]; then
+      SELFHOST_CADDY_TEST_IMAGE="chronicle-selfhost-$component:test" \
+        CADDY_BODY_TEST_LOG_DIR="$(report_path "$ROOT_DIR/tests/security/reports/caddy-body-limit" caddy-body-limit)" \
+        python3 -s "$ROOT_DIR/tests/deployment/test_caddy_body_limit.py"
+    fi
     container-structure-test test --image "chronicle-selfhost-$component:test" --config "$ROOT_DIR/tests/container/selfhost-$component.yaml"
   done
 }
@@ -1169,6 +1256,13 @@ write_ci_smoke_files() {
   local certs_dir="$4"
   local backend_port="$5"
   local frontend_port="$6"
+  write_ci_smoke_tls "$secrets_dir" "$certs_dir"
+  write_ci_smoke_environment "$env_file"
+  write_ci_smoke_override "$override_file" "$secrets_dir" "$certs_dir" "$backend_port" "$frontend_port"
+}
+
+write_ci_smoke_tls() {
+  local secrets_dir="$1" certs_dir="$2"
   mkdir -p "$secrets_dir"
   printf '%s' 'chronicle_ci_test' > "$secrets_dir/postgres_password"
   printf '%s' 'ci-smoke-test-jwt-secret-not-for-production' > "$secrets_dir/jwt_secret"
@@ -1214,6 +1308,10 @@ EOF
   # read-only. It must be readable by the container user so Postgres can copy it
   # into its runtime directory and then chmod the runtime copy to 0600.
   chmod 644 "$certs_dir/server/server.key"
+}
+
+write_ci_smoke_environment() {
+  local env_file="$1"
   cat > "$env_file" <<EOF
 DOMAIN=localhost
 CHRONICLE_PUBLIC_BASE_URL=https://localhost
@@ -1230,8 +1328,6 @@ CHRONICLE_INTERNAL_WEB_SECRET=ci-smoke-test-internal-web-secret-not-for-producti
 HAZELCAST_SERVER_PASSWORD=ci-hz-server
 HAZELCAST_CLIENT_PASSWORD=ci-hz-client
 MOBILE_SIGNING_SECRET=ci-mobile-signing-secret-not-for-production-32-bytes
-MOBILE_SIGNING_ENABLED=true
-MOBILE_SIGNING_REQUIRED=true
 CROWDSEC_BOUNCER_API_KEY=ci-crowdsec-key
 GRAFANA_ADMIN_PASSWORD=ci-grafana-admin-not-for-production
 CHRONICLE_SECURITY_COOKIE_SECURE=true
@@ -1242,6 +1338,10 @@ SMTP_ENABLED=false
 VAULT_ENABLED=false
 GIT_SHA=${GITHUB_SHA:-local}
 EOF
+}
+
+write_ci_smoke_override() {
+  local override_file="$1" secrets_dir="$2" certs_dir="$3" backend_port="$4" frontend_port="$5"
   cat > "$override_file" <<EOF
 services:
   postgres:
@@ -1312,9 +1412,10 @@ job_http_smoke_stack() {
   require_cmd openssl
   local tmp_dir env_file override_file secrets_dir certs_dir compose_args
   local repo_env_file repo_env_created metrics_password metrics_status
-  local backend_port frontend_port backend_url frontend_url
-  backend_port="${CHRONICLE_CI_BACKEND_PORT:-40320}"
-  frontend_port="${CHRONICLE_CI_FRONTEND_PORT:-8080}"
+  local backend_port frontend_port backend_url frontend_url free_backend free_frontend
+  read -r free_backend free_frontend <<<"$(free_ports 2)"
+  backend_port="${CHRONICLE_CI_BACKEND_PORT:-$free_backend}"
+  frontend_port="${CHRONICLE_CI_FRONTEND_PORT:-$free_frontend}"
   if [[ ! "$backend_port" =~ ^[0-9]+$ ]] || (( 10#$backend_port < 1 || 10#$backend_port > 65535 )); then
     log "invalid CHRONICLE_CI_BACKEND_PORT: $backend_port"
     return 2
@@ -1327,7 +1428,7 @@ job_http_smoke_stack() {
     log "CHRONICLE_CI_BACKEND_PORT and CHRONICLE_CI_FRONTEND_PORT must differ"
     return 2
   fi
-  tmp_dir="$(mktemp -d)"
+  tmp_dir="$(gate_tool_temp -d)"
   env_file="$tmp_dir/ci-smoke.env"
   override_file="$tmp_dir/docker-compose.ci-smoke.yml"
   secrets_dir="$tmp_dir/secrets"
@@ -1342,8 +1443,8 @@ job_http_smoke_stack() {
     repo_env_created=1
   fi
   # docker-compose.traefik.yml declares `name: chronicle` plus fixed container, network and
-  # volume names, so on a host that runs that stack the teardown below adopted it and
-  # `down -v` deleted its database (2026-10-07). Own project, and refuse to share a host
+  # volume names, so on a host that runs that stack the teardown below would adopt it and
+  # `down -v` would delete its database. Own project, and refuse to share a host
   # with anything that file names.
   compose_args=(-p chronicle-ci-smoke --env-file "$env_file" -f "$ROOT_DIR/docker/docker-compose.traefik.yml" -f "$override_file")
   local clash
@@ -1362,6 +1463,11 @@ job_http_smoke_stack() {
   # shellcheck disable=SC2064
   trap "docker compose -p chronicle-ci-smoke --env-file '$env_file' -f '$ROOT_DIR/docker/docker-compose.traefik.yml' -f '$override_file' down -v --remove-orphans >/dev/null 2>&1 || true; if [ '$repo_env_created' = '1' ]; then rm -f '$repo_env_file'; fi; rm -rf '$tmp_dir'" EXIT
 
+  run_ci_smoke_stack
+}
+
+# Uses the disposable paths and Compose argv scoped by job_http_smoke_stack.
+run_ci_smoke_stack() {
   docker build -f "$ROOT_DIR/docker/Dockerfile.backend" -t chronicle-backend:test "$ROOT_DIR"
   docker build -f "$ROOT_DIR/docker/Dockerfile.frontend.prod" -t chronicle-frontend-prod:test "$ROOT_DIR"
   if ! docker compose "${compose_args[@]}" up -d postgres chronicle-backend chronicle-frontend; then
@@ -1375,7 +1481,7 @@ job_http_smoke_stack() {
   # A first boot applies the full Flyway corpus onto encrypted tables. Keep this
   # bounded, but allow enough time for a cold runner rather than racing startup.
   for i in $(seq 1 60); do
-    if curl -sf --connect-timeout 3 --max-time 10 "${backend_url}/chronicle/internal/health/ready" >/dev/null 2>&1; then
+    if curl -q --noproxy '*' -sf --connect-timeout 3 --max-time 10 "${backend_url}/chronicle/internal/health/ready" >/dev/null 2>&1; then
       break
     fi
     if [[ "$i" -eq 60 ]]; then
@@ -1387,9 +1493,13 @@ job_http_smoke_stack() {
   done
 
   metrics_password=$(<"$secrets_dir/chronicle_security_metrics_password")
-  metrics_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  local metrics_credentials="chronicle-metrics:$metrics_password"
+  case "$metrics_credentials" in *$'\n'*|*$'\r'*) return 2 ;; esac
+  metrics_credentials="${metrics_credentials//\\/\\\\}"
+  metrics_credentials="${metrics_credentials//\"/\\\"}"
+  metrics_status=$(printf 'user = "%s"\n' "$metrics_credentials" | \
+    curl -q --config - --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' \
     --connect-timeout 3 --max-time 10 \
-    --user "chronicle-metrics:$metrics_password" \
     "${backend_url}/prometheus/" 2>/dev/null || true)
   if [[ "$metrics_status" != "200" ]]; then
     log "authenticated metrics smoke failed with HTTP ${metrics_status:-000}"
@@ -1399,7 +1509,7 @@ job_http_smoke_stack() {
 
   log "waiting for frontend"
   for i in $(seq 1 12); do
-    if curl -sf --connect-timeout 3 --max-time 10 "${frontend_url}/health" >/dev/null 2>&1; then
+    if curl -q --noproxy '*' -sf --connect-timeout 3 --max-time 10 "${frontend_url}/health" >/dev/null 2>&1; then
       break
     fi
     if [[ "$i" -eq 12 ]]; then
@@ -1409,6 +1519,11 @@ job_http_smoke_stack() {
     sleep 5
   done
 
+  MOBILE_SIGNING_SECRET=$(<"$secrets_dir/mobile_signing_secret") run_http_smoke_probes "$backend_url" "$frontend_url"
+}
+
+run_http_smoke_probes() {
+  local backend_url="$1" frontend_url="$2"
   "$ROOT_DIR/scripts/smoke-test.sh" "$backend_url" "$frontend_url" || return $?
   BASE_URL="$backend_url" job_http_security
 }
@@ -1417,6 +1532,22 @@ job_http_security() {
   log "live upload, load smoke and race validation"
   bash "$ROOT_DIR/tests/security/run-all-security.sh" upload \
     "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/upload"
+}
+
+job_k6_benchmarks() {
+  require_cmd k6 "install k6"
+  : "${BASE_URL:?Set the disposable fixture listener}"
+  : "${AUTH_TOKEN:?Set its researcher token}"
+  : "${TEST_STUDY_ID:?Set its synthetic study}"
+  : "${TEST_PARTICIPANT_ID:?Set its synthetic participant}"
+  : "${TEST_RANDOM_DEVICE_ID:?Set its enrolled synthetic device}"
+  : "${API_KEY:?Set its enrolled device API key}"
+  : "${DEVICE_FIXTURES_FILE:?Set its enrolled synthetic device inventory}"
+  local suite
+  for suite in "$ROOT_DIR"/tests/load/chronicle-load-test.js "$ROOT_DIR"/tests/load/k6-*.js; do
+    JWT_TOKEN="$AUTH_TOKEN" STUDY_ID="$TEST_STUDY_ID" PARTICIPANT_ID="$TEST_PARTICIPANT_ID" \
+      k6 run --include-system-env-vars "$suite"
+  done
 }
 
 job_pit() {
@@ -1451,7 +1582,7 @@ PY
   while IFS= read -r target; do
     log "fuzz target: $target"
     JAZZER_FUZZ=1 gradle :chronicle-server:test --tests "$target" \
-      --no-daemon --no-build-cache --rerun-tasks
+      --no-build-cache --rerun-tasks
   done <<< "$targets"
 }
 
@@ -1465,23 +1596,44 @@ job_parity() {
 job_android_unit() {
   require_jdk21
   require_cmd python3 "install Python 3"
+  require_cmd uv "install uv for the locked upload-tool tests"
   bash "$ROOT_DIR/tests/security/run-all-security.sh" sast "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}" || return $?
   (cd "$ROOT_DIR/chronicle" && ./gradlew :app:checkLicense --no-daemon) || return $?
-  (cd "$ROOT_DIR/chronicle" && ./gradlew -I "$ROOT_DIR/scripts/android-unused-resources.init.gradle" :app:lintOpenDebug --no-daemon) || return $?
+  (cd "$ROOT_DIR/chronicle" && ./gradlew -I "$ROOT_DIR/scripts/android-unused-resources.init.gradle" :app:lintOpenRelease --no-daemon) || return $?
+  python3 "$ROOT_DIR/chronicle/scripts/test-ui-resource-contracts.py" || return $?
   python3 "$ROOT_DIR/chronicle/scripts/test-android-batch-1007.py" || return $?
+  python3 "$ROOT_DIR/chronicle/scripts/test-gate-regressions.py" || return $?
   log "Android Play and release verifier self-tests"
   local audit_work="${LOCAL_REPORT_DIR:-$ROOT_DIR/chronicle/app/build}/release-audit-tests"
   local suite android_status=0
   mkdir -p "$audit_work/tmp"
-  for suite in test-verify-play-aab-runtime-helpers test-verify-play-submission; do
-    bash "$ROOT_DIR/chronicle/scripts/$suite.sh" || android_status=1
+  TMPDIR="$audit_work/tmp" python3 "$ROOT_DIR/chronicle/scripts/test-collected-upload-mapping.py" || android_status=1
+  bash "$ROOT_DIR/chronicle/scripts/test-verify-play-submission.sh" || android_status=1
+  uv run --no-project --python 3.12 --with-requirements "$ROOT_DIR/chronicle/scripts/play-upload.requirements.txt" \
+    python "$ROOT_DIR/chronicle/scripts/test-play-upload.py" || android_status=1
+  python3 "$ROOT_DIR/chronicle/scripts/test-verify-retrofit-map-signatures.py" || android_status=1
+  ANDROID_AUDIT_WORK="$audit_work" python3 "$ROOT_DIR/chronicle/scripts/test-release-audit.py" || android_status=1
+  ANDROID_AUDIT_WORK="$audit_work" python3 "$ROOT_DIR/chronicle/scripts/test-release-signing-policy.py" || android_status=1
+  ANDROID_AUDIT_WORK="$audit_work" python3 "$ROOT_DIR/chronicle/scripts/test-release-gate-evidence.py" || android_status=1
+  log "Android unit tests (library modules + all distribution app variants; ScreenLayoutTest goldens verified)"
+  # roborazzi.test.verify makes ScreenLayoutTest compare every capture with src/testOpen/screenshots
+  # and fail on a difference, in the same run (same as verifyRoborazziOpenDebug).
+  local -a coverage_tasks=(:app:createOpenDebugUnitTestCoverageReport :app:createResearchDebugUnitTestCoverageReport :app:createAmazonDebugUnitTestCoverageReport :libraryCoverageFromAppTests)
+  local module
+  for module in "$ROOT_DIR"/chronicle/collection-*; do
+    [[ -n "$(find "$module/src/test" -type f -print -quit 2>/dev/null)" ]] || continue
+    coverage_tasks+=(":${module##*/}:createDebugUnitTestCoverageReport")
   done
-  for suite in test-release-audit test-explicit-signing-input; do
-    ANDROID_AUDIT_WORK="$audit_work" python3 "$ROOT_DIR/chronicle/scripts/$suite.py" || android_status=1
-  done
-  log "Android unit tests (library modules + all distribution app variants)"
-  (cd "$ROOT_DIR/chronicle" && ./gradlew testDebugUnitTest :app:testOpenDebugUnitTest :app:testResearchDebugUnitTest :app:testPlayDebugUnitTest :app:testAmazonDebugUnitTest --no-daemon --build-cache) || android_status=1
+  (cd "$ROOT_DIR/chronicle" && ./gradlew -I "$ROOT_DIR/scripts/android-coverage.init.gradle" -I scripts/test-workmanager-runtime.gradle verifyWorkManagerRuntime testDebugUnitTest :app:testOpenDebugUnitTest :app:testResearchDebugUnitTest :app:testAmazonDebugUnitTest "${coverage_tasks[@]}" -Proborazzi.test.verify=true --no-daemon --build-cache) || android_status=1
   return "$android_status"
+}
+
+job_android_instrumented() {
+  require_jdk21
+  require_cmd adb "install Android platform-tools"
+  # Debug and test packages only; the installed release app is never replaced or uninstalled.
+  [[ "$(adb get-state 2>/dev/null)" == device ]] || { log "android-instrumented: no device attached (set ANDROID_SERIAL)"; return 2; }
+  (cd "$ROOT_DIR/chronicle" && ./gradlew connectedDebugAndroidTest --no-daemon)
 }
 
 job_ios_verify() {
@@ -1515,14 +1667,25 @@ job_gitleaks() {
   # fingerprints live in tests/security/gitleaks-ignore/<name>.gitleaksignore;
   # only NEW findings fail the job.
   require_cmd gitleaks "install gitleaks (brew install gitleaks)"
-  local repo name ignore failed=()
+  local repo name ignore toplevel failed=() unscanned=()
   for repo in . chronicle chronicle-api chronicle-ios chronicle-models \
     chronicle-server chronicle-web rhizome rhizome-client; do
     name="$repo"
     [[ "$repo" == "." ]] && name="methodic-root"
+    if [[ "$repo" == chronicle-ios && ! -e "$ROOT_DIR/$repo/.git" && \
+          "$(git config -f "$ROOT_DIR/.gitmodules" --get submodule.chronicle-ios.update)" == none ]]; then
+      log "gitleaks: chronicle-ios is outside the initialized module scope (update=none)"
+      continue
+    fi
     ignore="$ROOT_DIR/tests/security/gitleaks-ignore/$name.gitleaksignore"
     [[ -f "$ignore" ]] || ignore="/dev/null"
     log "gitleaks: $name"
+    toplevel="$(git -C "$ROOT_DIR/$repo" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -z "$toplevel" || "$(cd "$toplevel" && pwd -P)" != "$(cd "$ROOT_DIR/$repo" && pwd -P)" ]]; then
+      printf '[local-ci] gitleaks: %s is not a git checkout\n' "$name" >&2
+      unscanned+=("$name")
+      continue
+    fi
     if ! (cd "$ROOT_DIR/$repo" && \
       gitleaks git --no-banner --redact --gitleaks-ignore-path "$ignore" .); then
       failed+=("$name")
@@ -1530,8 +1693,11 @@ job_gitleaks() {
   done
   if ((${#failed[@]} > 0)); then
     printf '[local-ci] gitleaks found leaks in: %s\n' "${failed[*]}" >&2
-    return 1
   fi
+  if ((${#unscanned[@]} > 0)); then
+    printf '[local-ci] gitleaks could not scan: %s\n' "${unscanned[*]}" >&2
+  fi
+  ((${#failed[@]} + ${#unscanned[@]} == 0))
 }
 
 job_depcheck_locks() {
@@ -1593,7 +1759,6 @@ job_gradle_depcheck() {
   if [[ "${SKIP_NVD_UPDATE:-0}" != "1" ]]; then
     diagnose_dependency_check_data
     local update_timeout="${CHRONICLE_DEPCHECK_UPDATE_TIMEOUT_SECONDS:-3600}"
-    local nvd_valid_for_hours="${CHRONICLE_DEPCHECK_NVD_VALID_FOR_HOURS:-0}"
     local update_log="${CHRONICLE_DEPCHECK_UPDATE_LOG:-$(report_path "$ROOT_DIR/build/reports/dependency-check-update.log" "dependency-check-update.log")}"
     local update_snapshot_before
     local update_snapshot_after
@@ -1604,7 +1769,6 @@ job_gradle_depcheck() {
       --no-daemon
       --max-workers=1
       --console=plain
-      "-PdependencyCheckNvdValidForHours=$nvd_valid_for_hours"
     )
     if [[ -n "${CHRONICLE_DEPCHECK_NVD_DELAY_MILLIS:-}" ]]; then
       update_args+=("-PdependencyCheckNvdDelayMillis=$CHRONICLE_DEPCHECK_NVD_DELAY_MILLIS")
@@ -1618,8 +1782,7 @@ job_gradle_depcheck() {
     if [[ -n "${CHRONICLE_DEPCHECK_GRADLE_LOG_LEVEL:-}" ]]; then
       update_args+=("$CHRONICLE_DEPCHECK_GRADLE_LOG_LEVEL")
     fi
-    printf '[local-ci] running fresh Dependency-Check NVD update with validForHours=%s timeout=%ss\n' \
-      "$nvd_valid_for_hours" "$update_timeout"
+    printf '[local-ci] running Dependency-Check NVD update timeout=%ss\n' "$update_timeout"
     printf '[local-ci] Dependency-Check update log: %s\n' "$update_log"
     dependency_check_data_snapshot "$update_snapshot_before"
     local update_status=0
@@ -1651,7 +1814,7 @@ job_gradle_depcheck() {
   if [[ "${CHRONICLE_DEPCHECK_RERUN:-0}" == "1" ]]; then
     gradle_task_args+=(--rerun-tasks)
   fi
-  gradle "${gradle_task_args[@]}" --no-daemon --max-workers=1 "${depcheck_args[@]}" || status=$?
+  gradle "${gradle_task_args[@]}" --max-workers=1 "${depcheck_args[@]}" || status=$?
   copy_dependency_check_reports || {
     if [[ "$status" -eq 0 ]]; then
       status=1
@@ -1671,58 +1834,62 @@ job_fluent_bit_config() {
   # Every shipped fluent-bit config must load on the manifest-pinned image (`--dry-run`
   # validates plugins, parsers and the Lua filter). This is what makes a major bump of the
   # log shipper safe to take: 4.x -> 5.x was accepted on this check.
-  local image conf rc=0
+  local image
+  local conf="selfhost/monitoring/fluent-bit.conf"
   image="$(yq -r '.selfhost_images.fluent_bit' "$ROOT_DIR/toolchain-manifest.yaml")"
   [[ -n "$image" && "$image" != "null" ]] || { echo "[fail] selfhost_images.fluent_bit missing from toolchain-manifest.yaml" >&2; return 1; }
-  for conf in \
-    selfhost/monitoring/fluent-bit.conf \
-    docker/siem/victorialogs-fluent-bit.conf \
-    docker/siem/fluent-bit-kafka.conf \
-    k8s/observability/victoria-lite/config/fluent-bit.conf \
-    k8s/observability/siem-forwarder/config/fluent-bit.conf; do
-    if docker run --rm --network none \
-        -v "$ROOT_DIR/$(dirname "$conf"):/fluent-bit/etc:ro" \
-        -e KAFKA_USER=ci -e KAFKA_PASSWORD=ci \
-        -e SIEM_HOST=siem.invalid -e SIEM_PORT=514 -e SIEM_URI=/ -e SIEM_AUTHORIZATION_HEADER=none \
-        "$image" --dry-run -c "/fluent-bit/etc/$(basename "$conf")" >/dev/null 2>&1; then
-      echo "[ok] $conf loads on $image"
-    else
-      echo "[fail] $conf does not load on $image" >&2
-      rc=1
-    fi
-  done
-  return "$rc"
+  if docker run --rm --network none \
+      -v "$ROOT_DIR/$(dirname "$conf"):/fluent-bit/etc:ro" \
+      -e KAFKA_USER=ci -e KAFKA_PASSWORD=ci \
+      -e SIEM_HOST=siem.invalid -e SIEM_PORT=514 -e SIEM_URI=/ -e SIEM_AUTHORIZATION_HEADER=none \
+      "$image" --dry-run -c "/fluent-bit/etc/$(basename "$conf")" >/dev/null 2>&1; then
+    echo "[ok] $conf loads on $image"
+  else
+    echo "[fail] $conf does not load on $image" >&2
+    return 1
+  fi
+
 }
 
 job_bun_audit() {
   require_cmd bun "install Bun 1.3.x"
-  local json_report text_report
-  json_report="$(report_path "$WEB_DIR/bun-audit-report.json" "bun-audit-report.json")"
-  text_report="$(report_path "$WEB_DIR/bun-audit-output.txt" "bun-audit-output.txt")"
-  (cd "$WEB_DIR" && bun install --frozen-lockfile)
-  (cd "$WEB_DIR" && bun audit --json > "$json_report")
-  (
-    cd "$WEB_DIR"
-    bun audit --audit-level=high > "$text_report" 2>&1 || audit_exit=$?
-    cat "$text_report"
-    exit "${audit_exit:-0}"
-  )
+  bash "$ROOT_DIR/tests/security/run-all-security.sh" sca \
+    "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/sca"
 }
 
 job_detekt() {
   ensure_detekt
-  local sarif_report html_report android_sources
+  ensure_ast_grep
+  local sarif_report all_sarif_report html_report android_sources fresh
   android_sources="$(printf '%s,' "$ROOT_DIR"/chronicle/*/src)"
   sarif_report="$(report_path "$ROOT_DIR/detekt-results.sarif" "detekt-results.sarif")"
+  all_sarif_report="$(report_path "$ROOT_DIR/detekt-all-results.sarif" "detekt-all-results.sarif")"
   html_report="$(report_path "$ROOT_DIR/detekt-results.html" "detekt-results.html")"
-  java -jar "$LOCAL_BIN_DIR/detekt-cli-1.23.7-all.jar" \
-    --input "$ROOT_DIR/chronicle-server/src,$ROOT_DIR/chronicle-api/src,$ROOT_DIR/rhizome/src,${android_sources%,}" \
-    --excludes '**/build/**,**/.gradle/**' \
-    --config "$ROOT_DIR/detekt.yml" \
-    --baseline "$ROOT_DIR/detekt-baseline.xml" \
-    --report "sarif:$sarif_report" \
-    --report "html:$html_report" \
-    --build-upon-default-config
+  local -a detekt=(java -jar "$LOCAL_BIN_DIR/detekt-cli-1.23.7-all.jar"
+    --input "$ROOT_DIR/chronicle-server/src,$ROOT_DIR/chronicle-api/src,$ROOT_DIR/rhizome/src,${android_sources%,}"
+    --base-path "$ROOT_DIR" --excludes '**/build/**,**/.gradle/**' --config "$ROOT_DIR/detekt.yml" --build-upon-default-config)
+  local status=0 filtered_status=0 all_status=0
+  "${detekt[@]}" --baseline "$ROOT_DIR/detekt-baseline.xml" --report "sarif:$sarif_report" --report "html:$html_report" || filtered_status=$?
+  if [[ "$filtered_status" != 0 && "$filtered_status" != 2 ]]; then return "$filtered_status"; fi
+  "${detekt[@]}" --report "sarif:$all_sarif_report" || all_status=$?
+  if [[ "$all_status" != 0 && "$all_status" != 2 ]]; then return "$all_status"; fi
+  status="$filtered_status"
+  python3 "$ROOT_DIR/scripts/check-detekt-waiver-source.py" \
+    --all-sarif "$all_sarif_report" --filtered-sarif "$sarif_report" || status=1
+  # A stale baseline entry would admit a new finding with the same signature, so it fails too.
+  # detekt reads an existing --baseline file before writing it, so the path must not exist yet.
+  fresh="$(gate_tool_temp -d)"
+  "${detekt[@]}" --baseline "$fresh/baseline.xml" --create-baseline >/dev/null || { rm -rf -- "$fresh"; return 1; }
+  python3 - "$ROOT_DIR/detekt-baseline.xml" "$fresh/baseline.xml" <<'PY' || status=$?
+import sys
+import xml.etree.ElementTree as ET
+committed, current = ({node.text for node in ET.parse(path).getroot().iter("ID")} for path in sys.argv[1:3])
+for entry in sorted(committed - current):
+    print(f"STALE detekt-baseline.xml entry: {entry}")
+sys.exit(1 if committed - current else 0)
+PY
+  rm -rf -- "$fresh"
+  return "$status"
 }
 
 job_pmd() {
@@ -1730,7 +1897,6 @@ job_pmd() {
   ensure_pmd
   "$LOCAL_BIN_DIR/pmd-${PMD_VERSION}/bin/pmd" check \
     -d "$ROOT_DIR/chronicle-server/src/main/java" \
-    -d "$ROOT_DIR/chronicle-api/src/main/java" \
     -R rulesets/java/quickstart.xml \
     -f text
 }
@@ -1769,6 +1935,13 @@ job_osv() {
     --format=sarif \
     --output-file="$sarif_report" \
     "$ROOT_DIR"
+  # The recursive scan skips gradle/ hash catalogs; the Android build toolchain (AGP, lint,
+  # bundletool) resolves only there, so scan that catalog as a lockfile of its own.
+  osv-scanner scan source \
+    --config "$ROOT_DIR/osv-scanner.toml" \
+    --lockfile "$ROOT_DIR/chronicle/gradle/verification-metadata.xml" \
+    --format=sarif \
+    --output-file="$(report_path "$ROOT_DIR/osv-android-toolchain.sarif" "osv-android-toolchain.sarif")"
 }
 
 job_grype() {
@@ -1792,30 +1965,6 @@ job_syft() {
   syft "$ROOT_DIR" -o spdx-json="$sbom_report"
 }
 
-job_openapi_diff() {
-  ensure_oasdiff
-  local base_spec="${BASE_SPEC:-$ROOT_DIR/base/chronicle-api/chronicle.yaml}"
-  local head_spec="${HEAD_SPEC:-$ROOT_DIR/chronicle-api/chronicle.yaml}"
-  if [[ ! -f "$base_spec" ]]; then
-    printf '[local-ci] missing BASE_SPEC: %s\n' "$base_spec" >&2
-    exit 1
-  fi
-  if [[ ! -f "$head_spec" ]]; then
-    printf '[local-ci] missing HEAD_SPEC: %s\n' "$head_spec" >&2
-    exit 1
-  fi
-  echo "Comparing $base_spec vs $head_spec"
-  oasdiff breaking "$base_spec" "$head_spec" --fail-on ERR --format text || return $?
-  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    {
-      echo "## API Changelog"
-      oasdiff changelog "$base_spec" "$head_spec" --format text
-    } >> "$GITHUB_STEP_SUMMARY"
-  else
-    oasdiff changelog "$base_spec" "$head_spec" --format text
-  fi
-}
-
 job_linkml_ssot() {
   require_cmd python3 "install Python 3"
   local models_dir="${CHRONICLE_MODELS_DIR:-}"
@@ -1833,28 +1982,16 @@ job_linkml_ssot() {
   fi
 }
 
-job_cue_k8s() {
-  require_cmd cue "brew install cue-lang/tap/cue"
-  if ! command -v kubectl >/dev/null 2>&1 && ! command -v kustomize >/dev/null 2>&1; then
-    printf '[local-ci] missing required command: kubectl or kustomize (install kubectl or kustomize)\n' >&2
-    exit 127
-  fi
-  local report_dir="${LOCAL_REPORT_DIR:-/tmp/chronicle-cue-k8s}"
-  "$ROOT_DIR/tests/security/cue-k8s-guardrails.sh" "$report_dir"
-}
-
-job_operator_secret() {
-  local report_dir="${LOCAL_REPORT_DIR:-/tmp/chronicle-operator-secret-evidence}"
-  CHRONICLE_OPERATOR_SECRET_REPORT_DIR="$report_dir" \
-    "$ROOT_DIR/scripts/chronicle-operator-secret-evidence.sh"
-}
-
 job_web_mutation() {
   require_cmd bun "install Bun 1.3.x"
   (cd "$WEB_DIR" && bun run test:mutate)
 }
 
 run_job() {
+  local completed
+  for completed in "${completed_jobs[@]:-}"; do
+    [[ "$completed" != "$1" ]] || return 0
+  done
   case "$1" in
     fast|security|containers|all) ;;
     *)
@@ -1869,38 +2006,68 @@ run_job() {
           failures=$((failures + 1))
           printf '[local-ci] job failed: %s status=%s\n' "$1" "$status" >&2
         fi
+        completed_jobs+=("$1")
         return 0
       fi
       ;;
   esac
+  # Under `run_job x || ...` errexit is off, so return the job's own status instead of the append's.
+  local job_status
+  dispatch_job "$1"
+  job_status=$?
+  [[ "$job_status" -ne 0 ]] || completed_jobs+=("$1")
+  return "$job_status"
+}
+
+run_job_group() {
+  local job resolved
+  local -a members
+  resolved="$(job_group_members "$1")"
+  read -r -a members <<<"$resolved"
+  for job in "${members[@]}"; do
+    run_job "$job"
+  done
+}
+
+dispatch_job() {
   case "$1" in
     preflight) job_preflight ;;
+    engineering) job_engineering ;;
     architecture) job_architecture ;;
     migration-safety) job_migration_safety ;;
+    selfhost-restore) job_selfhost_restore ;;
+    contract-drift) job_contract_drift ;;
     diff-coverage) job_diff_coverage ;;
     duplication) job_duplication ;;
     migration-lint) job_migration_lint ;;
     web) job_web ;;
     web-a11y) job_web_a11y ;;
+    web-e2e) job_web_e2e ;;
+    api-probes) job_api_probes ;;
+    selfhost-browser) job_selfhost_browser ;;
+    k6-benchmarks) job_k6_benchmarks ;;
     jvm-smoke) job_jvm_smoke ;;
     repo-automation) job_repo_automation ;;
     linkml-ssot) job_linkml_ssot ;;
-    cue-k8s) job_cue_k8s ;;
     dead-code) job_dead_code ;;
     security-layers) job_security_layers ;;
     dependency-sbom) job_dependency_sbom ;;
+    selfhost-python) job_selfhost_python ;;
     selfhost) job_selfhost ;;
     dockerfile-lint) job_dockerfile_lint ;;
     iac-scan) job_iac_scan ;;
     license-compliance) job_license_compliance ;;
     container-structure) job_container_structure ;;
+    upload-body-limit-edge) job_upload_body_limit_edge ;;
+    android-replay) job_android_replay ;;
+    route-surface-edge) job_route_surface_edge ;;
     http-smoke-stack) job_http_smoke_stack ;;
     http-security) job_http_security ;;
-    operator-secret) job_operator_secret ;;
     pit) job_pit ;;
     fuzz) job_fuzz ;;
     parity) job_parity ;;
     android-unit) job_android_unit ;;
+    android-instrumented) job_android_instrumented ;;
     ios-verify) job_ios_verify ;;
     gitleaks) job_gitleaks ;;
     depcheck-locks) job_depcheck_locks ;;
@@ -1914,66 +2081,32 @@ run_job() {
     osv) job_osv ;;
     grype) job_grype ;;
     syft) job_syft ;;
-    openapi-diff) job_openapi_diff ;;
     web-mutation) job_web_mutation ;;
-    fast)
-      run_job preflight
-      run_job architecture
-      run_job duplication
-      run_job migration-safety
-      run_job web
-      run_job web-a11y
-      run_job jvm-smoke
-      run_job repo-automation
-      run_job linkml-ssot
-      run_job cue-k8s
-      run_job dead-code
-      run_job security-layers
-      run_job dependency-sbom
-      run_job license-compliance
-      ;;
-    security)
-      run_job gradle-depcheck
-      run_job bun-audit
-      run_job deps-freshness
-      run_job detekt
-      run_job pmd
-      run_job bearer
-      run_job osv
-      run_job grype
-      run_job syft
-      ;;
-    containers)
-      run_job selfhost
-      run_job dockerfile-lint
-      run_job iac-scan
-      run_job container-structure
-      run_job fluent-bit-config
-      ;;
-    all)
-      run_job fast
-      run_job security
-      run_job containers
-      run_job parity
-      run_job android-unit
-      ;;
+    fast|security|containers|all) run_job_group "$1" ;;
     -h|--help|help) usage ;;
     *) printf '[local-ci] unknown job: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 }
 
-if [[ "$#" -eq 0 ]]; then
-  usage
-  exit 2
-fi
+local_ci_main() {
+  if [[ "$#" -eq 0 ]]; then
+    usage
+    return 2
+  fi
+  failures=0
+  completed_jobs=()
+  export_docker_host_from_context
+  local job
+  for job in "$@"; do
+    log "job: $job"
+    run_job "$job"
+  done
+  if [[ "$failures" -gt 0 ]]; then
+    printf '[local-ci] %s job(s) failed\n' "$failures" >&2
+    return 1
+  fi
+}
 
-failures=0
-for job in "$@"; do
-  log "job: $job"
-  run_job "$job"
-done
-
-if [[ "$failures" -gt 0 ]]; then
-  printf '[local-ci] %s job(s) failed\n' "$failures" >&2
-  exit 1
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  local_ci_main "$@"
 fi

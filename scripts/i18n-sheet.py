@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exchange Chronicle's Android and web translations with a human-filled XLSX."""
+"""Exchange Chronicle's Android, web and server translations with a human-filled XLSX."""
 
 import argparse
 from copy import deepcopy
@@ -19,9 +19,9 @@ ANDROID = [
     for name in ("strings", "consent_copy")
 ]
 WEB = Path("chronicle-web/src/modern/i18n/en/translation.json")
+SERVER = Path("chronicle-server/src/main/resources/messages.properties")
 HEADERS = ("surface", "file", "key", "english", "spanish", "notes")
-EXCLUDED = {"user_target_child", "user_other", "user_unassigned"}
-TOKENS = re.compile(r"%%|%(?:\d+\$)?[sd]|\{\{[^{}]+\}\}")
+TOKENS = re.compile(r"%%|%(?:\d+\$)?[sd]|\{\{[^{}]+\}\}|\{\d+\}")
 
 
 def placeholders(text):
@@ -35,8 +35,7 @@ def android_text(element):
 def resources(tree):
     return [element for element in tree
             if element.tag in {"string", "string-array", "plurals"}
-            and element.get("translatable") != "false"
-            and element.get("name") not in EXCLUDED]
+            and element.get("translatable") != "false"]
 
 
 def items(element):
@@ -61,11 +60,36 @@ def flatten(value, path=()):
 def target_path(path, lang):
     if path == WEB:
         return WEB.parent.parent / lang / WEB.name
+    if path == SERVER:
+        return SERVER.with_name(f"messages_{lang.replace('-r', '_')}.properties")
     return path.parent.parent / f"values-{lang}" / path.name
 
 
 def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_properties(path):
+    """The `key=value` lines of a Java message table. MessageFormat's doubled apostrophe on a
+    `{0}` line is shown to translators as a single one and restored by `properties_line`."""
+    entries = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line[0] in "#!":
+            continue
+        if line.endswith("\\") or "\\u" in line or "=" not in line:
+            raise ValueError(f"{path}: unsupported properties line: {line}")
+        key, value = line.split("=", 1)
+        value = re.sub(r"\\(.)", lambda match: {"n": "\n", "t": "\t"}.get(match[1], match[1]), value.lstrip())
+        entries[key.strip()] = value.replace("''", "'") if placeholders(value) else value
+    return entries
+
+
+def properties_line(key, value):
+    if placeholders(value):
+        value = value.replace("'", "''")
+    value = value.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t")
+    return f"{key}={value}"
 
 
 def catalog(root, lang):
@@ -89,6 +113,10 @@ def catalog(root, lang):
     existing = {key: value for key, value, _ in flatten(read_json(translated))} if translated.exists() else {}
     for key, value, _ in flatten(english):
         rows[("web", WEB.as_posix(), key)] = (value, existing.get(key, ""))
+    translated = root / target_path(SERVER, lang)
+    existing = read_properties(translated) if translated.exists() else {}
+    for key, value in read_properties(root / SERVER).items():
+        rows[("server", SERVER.as_posix(), key)] = (value, existing.get(key, ""))
     return rows, trees, english
 
 
@@ -117,7 +145,7 @@ def export_sheet(root, lang, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output)
     workbook.close()
-    for surface in ("android-play", "android-research", "web"):
+    for surface in ("android-play", "android-research", "web", "server"):
         print(f"{surface}: {sum(identity[0] == surface for identity in rows)} rows")
     print(f"Exported {len(rows)} rows to {output}")
 
@@ -227,6 +255,13 @@ def import_sheet(root, lang, source):
                         if ("web", WEB.as_posix(), key) in translations}
     merged = english_order(merge_web(existing, english, web_translations), english)
     outputs[web_path] = json.dumps(merged, ensure_ascii=False, indent=2) + "\n"
+    server_path = root / target_path(SERVER, lang)
+    server_lines = [properties_line(identity[2], translations[identity]) for identity in rows
+                    if identity[0] == "server" and identity in translations]
+    outputs[server_path] = (
+        f"# Chronicle server message table for {lang}, written by scripts/i18n-sheet.py import.\n"
+        "# Keys and {0} placeholders match messages.properties; a missing key falls back to English.\n"
+        + "".join(f"{line}\n" for line in server_lines))
     for path, content in outputs.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")

@@ -20,10 +20,11 @@
 #
 # Repos are labelled by directory basename; "root" is the monorepo itself. Push submodules before
 # the root: the root's gitlinks must already be on the public remotes.
+# Set CHRONICLE_PUBLISH_WORK to the explicit directory for publication worktrees.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK="${CHRONICLE_PUBLISH_WORK:-$ROOT_DIR/../chronicle_work/publish/curate}"
+WORK="${CHRONICLE_PUBLISH_WORK:?set CHRONICLE_PUBLISH_WORK to the publication work directory}"
 CURATE_BRANCH=curate
 BANNED_TERMS=''; BANNED_ALLOW=''; BANNED_TRAILERS=''
 # shellcheck disable=SC1091
@@ -32,6 +33,8 @@ BANNED_TERMS=''; BANNED_ALLOW=''; BANNED_TRAILERS=''
 fail() { echo "publish: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || fail "missing tool: $1"; }
 need gitleaks; need gh; need rg; need jq
+# gitleaks_json <report>: the report gitleaks wrote; a missing or malformed one fails, never reads as "no findings"
+gitleaks_json() { [[ -s "$1" ]] && jq -e 'type == "array"' "$1" >/dev/null 2>&1 || fail "gitleaks wrote no readable report at $1"; }
 
 cd "$ROOT_DIR"
 mapfile -t SUBMODULES < <(git config -f .gitmodules --get-regexp 'submodule\..*\.path' | awk '{print $2}')
@@ -98,8 +101,10 @@ gate_tree() {
   fi
   local allow="$WORK/.allow-$label"; : > "$allow"
   [[ -f "$dir/.publishallow" ]] && sed -E 's/[[:space:]]+#.*$//' "$dir/.publishallow" | grep -v '^#' | grep -v '^$' > "$allow" || true
-  gitleaks detect --no-git --no-banner -s "$export" --exit-code 0 --report-format json --report-path "$WORK/.gitleaks-$label.json" >/dev/null 2>&1
-  local hits; hits="$(jq -r '.[] | (.File|sub(".*/\\.tree-[^/]+/";""))' "$WORK/.gitleaks-$label.json" | sort -u | grep -vxFf "$allow" || true)"
+  local report="$WORK/.gitleaks-$label.json"; rm -f "$report"
+  gitleaks detect --no-git --no-banner -s "$export" --exit-code 0 --report-format json --report-path "$report" >/dev/null 2>&1
+  gitleaks_json "$report"
+  local hits; hits="$(jq -r '.[] | (.File|sub(".*/\\.tree-[^/]+/";""))' "$report" | sort -u | { grep -vxFf "$allow" || true; })"
   [[ -z "$hits" ]] || fail "$label: gitleaks findings outside .publishallow: $(tr '\n' ' ' <<<"$hits")"
   if [[ -n "$BANNED_TERMS" ]]; then
     local banned="" f
@@ -128,8 +133,10 @@ gate_commits() {
     fi
   done
   local allow="$WORK/.allow-$label"
-  gitleaks detect --no-banner -s "$wt" --log-opts="$range" --exit-code 0 --report-format json --report-path "$WORK/.gitleaks-commits-$label.json" >/dev/null 2>&1
-  local hits; hits="$(jq -r '.[] | .File' "$WORK/.gitleaks-commits-$label.json" | sort -u | grep -vxFf "$allow" || true)"
+  local report="$WORK/.gitleaks-commits-$label.json"; rm -f "$report"
+  gitleaks detect --no-banner -s "$wt" --log-opts="$range" --exit-code 0 --report-format json --report-path "$report" >/dev/null 2>&1
+  gitleaks_json "$report"
+  local hits; hits="$(jq -r '.[] | .File' "$report" | sort -u | { grep -vxFf "$allow" || true; })"
   [[ -z "$hits" ]] || fail "$label: gitleaks findings in the new commits outside .publishallow: $(tr '\n' ' ' <<<"$hits")"
 }
 
@@ -188,6 +195,8 @@ cmd_verify_source() {
   for label in $(all_labels); do
     tip="$(public_tip "$label")"
     [[ -n "$tip" ]] || fail "$label: public source is missing; publish source first"
+    # A frozen repo ships its current public commit; the root tree check pins exactly that commit.
+    [[ " ${CHRONICLE_PUBLISH_FROZEN:-} " == *" $label "* ]] && continue
     tree="$(build_tree "$label")"
     [[ "$(git -C "$(repo_dir "$label")" rev-parse "$tip^{tree}")" == "$tree" ]] \
       || fail "$label: public source differs from filtered HEAD; publish source first"

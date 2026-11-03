@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ADB_BIN="${ADB:-adb}"
-DEVICE_ID=""
+ADB_SERIAL=""
 APP_PACKAGE=""
 UI_DUMP_PATH="/sdcard/chronicle-unlock-notification.xml"
 IDENTIFICATION_TAG="com.openlattice.chronicle.private.identify-user"
@@ -14,7 +14,7 @@ usage() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device)
-      DEVICE_ID="${2:-}"
+      ADB_SERIAL="${2:-}"
       shift 2
       ;;
     --package)
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$DEVICE_ID" && -n "$APP_PACKAGE" ]] || {
+[[ -n "$ADB_SERIAL" && -n "$APP_PACKAGE" ]] || {
   usage
   exit 2
 }
@@ -42,7 +42,7 @@ done
 }
 
 adb_cmd() {
-  "$ADB_BIN" -s "$DEVICE_ID" "$@"
+  "$ADB_BIN" -s "$ADB_SERIAL" "$@"
 }
 
 dump_ui() {
@@ -79,7 +79,7 @@ notification_present() {
 }
 
 [[ "$(adb_cmd get-state)" == "device" ]] || {
-  echo "ADB device is not ready: $DEVICE_ID" >&2
+  echo "ADB device is not ready: $ADB_SERIAL" >&2
   exit 1
 }
 

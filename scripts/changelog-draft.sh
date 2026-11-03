@@ -8,10 +8,11 @@
 # and edit it into prose a user can read. For each repository with a curate worktree, the
 # commits after the public tip are read; the private history is never used, since it is
 # scratch and carries no Conventional Commits guarantee.
+# Set CHRONICLE_PUBLISH_WORK to the same explicit directory used by publish.sh.
 set -euo pipefail
 RELEASE="${1:?usage: scripts/changelog-draft.sh <release>}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK="${CHRONICLE_PUBLISH_WORK:-$ROOT_DIR/../chronicle_work/publish/curate}"
+WORK="${CHRONICLE_PUBLISH_WORK:?set CHRONICLE_PUBLISH_WORK to the publication work directory}"
 command -v git-cliff >/dev/null || { echo "git-cliff is required (https://github.com/orhun/git-cliff/releases)" >&2; exit 1; }
 cd "$ROOT_DIR"
 echo "## [$RELEASE]"
