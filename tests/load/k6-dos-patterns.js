@@ -139,7 +139,9 @@ export function largeQueryParam() {
   const oversizedId = 'A'.repeat(10000);
   const url = `${BASE_URL}/chronicle/v3/study/${oversizedId}/participants`;
 
-  const res = http.get(url, { headers: headers(), tags: { scenario: 'large_query_param' } });
+  // The rejection is the expected outcome, so it does not count toward http_req_failed.
+  const res = http.get(url, { headers: headers(), tags: { scenario: 'large_query_param' },
+    responseCallback: http.expectedStatuses(400, 414) });
 
   const is5xx = res.status >= 500 && res.status < 600;
   serverErrors.add(is5xx);
@@ -185,7 +187,8 @@ export function paginationAbuse() {
 export function jsonDepthBomb() {
   if (!__ENV.API_KEY || !__ENV.TEST_RANDOM_DEVICE_ID) throw new Error('An enrolled synthetic device is required');
   const url = `${BASE_URL}/chronicle/v4/study/${STUDY_ID}/participant/${PID}/android/sensors`;
-  const deviceHeaders = { ...headers('application/json'),
+  // Device credentials only: the server refuses an API key sent with a bearer token (mixed credentials).
+  const deviceHeaders = { 'Content-Type': 'application/json',
     [MOBILE_HEADERS.apiKey]: __ENV.API_KEY, [MOBILE_HEADERS.randomDeviceId]: __ENV.TEST_RANDOM_DEVICE_ID };
   const control = http.post(url, '[]', { headers: deviceHeaders });
   if (!check(control, { 'depth control accepted': (r) => r.status === 200 && r.json() === 0 })) {
@@ -196,6 +199,7 @@ export function jsonDepthBomb() {
   const res = http.post(url, payload, {
     headers: deviceHeaders,
     tags: { scenario: 'json_depth_bomb' },
+    responseCallback: http.expectedStatuses(400),
   });
 
   const is5xx = res.status >= 500 && res.status < 600;

@@ -1075,15 +1075,20 @@ with open(folder / 'benchmark-listener.env', 'x', opener=lambda path, flags: os.
     request_header @researcher X-Chronicle-Internal-Web {$CHRONICLE_INTERNAL_WEB_SECRET}
     reverse_proxy https://backend:8443 {
         transport http {
+            # HTTP/1.1: over h2 the Go client refuses a request line above Jetty's advertised header bound and
+            # caddy answers 502, so the oversized-URI probe would never reach Jetty's 414.
+            versions 1.1
             tls_trust_pool file /etc/caddy/backend-tls/backend.crt
         }
     }
 }
 ''')
 BENCHMARK_LISTENER
+# The release caddy binary carries cap_net_bind_service=ep; the kernel refuses to exec it
+# when that capability is outside the bounding set, so keep it as the web service does.
 BENCHMARK_LISTENER_CONTAINER="$(docker run -d --name "chronicle-sat-r1-k6-${PROJECT#chronicle-release-smoke-}" \
   --label "chronicle.sat-r1.fixture=$PROJECT" --read-only --user "$(id -u):$(id -g)" \
-  --cap-drop ALL --security-opt no-new-privileges --memory 128m --pids-limit 64 \
+  --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges --memory 128m --pids-limit 64 \
   --network "$(jq -er .network "$RUN_DIR/benchmark-listener.json")" --publish 127.0.0.1::8080 \
   --env-file "$RUN_DIR/benchmark-listener.env" \
   --mount "type=volume,source=$(jq -er .trust "$RUN_DIR/benchmark-listener.json"),target=/etc/caddy/backend-tls,readonly" \

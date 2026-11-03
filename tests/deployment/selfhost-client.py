@@ -60,7 +60,10 @@ TABLES = {'usage': 'chronicle_usage_events', 'sensors': 'android_sensor_data',
           'sleep': 'sleep_events', 'activity-recognition': 'activity_recognition_events', 'health-connect': 'health_metrics'}
 # Every active Android module that is on by default must be listed: enrollment acknowledges
 # exactly the effective enabled set, and unlisted defaults (device_lifecycle, questionnaire) count.
-MODULES = ('usage_events', 'device_lifecycle', 'questionnaire', 'sensor_accelerometer', 'battery_telemetry', 'connectivity_state',
+# Sensor modules cover every sensor tests/load/mobile-client.js generates; the server refuses a batch naming an
+# unconsented sensor.
+MODULES = ('usage_events', 'device_lifecycle', 'questionnaire', 'sensor_accelerometer', 'sensor_gyroscope', 'sensor_light',
+           'sensor_proximity', 'battery_telemetry', 'connectivity_state',
            'app_network_usage', 'device_settings', 'upload_telemetry', 'sensor_availability',
            'interaction_events', 'audio_activity', 'audio_content', 'notification_activity',
            'sleep', 'activity_recognition', 'health_connect')
@@ -340,7 +343,7 @@ def api_fixture_study(api, token, public, participant):
     key_body = {'name': 'Authorization probe key', 'scope': 'READ_ONLY', 'expiresInDays': 1}
     key = request(opener, base + '/api-keys', 'POST', key_body, headers)
     add_participant(opener, headers, base, participant)
-    native_headers, device, acknowledgment = enroll_probe_device(opener, headers, api, study, participant, policy, now)
+    native_headers, device, acknowledgment = enroll_probe_device(opener, opener, headers, api, study, participant, policy, now)
     # A separate participant supplies a real deletion-ledger ID without quarantining the target's enrolled device.
     deletion_participant = 'probe-deletion-' + uuid.uuid4().hex
     add_participant(opener, headers, base, deletion_participant)
@@ -434,7 +437,9 @@ def api_fixture_study(api, token, public, participant):
     return context
 
 
-def enroll_probe_device(opener, researcher_headers, api, study, participant, policy, now):
+def enroll_probe_device(opener, device_opener, researcher_headers, api, study, participant, policy, now):
+    """opener issues the researcher's invitation; device_opener carries no person credential, because the server
+    refuses an API key sent with an auth cookie or bearer token (ApiKeyAuthenticationFilter, mixed credentials)."""
     invitation = request(opener, api + '/study/' + study + '/participant/' + participant + '/form-access-codes',
                          'POST', {'formKind': 'ENROLLMENT'}, researcher_headers)
     # The seed uses the disposable API transport; --public is the policy's canonical HTTPS origin.
@@ -442,21 +447,21 @@ def enroll_probe_device(opener, researcher_headers, api, study, participant, pol
     enrollment = f'{endpoint.scheme}://{endpoint.netloc}/chronicle/v4/study/{study}/participant/{participant}'
     source_device = str(uuid.uuid4())
     headers = {DEVICE_HEADER: source_device, ENROLLMENT_CODE_HEADER: invitation['accessCode']}
-    preview = request(opener, enrollment + '/enrollment-preview', headers=headers)
+    preview = request(device_opener, enrollment + '/enrollment-preview', headers=headers)
     proposed = uuid.uuid4().hex
     headers.update({MANIFEST_HEADER: preview['manifestDigest'], 'X-Chronicle-Enrollment-Attempt-Id': str(uuid.uuid4()),
                     'X-Chronicle-Proposed-Api-Key': 'ck_' + proposed[:8] + '_' + proposed})
     android = {'@class': 'com.openlattice.chronicle.sources.AndroidDevice', 'randomDeviceId': source_device,
                'sdkVersion': '36', 'osVersion': '16', **dict.fromkeys(('device', 'model', 'codename', 'brand', 'product'), 'synthetic')}
-    enrolled = request(opener, enrollment + '/enroll', 'POST', android, headers)
-    replay = request(opener, enrollment + '/enroll', 'POST', android, headers)
+    enrolled = request(device_opener, enrollment + '/enroll', 'POST', android, headers)
+    replay = request(device_opener, enrollment + '/enroll', 'POST', android, headers)
     if enrolled != replay or not enrolled.get('apiKey'):
         raise RuntimeError('fixture enrollment did not replay the same device credential')
     native_headers = {DEVICE_HEADER: source_device, API_KEY_HEADER: enrolled['apiKey']}
     acknowledgment = {'acknowledgedModules': list(MODULES), 'acknowledgedAt': now.isoformat(),
                       'settingsVersion': preview['manifest']['settingsVersion'], 'disclosureVersion': policy['version'],
                       'manifestDigest': preview['manifestDigest']}
-    request(opener, enrollment + '/android/collection-ack', 'POST', acknowledgment, native_headers)
+    request(device_opener, enrollment + '/android/collection-ack', 'POST', acknowledgment, native_headers)
     return native_headers, str(uuid.UUID(enrolled['chronicleId'])), acknowledgment
 
 
@@ -482,7 +487,7 @@ def benchmark_device_inventory(public, management, ca, password, count, destinat
     for _ in range(count):
         participant = 'benchmark-' + uuid.uuid4().hex
         add_participant(browser, headers, api + '/study/' + study, participant)
-        native, _, _ = enroll_probe_device(browser, headers, api, study, participant, policy, now)
+        native, _, _ = enroll_probe_device(browser, client(ca), headers, api, study, participant, policy, now)
         records.append({'participant_id': participant, 'random_device_id': native[DEVICE_HEADER],
                         'api_key': native[API_KEY_HEADER]})
     if len({record['api_key'] for record in records}) != count:

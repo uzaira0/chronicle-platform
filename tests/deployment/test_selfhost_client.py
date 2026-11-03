@@ -201,6 +201,10 @@ class BenchmarkFixtureApi(ProbeFixtureApi):
         self.path = self.path.replace(client.DASHBOARD_API, '/chronicle/v3', 1)
         if self.path.endswith('/enroll') and not getattr(self.server, 'duplicate_keys', False):
             self.server.credential = self.headers['X-Chronicle-Proposed-Api-Key']
+        if self.headers[client.API_KEY_HEADER] and self.headers['Cookie']:
+            # The server refuses a device key sent with a person credential (mixed credentials).
+            self.send_error(400)
+            return
         if self.path.endswith('/collection-ack'):
             self.server.acknowledged.add(self.headers[client.API_KEY_HEADER])
         super().do_POST()
@@ -235,7 +239,9 @@ class ProbeFixtureTests(unittest.TestCase):
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='benchmark-records-', dir=scratch) as folder:
             path = Path(folder) / 'devices.json'
-            with patch.object(client, 'dashboard_client', return_value=(client.client(), {})):
+            browser = client.client()
+            browser.addheaders = [('Cookie', 'chronicle_session=fixture')]  # the dashboard session cookie
+            with patch.object(client, 'dashboard_client', return_value=(browser, {})):
                 credentials = client.benchmark_device_inventory('https://probe.example.org', management,
                                                                  None, 'fixture-password', 2, path)
             records = json.loads(path.read_text())
