@@ -1,0 +1,25 @@
+# Generated from selfhost/config/jetty.yaml.template for the HTTP backend listener.
+max-threads: 500
+context:
+  descriptor: src/main/webapp/WEB-INF/web.xml
+  resource-base: src/main/webapp
+  path: /
+  parent-loader-priority: true
+web-endpoint:
+  http-port: 40320
+  https-port: 8443
+  use-ssl: false
+  require-ssl: false
+  require-client-auth: false
+  want-client-auth: false
+  certificate-alias: rhizomessl
+keymanager-password: ""
+keystore:
+  path: backend.p12
+  password: ""
+truststore:
+  path: backend.p12
+  password: ""
+gzip:
+  enabled: true
+security-enabled: true

@@ -20,19 +20,13 @@ semgrep scan \
   --error \
   --no-git-ignore \
   --sarif -o "$REPORT_DIR/rls-context.semgrep.sarif" \
-  "$ROOT_DIR/chronicle-server/src/main/kotlin" \
-  "$ROOT_DIR/docker/docker-compose.traefik.yml"
+  "$ROOT_DIR/chronicle-server/src/main/kotlin"
 
 echo "=== RLS guardrails: ast-grep ==="
 ast-grep scan \
   --rule "$ROOT_DIR/tests/security/ast-grep/no-rls-context-manager-call.yml" \
   "$ROOT_DIR/chronicle-server/src/main/kotlin" \
   --format sarif > "$REPORT_DIR/rls-no-context-manager-call.ast-grep.sarif"
-
-ast-grep scan \
-  --rule "$ROOT_DIR/tests/security/ast-grep/no-direct-admin-rls-bypass.yml" \
-  "$ROOT_DIR/chronicle-server/src/main/kotlin" \
-  --format sarif > "$REPORT_DIR/rls-no-direct-admin-bypass.ast-grep.sarif"
 
 ast-grep scan \
   --rule "$ROOT_DIR/tests/security/ast-grep/no-rls-filter-storage-resolver.yml" \

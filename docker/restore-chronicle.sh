@@ -21,11 +21,13 @@
 #   9. Run health checks and quiesce application writers on failure
 
 set -euo pipefail
+
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backup-format.sh"
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_KEY="/etc/chronicle/backup-encryption-key"
-LEGACY_KEY="/opt/chronicle/backups/.backup-encryption-key"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.traefik.yml"
 COMPOSE_PROD_FILE="${SCRIPT_DIR}/docker-compose.production.yml"
 CONTAINER="chronicle-postgres"
@@ -135,10 +137,7 @@ resolve_jq() {
 decrypt_file() {
     local src="$1"
     local dst="$2"
-    # Try current iteration count first, fall back to legacy (100k) for old backups
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
-        -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null \
-    || openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null
 }
 
@@ -424,10 +423,13 @@ postgres_exec() {
 }
 
 preflight_migration_runner() {
-    compose_cmd run --rm --no-deps --entrypoint /bin/sh chronicle-backend -euc '
+    # migrate reads the superuser password from the copy backend-secrets-init stages from the
+    # (now restored) secret files; --no-deps would otherwise skip that step.
+    compose_cmd run --rm --no-deps backend-secrets-init >/dev/null || return 1
+    compose_cmd run --rm --no-deps --entrypoint /bin/sh migrate -euc '
         test -x /opt/java/openjdk/bin/java
         test -r /app/ssl/ca.crt
-        test -r /run/secrets/postgres_password || test -n "${POSTGRES_PASSWORD:-}"
+        test -r "${POSTGRES_MIGRATION_PASSWORD_FILE:-/run/secrets/postgres_password}" || test -n "${POSTGRES_PASSWORD:-}"
         found=false
         for archive in /server/lib/*; do
             case "$archive" in
@@ -441,25 +443,7 @@ preflight_migration_runner() {
 run_flyway_migrations() {
     MIGRATION_RUN_ACTIVE=true
     if ! compose_cmd run --rm --no-deps --name "$MIGRATION_CONTAINER" \
-        --entrypoint /bin/sh chronicle-backend -euc '
-            umask 077
-            password_file=/tmp/chronicle-migration-password
-            if [ -r /run/secrets/postgres_password ]; then
-                cp /run/secrets/postgres_password "$password_file"
-            elif [ -n "${POSTGRES_PASSWORD:-}" ]; then
-                printf "%s" "$POSTGRES_PASSWORD" > "$password_file"
-            else
-                echo "PostgreSQL migration password is unavailable" >&2
-                exit 1
-            fi
-            chmod 600 "$password_file"
-            chown chronicle:chronicle "$password_file"
-            export POSTGRES_MIGRATION_JDBC_URL="jdbc:postgresql://postgres:5432/${POSTGRES_DB:-chronicle}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
-            export POSTGRES_MIGRATION_USER="${POSTGRES_USER:-chronicle}"
-            export POSTGRES_MIGRATION_PASSWORD_FILE="$password_file"
-            exec su-exec chronicle java -Xms64m -Xmx256m -cp "/server/lib/*" \
-                com.openlattice.chronicle.upgrades.FlywayMigrationCommand
-        ' chronicle-migration-runner; then
+        migrate; then
         if docker rm -f "$MIGRATION_CONTAINER" >/dev/null 2>&1; then
             MIGRATION_RUN_ACTIVE=false
         fi
@@ -750,8 +734,7 @@ verify_restored_flyway_contract() {
     if ! capture_flyway_contract "Restored"; then
         return 1
     fi
-    if [ "$MANIFEST_SCHEMA_VERSION" = "2" ] \
-        && { [ "$ACTUAL_FLYWAY_MAX" != "$EXPECTED_FLYWAY_MAX" ] \
+    if { [ "$ACTUAL_FLYWAY_MAX" != "$EXPECTED_FLYWAY_MAX" ] \
             || [ "$ACTUAL_FLYWAY_BASELINE" != "$EXPECTED_FLYWAY_BASELINE" ] \
             || [ "$ACTUAL_FLYWAY_SUCCESSFUL" != "$EXPECTED_FLYWAY_SUCCESSFUL" ] \
             || [ "$ACTUAL_FLYWAY_FAILED" != "$EXPECTED_FLYWAY_FAILED" ] \
@@ -862,11 +845,6 @@ confirm() {
 BACKUP_DIR="${1:-}"
 KEY_FILE="${2:-$DEFAULT_KEY}"
 
-if [ ! -f "$KEY_FILE" ] && [ "$KEY_FILE" = "$DEFAULT_KEY" ] && [ -f "$LEGACY_KEY" ]; then
-    log_warn "Using legacy backup key location: ${LEGACY_KEY}"
-    KEY_FILE="$LEGACY_KEY"
-fi
-
 if [ -z "$BACKUP_DIR" ]; then
     echo "Usage: $0 <backup-directory> [encryption-key-file]"
     echo ""
@@ -931,13 +909,13 @@ if DUPLICATE_MANIFEST_PATHS=$("$JQ_BIN" --stream -r \
     exit 1
 fi
 
-if ! "$JQ_BIN" -e -s '
+if ! "$JQ_BIN" --argjson format_version "$BACKUP_MANIFEST_VERSION" -e -s '
     def integer: (type == "number") and (. == floor);
     def common_contract:
       . as $manifest
       | ((.schema_version | integer))
       and (.schema_version == (.schema_version | floor))
-      and (.schema_version == 1 or .schema_version == 2)
+      and (.schema_version == $format_version)
       and ((.audit_logs_required | type) == "boolean")
       and ((.table_count | type) == "number")
       and (.table_count == (.table_count | floor))
@@ -973,17 +951,15 @@ if ! "$JQ_BIN" -e -s '
       and ((.database_size | type) == "string")
       and ((.retention_tags | type) == "array")
       and all(.retention_tags[]; type == "string");
-    def v1_keys: [
-      "audit_logs_required", "backup_dir", "checksums", "database_size",
-      "env_config_file", "required_artifacts", "retention_tags",
-      "schema_version", "table_count", "tde_encrypted_tables", "timestamp"
+    def manifest_keys: [
+      "audit_logs_required", "backup_dir", "checksums", "database_size", "env_config_file",
+      "required_artifacts", "retention_tags", "schema_version", "table_count", "tde_encrypted_tables",
+      "timestamp", "flyway", "tde"
     ];
-    def v2_keys: (v1_keys + ["flyway", "tde"]);
     length == 1
     and (.[0]
       | common_contract
-      and (if .schema_version == 2 then
-          ((keys | sort) == (v2_keys | sort))
+      and ((keys | sort) == (manifest_keys | sort))
           and ((.flyway | type) == "object")
           and ((.flyway | keys | sort) == ([
               "baseline_version", "failed_entry_count", "history_format",
@@ -1011,9 +987,7 @@ if ! "$JQ_BIN" -e -s '
               or (.tde.provider == "vault" and .tde.provider_name == "chronicle-vault"))
           and ((.tde.principal_key_name | type) == "string")
           and (.tde.principal_key_name | test("^[A-Za-z0-9._-]+$"))
-        else
-          ((keys | sort) == (v1_keys | sort))
-        end))
+        )
 ' "$MANIFEST_FILE" >/dev/null 2>&1; then
     log_err "Manifest JSON or recovery contract is invalid"
     exit 1
@@ -1023,45 +997,17 @@ echo "  Validated manifest:"
 "$JQ_BIN" . "$MANIFEST_FILE" | sed 's/^/    /'
 echo ""
 
-MANIFEST_SCHEMA_VERSION=$("$JQ_BIN" -er '.schema_version' "$MANIFEST_FILE")
 EXPECTED_TABLE_COUNT=$("$JQ_BIN" -er '.table_count' "$MANIFEST_FILE")
 CONFIG_ENV_NAME=$("$JQ_BIN" -er '.env_config_file' "$MANIFEST_FILE")
 AUDIT_LOGS_REQUIRED=$("$JQ_BIN" -r '.audit_logs_required' "$MANIFEST_FILE")
-if [ "$MANIFEST_SCHEMA_VERSION" = "1" ]; then
-    if [ "${CHRONICLE_ALLOW_LEGACY_MANIFEST_V1:-false}" != true ]; then
-        log_err "Manifest schema v1 lacks a Flyway history binding; set CHRONICLE_ALLOW_LEGACY_MANIFEST_V1=true only for an explicitly approved legacy recovery"
-        exit 1
-    fi
-    log_warn "Explicitly authorized legacy manifest v1; Flyway history cannot be bound to the backup"
-    EXPECTED_FLYWAY_SUCCESSFUL=""
-    EXPECTED_FLYWAY_FAILED=""
-    EXPECTED_FLYWAY_BASELINE=""
-    EXPECTED_FLYWAY_MAX=""
-    EXPECTED_FLYWAY_SHA256=""
-    EXPECTED_TDE_PROVIDER="${CHRONICLE_LEGACY_TDE_PROVIDER:-}"
-    EXPECTED_TDE_KEY_NAME="${CHRONICLE_LEGACY_TDE_KEY_NAME:-}"
-    case "$EXPECTED_TDE_PROVIDER" in
-        file) EXPECTED_TDE_PROVIDER_NAME=chronicle-file-vault ;;
-        vault) EXPECTED_TDE_PROVIDER_NAME=chronicle-vault ;;
-        *)
-            log_err "Legacy manifest recovery requires CHRONICLE_LEGACY_TDE_PROVIDER=file|vault"
-            exit 1
-            ;;
-    esac
-    if [[ ! "$EXPECTED_TDE_KEY_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
-        log_err "Legacy manifest recovery requires a safe CHRONICLE_LEGACY_TDE_KEY_NAME"
-        exit 1
-    fi
-else
-    EXPECTED_FLYWAY_SUCCESSFUL=$("$JQ_BIN" -er '.flyway.successful_entry_count' "$MANIFEST_FILE")
-    EXPECTED_FLYWAY_FAILED=$("$JQ_BIN" -er '.flyway.failed_entry_count' "$MANIFEST_FILE")
-    EXPECTED_FLYWAY_BASELINE=$("$JQ_BIN" -r '.flyway.baseline_version' "$MANIFEST_FILE")
-    EXPECTED_FLYWAY_MAX=$("$JQ_BIN" -er '.flyway.max_version' "$MANIFEST_FILE")
-    EXPECTED_FLYWAY_SHA256=$("$JQ_BIN" -er '.flyway.history_sha256' "$MANIFEST_FILE")
-    EXPECTED_TDE_PROVIDER=$("$JQ_BIN" -er '.tde.provider' "$MANIFEST_FILE")
-    EXPECTED_TDE_PROVIDER_NAME=$("$JQ_BIN" -er '.tde.provider_name' "$MANIFEST_FILE")
-    EXPECTED_TDE_KEY_NAME=$("$JQ_BIN" -er '.tde.principal_key_name' "$MANIFEST_FILE")
-fi
+EXPECTED_FLYWAY_SUCCESSFUL=$("$JQ_BIN" -er '.flyway.successful_entry_count' "$MANIFEST_FILE")
+EXPECTED_FLYWAY_FAILED=$("$JQ_BIN" -er '.flyway.failed_entry_count' "$MANIFEST_FILE")
+EXPECTED_FLYWAY_BASELINE=$("$JQ_BIN" -r '.flyway.baseline_version' "$MANIFEST_FILE")
+EXPECTED_FLYWAY_MAX=$("$JQ_BIN" -er '.flyway.max_version' "$MANIFEST_FILE")
+EXPECTED_FLYWAY_SHA256=$("$JQ_BIN" -er '.flyway.history_sha256' "$MANIFEST_FILE")
+EXPECTED_TDE_PROVIDER=$("$JQ_BIN" -er '.tde.provider' "$MANIFEST_FILE")
+EXPECTED_TDE_PROVIDER_NAME=$("$JQ_BIN" -er '.tde.provider_name' "$MANIFEST_FILE")
+EXPECTED_TDE_KEY_NAME=$("$JQ_BIN" -er '.tde.principal_key_name' "$MANIFEST_FILE")
 
 REQUIRED_ARTIFACTS=()
 while IFS= read -r artifact_name; do
@@ -1167,13 +1113,13 @@ if DUPLICATE_DEPLOYMENT_PATHS=$("$JQ_BIN" --stream -r \
     log_err "Deployment evidence manifest contains duplicate JSON paths"
     exit 1
 fi
-if ! "$JQ_BIN" -e -s --arg env_name "$CONFIG_ENV_NAME" '
+if ! "$JQ_BIN" --argjson format_version "$BACKUP_MANIFEST_VERSION" -e -s --arg env_name "$CONFIG_ENV_NAME" '
         length == 1 and (.[0]
         | ((keys | sort) == ([
             "compose_files", "env_config_file", "git_branch", "git_commit",
             "git_dirty", "kubernetes_profile_source", "schema_version", "timestamp"
         ] | sort))
-        and (.schema_version == 1)
+        and (.schema_version == $format_version)
         and ((.timestamp | type) == "string" and (.timestamp | length > 0))
         and ((.git_commit | type) == "string")
         and (.git_commit == "unknown" or (.git_commit | test("^[a-f0-9]{40}([a-f0-9]{24})?$")))
@@ -1430,7 +1376,7 @@ fi
 if ! capture_flyway_contract "Post-migration"; then
     exit 1
 fi
-if [ "$MANIFEST_SCHEMA_VERSION" = "2" ] && [ "$ACTUAL_FLYWAY_MAX" -lt "$EXPECTED_FLYWAY_MAX" ]; then
+if [ "$ACTUAL_FLYWAY_MAX" -lt "$EXPECTED_FLYWAY_MAX" ]; then
     log_err "Post-migration Flyway version V${ACTUAL_FLYWAY_MAX} is behind backup manifest V${EXPECTED_FLYWAY_MAX}"
     exit 1
 fi

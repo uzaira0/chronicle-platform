@@ -176,7 +176,7 @@ else
     for i in $(seq 1 25); do
         HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer invalid-token-fail2ban-test-${i}" \
-            "${BACKEND_URL}/chronicle/v3/studies" 2>/dev/null || echo "000")
+            "${BACKEND_URL}/chronicle/v3/study" 2>/dev/null || echo "000")
         if [[ "${HTTP_CODE}" == "401" ]]; then
             COUNT_401=$((COUNT_401 + 1))
         fi
@@ -220,7 +220,6 @@ elif [[ "${LIVE_TESTS_RAN}" != true || -z "${BANNED_IP}" ]]; then
 else
     info "Unbanning IP ${BANNED_IP} from all Chronicle jails..."
 
-    UNBAN_SUCCESS=true
     for JAIL in "${JAILS[@]}"; do
         UNBAN_OUT=$(f2b fail2ban-client set "${JAIL}" unbanip "${BANNED_IP}" 2>&1) || true
         if echo "${UNBAN_OUT}" | grep -qi "not banned\|is not banned"; then
@@ -248,7 +247,7 @@ else
 
     # Verify connectivity restored
     RECOVERY_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
-        "${BACKEND_URL}/chronicle/v3/studies" 2>/dev/null || echo "000")
+        "${BACKEND_URL}/chronicle/v3/study" 2>/dev/null || echo "000")
     if [[ "${RECOVERY_CODE}" != "000" ]]; then
         pass "Connectivity restored after unban (HTTP ${RECOVERY_CODE})"
     else

@@ -14,19 +14,47 @@
 #   3. Run: docker compose -f docker-compose.prod.yml --profile legacy-standalone up -d
 
 services:
+  # The image creates no /var/lib/postgresql/tde-keyring, so Docker creates the keyring volume
+  # root-owned and init-db-encryption.sh (running as postgres) could not write the keyring.
+  # Root only to hand the empty volume to uid 26.
+  postgres-volume-init:
+    profiles: ["legacy-standalone"]
+    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["/bin/sh", "-euc", "chown 26:26 /keyring && chmod 0700 /keyring"]
+    volumes:
+      - postgres_tde_keyring:/keyring
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER"]
+    read_only: true
+    mem_limit: 64m
+    pids_limit: 16
+
   # PostgreSQL Database with Transparent Data Encryption (TDE) and SSL/TLS
-  # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
+  # Uses Percona Distribution for PostgreSQL with the pg_tde extension (encryption at rest)
   # SSL/TLS encryption in transit protects data between application and database
   postgres:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g
     profiles: ["legacy-standalone"]
-    image: percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
     container_name: chronicle-postgres
     restart: unless-stopped
+    cap_drop: ["ALL"]
+    read_only: true
+    # ssl-run receives the Vault token init-db-encryption.sh writes (PG_TDE_VAULT_TOKEN_PATH).
+    tmpfs:
+      - "/tmp:size=64m,mode=1777"
+      - "/var/run/postgresql:size=8m,mode=3775,uid=26,gid=26"
+      - "/var/lib/postgresql/ssl-run:size=4m,mode=0700,uid=26,gid=26"
+    pids_limit: 512
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       # Enable pg_tde extension for Transparent Data Encryption
       ENABLE_PG_TDE: "1"
@@ -54,6 +82,8 @@ services:
       # RLS roles (chronicle_app / chronicle_admin) — MUST run first: the backend's
       # request-path RLS wrapper does SET ROLE chronicle_app on every authenticated request.
       - ./init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+      - ./hetzner/postgres/set-app-role-password.sh:/docker-entrypoint-initdb.d/15-set-app-role-password.sh:ro
+      - ../selfhost/database-app-role.sql:/etc/chronicle/database-app-role.sql:ro
       # Initialization script for TDE setup
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
       # SSL/TLS certificates for encryption in transit
@@ -61,6 +91,9 @@ services:
       - ./postgres-ssl/server/server.crt:/var/lib/postgresql/ssl/server.crt:ro
       - ./postgres-ssl/server/server.key:/var/lib/postgresql/ssl/server.key:ro
       - ./postgres-ssl/ca/ca.crt:/var/lib/postgresql/ssl/ca.crt:ro
+    depends_on:
+      postgres-volume-init:
+        condition: service_completed_successfully
     networks:
       - chronicle-internal
     healthcheck:
@@ -68,8 +101,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Security: Run as non-root user
-    user: "999:999"
+    # Runs as the image's postgres user (26), which init-postgres-ssl.sh hands server.key to.
+    # The former `user: "999:999"` matched neither the image nor that key, so it never started.
     # PostgreSQL SSL configuration via command line arguments
     command: >
       -c ssl=on
@@ -80,9 +113,42 @@ services:
       -c ssl_prefer_server_ciphers=on
 
   # Chronicle Backend API
+  migrate:
+    profiles: ["legacy-standalone"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart: "no"
+    entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh", "--migrate"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+    volumes:
+      - audit_logs:/var/log/chronicle
+      - export_artifacts:/var/lib/chronicle/exports
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    # The entrypoint stages the migration password here (selfhost migrate uses the same).
+    tmpfs:
+      - /tmp:size=64m,mode=0700,uid=100,gid=101
+    mem_limit: 512m
+    pids_limit: 128
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [chronicle-internal]
+
   backend:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 3g
+    # Image user, no capabilities; writes only to the tmpfs mounts and audit/export volumes.
+    cap_drop: ["ALL"]
+    read_only: true
+    pids_limit: 1024
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:40320/chronicle/internal/health/ready"]
       interval: 30s
@@ -102,14 +168,16 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET}
+      CHRONICLE_SECURITY_METRICS_PASSWORD: ${METRICS_PASSWORD:?set METRICS_PASSWORD}
+      DOMAIN: ${DOMAIN}
+      # PostgreSQL SSL/TLS configuration for encryption in transit
       # Options: disable, allow, prefer, require, verify-ca, verify-full
       # Default verify-full (validates server certificate AND hostname). The backend JDBC URL
       # (rhizome-docker.yaml.template) also hardcodes sslmode=verify-full; this requires the
       # postgres server cert SAN to cover the 'postgres' hostname and be signed by the mounted
-      # CA (/app/ssl/ca.crt). See docs/security/compliance-evidence/W4-encryption-transport.md.
+      # CA (/app/ssl/ca.crt).
       POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-verify-full}
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
@@ -121,7 +189,6 @@ services:
       CHRONICLE_SECURITY_JWT_KEY_ID: ${JWT_KEY_ID:-}
       # MFA enforcement via RFC 8176 amr/acr claims. Production requires true.
       # Confirm explicit mfa, pwd+possession, or an approved current-session acr.
-      # See docs/security/compliance-evidence/W3-mfa-enforcement.md (HIPAA §164.312(d)).
       CHRONICLE_SECURITY_REQUIRE_MFA: ${CHRONICLE_SECURITY_REQUIRE_MFA:?Set CHRONICLE_SECURITY_REQUIRE_MFA=true for production}
       CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES: ${CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES:-}
       CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED: ${CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED:-false}
@@ -129,7 +196,7 @@ services:
       CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${ACCESS_TOKEN_EXPIRY_MINUTES:-15}
       CHRONICLE_SECURITY_JWT_REFRESH_TOKEN_EXPIRY_DAYS: ${REFRESH_TOKEN_EXPIRY_DAYS:-7}
       CORS_ORIGINS: ${CORS_ORIGINS:-"https://${DOMAIN}"}
-      # Audit log directory for HIPAA compliance
+      # Audit log directory
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
       CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
@@ -151,18 +218,24 @@ services:
           echo "FATAL: legacy production requires verified live current-session MFA IdP proof" >&2
           exit 1
         fi
-        exec ./bin/chronicle-server local postgres medialocal
+        exec /bin/sh /server/backend-entrypoint.sh
     volumes:
-      # Persistent volume for HIPAA-compliant audit logs
-      # These logs are critical for compliance - rotated daily, kept 365 days
+      # Persistent volume for audit logs
+      # Rotated daily, kept 365 days
       # Format: JSON (NDJSON) compatible with Splunk, ELK, DataDog, etc.
       - audit_logs:/var/log/chronicle
       - export_artifacts:/var/lib/chronicle/exports
       # SSL/TLS CA certificate for PostgreSQL connection verification
       - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro
+      - ../selfhost/config:/server/config:ro
+      - ./rhizome-docker.yaml.template:/server/config/rhizome.yaml.template:ro
+      - ./jetty-http.yaml.template:/server/config/jetty.yaml.template:ro
+    tmpfs:
+      - /server/scratch:size=256m,mode=0700,uid=100,gid=101
+      - /server/rendered-config:size=1m,mode=0700,uid=100,gid=101
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - chronicle-internal
 
@@ -170,6 +243,16 @@ services:
   frontend:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 512m
+    # Runs as the image's nginx user (100:101); the same writable paths as chronicle-frontend
+    # in docker-compose.traefik.yml.
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs:
+      - /var/lib/nginx/tmp:noexec,nosuid,uid=100,gid=101
+      - /var/lib/nginx/logs:noexec,nosuid,uid=100,gid=101
+      - /run/nginx:noexec,nosuid,uid=100,gid=101
+      - /tmp:noexec,nosuid
+    pids_limit: 256
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -186,12 +269,53 @@ services:
     networks:
       - chronicle-internal
 
+  # init-ssl.sh leaves privkey.pem 0600 and owned by whoever ran it, which the unprivileged
+  # nginx cannot open. This one-shot copies the certificate pair, owned by nginx (101) and
+  # 0400, into a volume only nginx mounts. It runs before every nginx start, so a renewed
+  # certificate reaches the next start.
+  nginx-certs-init:
+    profiles: ["legacy-standalone"]
+    image: nginx:alpine@sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["/bin/sh", "-euc"]
+    command:
+      - |
+        umask 077
+        chown 101:101 /staged
+        chmod 0700 /staged
+        for name in fullchain.pem privkey.pem; do
+          install -o 101 -g 101 -m 0400 "/certs/$$name" "/staged/.$$name.new"
+          mv -f "/staged/.$$name.new" "/staged/$$name"
+        done
+    volumes:
+      - ./certs:/certs:ro
+      - nginx_certs:/staged
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    # Root without these cannot read the operator-owned 0600 key or hand it to uid 101.
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    read_only: true
+    mem_limit: 32m
+    pids_limit: 16
+
   # Nginx Reverse Proxy with SSL
   nginx:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
+    # The image's nginx user, listening on 8080/8443 (nginx.prod.conf) behind host 80/443, so
+    # no capability is needed. Logs go to the image's /dev/stdout and /dev/stderr links.
+    user: "101:101"
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:noexec,nosuid,uid=101,gid=101
+      - /var/run:noexec,nosuid,uid=101,gid=101
+      - /tmp:noexec,nosuid
+    pids_limit: 128
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1/health"]
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1:8443/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -200,15 +324,19 @@ services:
     container_name: chronicle-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:8080"
+      - "443:8443"
     volumes:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./certs:/etc/nginx/certs:ro
+      - nginx_certs:/etc/nginx/certs:ro
       - ./certbot-webroot:/var/www/certbot:ro
     depends_on:
-      - backend
-      - frontend
+      nginx-certs-init:
+        condition: service_completed_successfully
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_started
     networks:
       - chronicle-internal
       - chronicle-external
@@ -225,9 +353,10 @@ volumes:
   # Separate volume for TDE keyring to ensure key persistence
   # IMPORTANT: Back up this volume securely - loss of keys means loss of encrypted data
   postgres_tde_keyring:
-  # HIPAA-compliant audit logs volume
+  # Audit logs volume
   # Contains JSON-formatted audit entries for compliance and SIEM integration
   # Retention: 365 days (configure cleanup policy for production)
   # IMPORTANT: Include in backup strategy for compliance requirements
   audit_logs:
   export_artifacts:
+  nginx_certs:

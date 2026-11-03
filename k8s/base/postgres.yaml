@@ -74,7 +74,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+          image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
@@ -89,6 +89,11 @@ spec:
                 secretKeyRef:
                   name: chronicle-app-secrets
                   key: POSTGRES_PASSWORD
+            - name: POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: POSTGRES_APP_PASSWORD
             - name: ENABLE_PG_TDE
               value: "1"
             - name: PG_TDE_KEY_PROVIDER

@@ -12,10 +12,8 @@
 #   PG_TDE_KEY_PROVIDER=file   -> provider "chronicle-file-vault" (file keyring; dev/test)
 #   (anything else defaults to the file provider)
 #
-# After a successful rotation this script upserts the 'tde_principal_key' row in
-# the secret_rotation_tracking table so the backend's SecretRotationService sees
-# a fresh rotation age. When the active provider is Vault, the rotated_at field
-# of the Vault metadata at secret/chronicle/tde-principal-key is also updated.
+# When the active provider is Vault, the rotated_at field of the Vault metadata at
+# secret/chronicle/tde-principal-key is also updated.
 #
 # Usage:
 #   ./scripts/rotate-tde-principal-key.sh            # rotate now
@@ -28,8 +26,6 @@
 #   PG_TDE_KEY_PROVIDER                            — file | vault
 #   PG_TDE_VAULT_URL, PG_TDE_VAULT_TOKEN, PG_TDE_VAULT_MOUNT_PATH — Vault (if vault)
 #   PG_CONTAINER                                   — postgres container (default chronicle-postgres)
-#
-# HIPAA §164.312(a)(2)(iv) — Encryption key management
 #
 # Pre-requisites:
 #   - docker (the Postgres container must be running)
@@ -189,10 +185,6 @@ run_sql() {
 ROTATE_SQL="SELECT pg_tde_create_key_using_database_key_provider('${NEW_KEY_NAME}', '${KEY_PROVIDER}');
 SELECT pg_tde_set_key_using_database_key_provider('${NEW_KEY_NAME}', '${KEY_PROVIDER}');"
 
-# Upsert the rotation-age tracking row read by SecretRotationService. This resets
-# the age that the backend monitors for 'tde_principal_key'.
-UPSERT_SQL="INSERT INTO secret_rotation_tracking (secret_name, last_rotated, rotated_by, notes) VALUES ('tde_principal_key', NOW(), 'rotate-tde-principal-key.sh', '${NEW_KEY_NAME}') ON CONFLICT (secret_name) DO UPDATE SET last_rotated = EXCLUDED.last_rotated, rotated_by = EXCLUDED.rotated_by, notes = EXCLUDED.notes;"
-
 # ── Vault metadata update (vault provider only) ─────────────────────
 update_vault_metadata() {
   local mount_path vault_addr vault_token vault_token_file kv_path
@@ -244,8 +236,6 @@ if $DRY_RUN; then
   log "[dry-run] Would execute the following against ${PG_CONTAINER} (db: ${POSTGRES_DB}):"
   log "[dry-run] --- rotate principal key ---"
   printf '%s\n' "$ROTATE_SQL"
-  log "[dry-run] --- upsert rotation tracking ---"
-  printf '%s\n' "$UPSERT_SQL"
   if [[ "$PG_TDE_KEY_PROVIDER" == "vault" ]]; then
     update_vault_metadata
   fi
@@ -260,18 +250,6 @@ run_sql "$ROTATE_SQL" || err "Failed to rotate TDE principal key — principal k
 log "New principal key '${NEW_KEY_NAME}' created and set under provider '${KEY_PROVIDER}'"
 log "Internal keys re-wrapped under the new principal key (no table re-encryption)"
 
-# The key rotation itself already succeeded and cannot be undone, so this is a PARTIAL
-# failure, not a full one: report it as exit 2 at the end rather than exit 0, so automation
-# does not record a rotation whose tracking row is stale as entirely successful.
-PARTIAL=0
-log "Updating secret_rotation_tracking for 'tde_principal_key'..."
-if run_sql "$UPSERT_SQL"; then
-  log "secret_rotation_tracking updated (rotation age reset for backend monitoring)"
-else
-  warn "Key rotated, but failed to update secret_rotation_tracking — update it manually"
-  PARTIAL=1
-fi
-
 if [[ "$PG_TDE_KEY_PROVIDER" == "vault" ]]; then
   update_vault_metadata
 fi
@@ -282,10 +260,4 @@ log "  Provider:        ${KEY_PROVIDER}"
 log "  New key version: ${NEW_KEY_NAME}"
 log "Next steps:"
 log "  1. Verify the principal key:  docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c 'SELECT * FROM pg_tde_key_info();'"
-log "  2. Confirm backend monitoring: curl -s http://localhost:40320/internal/health/secrets | grep tde_principal_key"
-log "  3. Record the rotation in the HIPAA key-management log"
-
-if [[ "$PARTIAL" -ne 0 ]]; then
-  warn "PARTIAL SUCCESS: principal key rotated, secret_rotation_tracking NOT updated (exit 2)"
-  exit 2
-fi
+log "  2. Record the rotation in the key-management log"

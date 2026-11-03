@@ -17,8 +17,6 @@
 #   3. Stores the TDE principal key in Vault
 #   4. Creates a PostgreSQL read-only policy
 #   5. Generates a token with that policy
-#
-# HIPAA §164.312(a)(2)(iv) — Encryption key management
 
 set -euo pipefail
 

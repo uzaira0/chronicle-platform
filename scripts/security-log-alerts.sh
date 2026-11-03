@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chronicle security log alerting — HIPAA "information system activity review".
+# Chronicle security log alerting: periodic review of system activity.
 #
 # Cron-run (every 15 min) scanner over the signals this host actually has:
 #   - VictoriaLogs (traefik-access stream) for edge auth-failure / 5xx / rate-limit spikes

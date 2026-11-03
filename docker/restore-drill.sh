@@ -13,13 +13,13 @@
 #   5. Reports pass/fail
 #
 # Schedule quarterly: 0 4 1 */3 * /opt/chronicle/docker/restore-drill.sh <latest-backup>
-#
-# HIPAA §164.308(a)(7)(ii)(D) — Testing and revision procedures
 
 set -euo pipefail
 
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backup-format.sh"
+
 DEFAULT_KEY="/etc/chronicle/backup-encryption-key"
-LEGACY_KEY="/opt/chronicle/backups/.backup-encryption-key"
 CONTAINER="chronicle-postgres"
 DB_USER="chronicle"
 DRILL_DB="chronicle_drill_test"
@@ -40,10 +40,7 @@ log_step() { echo -e "\n${BOLD}=== Step $1: $2 ===${NC}"; }
 decrypt_file() {
     local src="$1"
     local dst="$2"
-    # Try current iteration count first, fall back to legacy
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
-        -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null \
-    || openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null
 }
 
@@ -66,10 +63,6 @@ trap cleanup EXIT
 # ── Parse arguments ───────────────────────────────────────────────────────────
 BACKUP_DIR="${1:-}"
 KEY_FILE="${2:-$DEFAULT_KEY}"
-
-if [ ! -f "$KEY_FILE" ] && [ -f "$LEGACY_KEY" ]; then
-    KEY_FILE="$LEGACY_KEY"
-fi
 
 if [ -z "$BACKUP_DIR" ]; then
     echo "Usage: $0 <backup-directory> [encryption-key-file]"
@@ -299,7 +292,7 @@ echo "  Errors:     ${ERRORS}"
 echo ""
 
 # Write the drill result to the audit trail BEFORE exiting, so a failed drill is recorded
-# too — HIPAA §164.308(a)(7)(ii)(D) wants the failures, not only the passes.
+# as well as a passing one.
 DRILL_LOG="/opt/chronicle/backups/drill-results.log"
 mkdir -p "$(dirname "$DRILL_LOG")"
 echo "$(date -Iseconds) | backup=$(basename "$BACKUP_DIR") | tables=${TABLE_COUNT} | errors=${ERRORS} | duration=${DURATION}s | result=$([ "$ERRORS" -eq 0 ] && echo PASS || echo FAIL)" >> "$DRILL_LOG"

@@ -88,7 +88,6 @@ FUNCTIONAL_TARGETS=(
   scripts/flyway-migrate.sh
   scripts/verify-schema-postconditions.sh
   scripts/chronicle-dogfood-report.sh
-  scripts/chronicle-set-android-sensors.sh
   scripts/android-auto-upload-e2e.sh
 )
 for target in "${FUNCTIONAL_TARGETS[@]}"; do
@@ -561,20 +560,6 @@ if ! (
   report_fixture_failure "$report_case/output" 'chronicle-dogfood-report functional secret-transport fixture'
 fi
 assert_no_secret_material "$report_case" 'chronicle-dogfood-report'
-
-sensors_case="$(prepare_case sensors)"
-if ! (
-  common_case_environment sensors "$sensors_case"
-  export CHRONICLE_STUDY_ID=00000000-0000-0000-0000-000000000001
-  export POSTGRES_USER=chronicle
-  export POSTGRES_DB=chronicle
-  export POSTGRES_PASSWORD="$SENTINEL"
-  exec "$ROOT_DIR/scripts/chronicle-set-android-sensors.sh" \
-    --sensors accelerometer --sampling-rate-hz 1
-) >"$sensors_case/output" 2>&1; then
-  report_fixture_failure "$sensors_case/output" 'chronicle-set-android-sensors functional secret-transport fixture'
-fi
-assert_no_secret_material "$sensors_case" 'chronicle-set-android-sensors'
 
 auto_case="$(prepare_case auto)"
 auto_log_dir="$auto_case/artifacts"

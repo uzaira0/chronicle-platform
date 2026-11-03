@@ -15,9 +15,11 @@
 
 set -euo pipefail
 
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backup-format.sh"
+
 BACKUP_ROOT="/opt/chronicle/backups"
 KEY_FILE="${CHRONICLE_BACKUP_KEY:-/etc/chronicle/backup-encryption-key}"
-LEGACY_KEY="/opt/chronicle/backups/.backup-encryption-key"
 CONTAINER="chronicle-postgres"
 DB_USER="chronicle"
 DB_NAME="chronicle"
@@ -48,9 +50,7 @@ log_warn() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${YELLOW}WARN${NC} $*"; }
 decrypt_file() {
     local src="$1"
     local dst="$2"
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
-        -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null \
-    || openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}" 2>/dev/null
 }
 
@@ -88,11 +88,6 @@ PROM
 # -----------------------------------------------------------------------
 # Preflight checks
 # -----------------------------------------------------------------------
-if [ ! -f "$KEY_FILE" ] && [ -f "$LEGACY_KEY" ]; then
-    log_warn "Using legacy backup key location: ${LEGACY_KEY}"
-    KEY_FILE="$LEGACY_KEY"
-fi
-
 if [ ! -f "$KEY_FILE" ]; then
     log_err "Backup encryption key not found: $KEY_FILE"
     write_metrics 0 0 0 0

@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backup-format.sh"
+
 # Cleanup temp files on exit (especially important for unencrypted dumps)
 TEMP_FILES=()
 TEMP_DIRS=()
@@ -29,9 +32,8 @@ trap cleanup EXIT
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BACKUP_ROOT="/opt/chronicle/backups"
-# H-10: Store encryption key OUTSIDE the backup directory.
+# Store encryption key OUTSIDE the backup directory.
 # Default location: /etc/chronicle/backup-encryption-key (root-only readable)
-# Falls back to legacy location for backward compatibility.
 KEY_FILE="${CHRONICLE_BACKUP_KEY:-/etc/chronicle/backup-encryption-key}"
 CONTAINER="chronicle-postgres"
 BACKEND_CONTAINER="chronicle-backend"
@@ -61,13 +63,6 @@ log_ok() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${GREEN}OK${NC} $*"; }
 log_err() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${RED}ERROR${NC} $*" >&2; }
 log_warn() { echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] ${YELLOW}WARN${NC} $*"; }
 
-# Legacy key location fallback (must be after function definitions)
-if [ ! -f "$KEY_FILE" ] && [ -f "${BACKUP_ROOT}/.backup-encryption-key" ]; then
-    log_warn "Backup key found in legacy location alongside backups. Move it:"
-    log_warn "  sudo mkdir -p /etc/chronicle && sudo mv ${BACKUP_ROOT}/.backup-encryption-key /etc/chronicle/backup-encryption-key && sudo chmod 600 /etc/chronicle/backup-encryption-key"
-    KEY_FILE="${BACKUP_ROOT}/.backup-encryption-key"
-fi
-
 check_prereqs() {
     if [ ! -f "$KEY_FILE" ]; then
         log_err "Backup encryption key not found: $KEY_FILE"
@@ -84,14 +79,14 @@ check_prereqs() {
 encrypt_file() {
     local src="$1"
     local dst="$2"
-    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+    openssl enc -aes-256-cbc -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}"
 }
 
 decrypt_file() {
     local src="$1"
     local dst="$2"
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
         -in "$src" -out "$dst" -pass "file:${KEY_FILE}"
 }
 
@@ -296,7 +291,7 @@ create_deployment_manifest_archive() {
 
     cat > "${stage}/deployment/deployment-manifest.json" <<MANIFEST
 {
-    "schema_version": 2,
+    "schema_version": ${BACKUP_MANIFEST_VERSION},
     "timestamp": "$(date -Iseconds)",
     "git_commit": "$(json_escape "$git_commit")",
     "git_branch": "$(json_escape "$git_branch")",
@@ -334,15 +329,7 @@ MANIFEST
     rm -f "$deployment_tmp"
 }
 
-do_full_backup() {
-    check_prereqs
-
-    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
-    BACKUP_DIR="${BACKUP_ROOT}/${TIMESTAMP}"
-    mkdir -p "$BACKUP_DIR"
-
-    log "Starting full backup to ${BACKUP_DIR}"
-
+backup_database() {
     # 1. Database dump
     log "  Dumping database..."
     if ! capture_database_contract; then
@@ -379,15 +366,9 @@ do_full_backup() {
     encrypt_file "$DUMP_TMP" "${BACKUP_DIR}/database.dump.enc"
     rm -f "$DUMP_TMP"
     log_ok "database.dump.enc ($(du -h "${BACKUP_DIR}/database.dump.enc" | cut -f1))"
+}
 
-    # 2. TDE keyring
-    log "  Backing up TDE keyring..."
-    KEYRING_TMP=$(mktemp); TEMP_FILES+=("$KEYRING_TMP")
-    docker exec "$CONTAINER" tar -czf - -C /var/lib/postgresql tde-keyring > "$KEYRING_TMP"
-    encrypt_file "$KEYRING_TMP" "${BACKUP_DIR}/tde-keyring.tar.gz.enc"
-    rm -f "$KEYRING_TMP"
-    log_ok "tde-keyring.tar.gz.enc"
-
+backup_configuration() {
     # 3. Config/secrets
     log "  Backing up config and secrets..."
     ENV_CONFIG_FILE=$(resolve_env_config_file)
@@ -439,37 +420,9 @@ do_full_backup() {
     encrypt_file "$CONFIG_TMP" "${BACKUP_DIR}/config-secrets.tar.gz.enc"
     rm -f "$CONFIG_TMP"
     log_ok "config-secrets.tar.gz.enc"
+}
 
-    # 4. Audit logs (from backend container, if running)
-    log "  Backing up audit logs..."
-    AUDIT_BACKED_UP=false
-    if docker inspect "$BACKEND_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
-        AUDIT_TMP=$(mktemp); AUDIT_ERR=$(mktemp); TEMP_FILES+=("$AUDIT_TMP" "$AUDIT_ERR")
-        if docker exec "$BACKEND_CONTAINER" tar -czf - -C /var/log chronicle > "$AUDIT_TMP" 2>"$AUDIT_ERR"; then
-            if [ -s "$AUDIT_TMP" ]; then
-                encrypt_file "$AUDIT_TMP" "${BACKUP_DIR}/audit-logs.tar.gz.enc"
-                AUDIT_BACKED_UP=true
-                log_ok "audit-logs.tar.gz.enc"
-            else
-                log_warn "No audit logs found (empty archive)"
-            fi
-        else
-            log_warn "Failed to backup audit logs: $(tr '\n' ' ' < "$AUDIT_ERR")"
-        fi
-        rm -f "$AUDIT_TMP" "$AUDIT_ERR"
-    else
-        log_warn "Backend container not running, skipping audit logs"
-    fi
-    if [ "$AUDIT_BACKED_UP" != true ] && [ "$(json_bool "$AUDIT_BACKUP_REQUIRED")" = true ]; then
-        log_err "Audit log backup is required. Set CHRONICLE_REQUIRE_AUDIT_BACKUP=false only for non-production drills."
-        exit 1
-    fi
-
-    # 5. Deployment evidence
-    log "  Backing up deployment manifest and IaC evidence..."
-    create_deployment_manifest_archive "${BACKUP_DIR}/deployment-manifest.tar.gz.enc" "$ENV_CONFIG_FILE"
-    log_ok "deployment-manifest.tar.gz.enc"
-
+write_backup_manifest() {
     # 6. Manifest
     log "  Creating manifest..."
 
@@ -508,7 +461,7 @@ do_full_backup() {
 
     cat > "${BACKUP_DIR}/manifest.json" <<MANIFEST
 {
-    "schema_version": 1,
+    "schema_version": ${BACKUP_MANIFEST_VERSION},
     "timestamp": "$(date -Iseconds)",
     "backup_dir": "${TIMESTAMP}",
     "env_config_file": "$(json_escape "$(basename "$ENV_CONFIG_FILE")")",
@@ -536,6 +489,60 @@ do_full_backup() {
 MANIFEST
 
     log_ok "manifest.json"
+}
+
+do_full_backup() {
+    check_prereqs
+
+    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    BACKUP_DIR="${BACKUP_ROOT}/${TIMESTAMP}"
+    mkdir -p "$BACKUP_DIR"
+
+    log "Starting full backup to ${BACKUP_DIR}"
+
+    backup_database
+
+    # 2. TDE keyring
+    log "  Backing up TDE keyring..."
+    KEYRING_TMP=$(mktemp); TEMP_FILES+=("$KEYRING_TMP")
+    docker exec "$CONTAINER" tar -czf - -C /var/lib/postgresql tde-keyring > "$KEYRING_TMP"
+    encrypt_file "$KEYRING_TMP" "${BACKUP_DIR}/tde-keyring.tar.gz.enc"
+    rm -f "$KEYRING_TMP"
+    log_ok "tde-keyring.tar.gz.enc"
+
+    backup_configuration
+
+    # 4. Audit logs (from backend container, if running)
+    log "  Backing up audit logs..."
+    AUDIT_BACKED_UP=false
+    if docker inspect "$BACKEND_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+        AUDIT_TMP=$(mktemp); AUDIT_ERR=$(mktemp); TEMP_FILES+=("$AUDIT_TMP" "$AUDIT_ERR")
+        if docker exec "$BACKEND_CONTAINER" tar -czf - -C /var/log chronicle > "$AUDIT_TMP" 2>"$AUDIT_ERR"; then
+            if [ -s "$AUDIT_TMP" ]; then
+                encrypt_file "$AUDIT_TMP" "${BACKUP_DIR}/audit-logs.tar.gz.enc"
+                AUDIT_BACKED_UP=true
+                log_ok "audit-logs.tar.gz.enc"
+            else
+                log_warn "No audit logs found (empty archive)"
+            fi
+        else
+            log_warn "Failed to backup audit logs: $(tr '\n' ' ' < "$AUDIT_ERR")"
+        fi
+        rm -f "$AUDIT_TMP" "$AUDIT_ERR"
+    else
+        log_warn "Backend container not running, skipping audit logs"
+    fi
+    if [ "$AUDIT_BACKED_UP" != true ] && [ "$(json_bool "$AUDIT_BACKUP_REQUIRED")" = true ]; then
+        log_err "Audit log backup is required. Set CHRONICLE_REQUIRE_AUDIT_BACKUP=false only for non-production drills."
+        exit 1
+    fi
+
+    # 5. Deployment evidence
+    log "  Backing up deployment manifest and IaC evidence..."
+    create_deployment_manifest_archive "${BACKUP_DIR}/deployment-manifest.tar.gz.enc" "$ENV_CONFIG_FILE"
+    log_ok "deployment-manifest.tar.gz.enc"
+
+    write_backup_manifest
 
     # Set permissions
     chmod 700 "$BACKUP_DIR"
@@ -809,6 +816,8 @@ do_prune() {
 
     log "  Pruned $REMOVED of $TOTAL backups"
 }
+
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
 # Main
 MODE="${1:---full}"

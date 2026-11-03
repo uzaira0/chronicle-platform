@@ -27,9 +27,9 @@ postgres:
   initialize-indices: false
   initialize-tables: false
   hikari:
-    jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
-    username: "${POSTGRES_USER}"
-    password: "${POSTGRES_PASSWORD}"
+    jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
+    username: "chronicle_app"
+    password: "${POSTGRES_APP_PASSWORD}"
     maximumPoolSize: 20
     minimumIdle: 5
     # Runtime readiness has a 10s healthcheck budget and then validates the
@@ -45,9 +45,9 @@ datasources:
     initialize-indices: false
     initialize-tables: false
     hikari:
-      jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
-      username: "${POSTGRES_USER}"
-      password: "${POSTGRES_PASSWORD}"
+      jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
+      username: "chronicle_app"
+      password: "${POSTGRES_APP_PASSWORD}"
       maximumPoolSize: 20
       minimumIdle: 5
       # Keep acquisition within the backend readiness healthcheck budget.

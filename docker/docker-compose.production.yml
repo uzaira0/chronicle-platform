@@ -8,11 +8,18 @@
 #
 # The deploy.sh script handles this automatically.
 
+# Fragments for services whose image comes from docker-compose.traefik.yml inherit its
+# security_opt; restating it here would append a duplicate entry, which compose rejects.
 services:
 
   # Override backend to use pre-built ghcr.io image instead of local build
   chronicle-backend:
-    security_opt: ["no-new-privileges:true"]
+    # This overlay names the image, so the policy checks it as a complete service. The values
+    # match docker-compose.traefik.yml; !override keeps compose from appending a duplicate
+    # security_opt entry (cap_drop entries are deduplicated by compose).
+    security_opt: !override ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
     build: !reset null
     image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to the backend registry path}@sha256:${BACKEND_DIGEST:?deploy.sh resolves the pulled tag to its immutable digest}
     # Production JVM tuning
@@ -54,7 +61,12 @@ services:
 
   # Override frontend to use pre-built ghcr.io image instead of local build
   chronicle-frontend:
-    security_opt: ["no-new-privileges:true"]
+    # This overlay names the image, so the policy checks it as a complete service. The values
+    # match docker-compose.traefik.yml; !override keeps compose from appending a duplicate
+    # security_opt entry (cap_drop entries are deduplicated by compose).
+    security_opt: !override ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -83,7 +95,6 @@ services:
 
   # Production PostgreSQL tuning
   postgres:
-    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
@@ -110,7 +121,6 @@ services:
 
   # Production Traefik tuning
   traefik:
-    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 30s
@@ -132,7 +142,6 @@ services:
 
   # Production monitoring tuning
   victoria-metrics:
-    security_opt: ["no-new-privileges:true"]
     healthcheck:
       disable: false
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8428/health"]
@@ -154,8 +163,11 @@ services:
         tag: "chronicle-victoria-metrics"
 
   grafana:
-    security_opt: ["no-new-privileges:true"]
-    mem_limit: 512m
+    # Same key as the base file: a mem_limit beside its deploy limit is a compose error.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
@@ -169,7 +181,6 @@ services:
         tag: "chronicle-grafana"
 
   victoria-logs:
-    security_opt: ["no-new-privileges:true"]
     deploy:
       resources:
         limits:

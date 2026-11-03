@@ -1,6 +1,5 @@
 # Chronicle Server Vault Policy
 # Grants least-privilege access to application secrets.
-# HIPAA §164.312(a)(1) — Access control for electronic PHI systems.
 #
 # Path structure: secret/data/chronicle/{category}
 #   database  — PostgreSQL credentials
@@ -22,7 +21,7 @@ path "secret/metadata/chronicle/*" {
     capabilities = ["read", "list"]
 }
 
-# W2 (HIPAA-2028) — per-study envelope-encryption PRIVATE keys live at
+# Per-study envelope-encryption PRIVATE keys live at
 #   secret/data/encryption/study/{studyId}/{keyId}  (VaultStudyKeyStore).
 # The backend WRITES these when provisioning/rotating a study key and READS them for
 # decrypt-on-read/export — so this path needs create/update/read (the chronicle/* secrets

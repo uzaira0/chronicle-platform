@@ -10,7 +10,7 @@
 #
 # Prerequisites:
 #   - PostgreSQL container running
-#   - RLS migration applied (V1__enable_row_level_security.sql)
+#   - RLS migration applied (V1__fresh_schema.sql)
 #   - chronicle_admin and chronicle_app roles created
 
 set -e

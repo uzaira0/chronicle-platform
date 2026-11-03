@@ -33,8 +33,7 @@ Current mobile routes are exposed directly under the Chronicle API namespace, in
 - `/chronicle/v4/study/{studyId}/participant/{participantId}/enroll`;
 - `/chronicle/v4/study/{studyId}/participant/{participantId}/...` for authenticated
   collection, acknowledgment, status, reminder, and withdrawal operations;
-- the explicitly retained `/chronicle/v2/*`, `/chronicle/v3/*`, and
-  `/chronicle/study/*` compatibility routes used by installed clients.
+- current researcher `/chronicle/v3/*` and device `/chronicle/v4/*` routes. Retired API prefixes return 404.
 
 Do not edit `UploadWorker.kt`, replace a production constant, append `/api/mobile`, or
 compile an operator secret into an APK/AAB. Server selection is enrollment state.

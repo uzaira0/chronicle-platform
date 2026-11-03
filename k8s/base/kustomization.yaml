@@ -34,6 +34,7 @@ configMapGenerator:
   - name: chronicle-postgres-init
     files:
       - postgres-init/10-init-db-roles.sql
+      - postgres-init/15-database-app-role.sql
       - postgres-init/20-init-db-encryption.sh
       - postgres-init/25-init-replication.sh
       - postgres-init/30-init-audit-immutability.sh

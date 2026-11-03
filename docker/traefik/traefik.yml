@@ -15,7 +15,8 @@ providers:
 
 entryPoints:
   web:
-    address: :80
+    # Unprivileged, so Traefik needs no NET_BIND_SERVICE; compose publishes host port 80 here.
+    address: :8080
     transport:
       respondingTimeouts:
         readTimeout: 60s
@@ -30,11 +31,16 @@ entryPoints:
         - 10.0.0.0/8
         - 172.16.0.0/12
         - 192.168.0.0/16
+  health:
+    address: :8081
 
 api:
   dashboard: false
 
-ping: {}
+# Own entrypoint: the default internal "traefik" entrypoint would also claim :8080.
+# Not published; only `traefik healthcheck` inside the container uses it.
+ping:
+  entryPoint: health
 
 # Access logging for CrowdSec + Fail2ban
 accessLog:
@@ -59,8 +65,8 @@ accessLog:
 
 # CrowdSec bouncer plugin for WAF + IP reputation.
 # Vendored locally (source at ./traefik/plugins-local/src/<moduleName>, mounted at
-# /plugins-local) so Traefik does NOT fetch from plugins.traefik.io at boot — a failed
-# remote pull previously disabled plugins and silently dropped every crowdsec-gated router.
+# /plugins-local) so Traefik does NOT fetch from plugins.traefik.io at boot: a failed
+# remote pull disables plugins and silently drops every crowdsec-gated router.
 experimental:
   localPlugins:
     crowdsec-bouncer:

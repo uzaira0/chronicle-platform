@@ -41,7 +41,6 @@ COMPOSE_PROD="${DOCKER_DIR}/docker-compose.production.yml"
 # Timeouts
 BACKEND_HEALTH_TIMEOUT=120    # seconds
 FRONTEND_HEALTH_TIMEOUT=30    # seconds
-POSTGRES_HEALTH_TIMEOUT=60    # seconds
 
 # ─────────────────────────────────────────────────────────
 # Parse arguments
@@ -106,6 +105,14 @@ log_audit() { log "AUDIT" "$@"; }
 die() {
   log_error "$@"
   exit 1
+}
+
+# The backend reads its secrets from copies backend-secrets-init stages (see
+# docker-compose.traefik.yml). `up --no-deps` skips that one-shot, so run it first and
+# stop on failure; otherwise a rotated secret, or a fresh volume, never reaches the backend.
+stage_backend_secrets() {
+  compose_cmd run --rm --no-deps backend-secrets-init >/dev/null ||
+    die "backend-secrets-init failed; the backend cannot read its secrets"
 }
 
 compose_cmd() {
@@ -186,32 +193,17 @@ require_env_equals() {
 
 validate_mobile_signing_config() {
   local env_file="$1"
-  local enabled required secret
-  enabled="$(env_value "${env_file}" "MOBILE_SIGNING_ENABLED")"
-  required="$(env_value "${env_file}" "MOBILE_SIGNING_REQUIRED")"
-  secret="$(env_value "${env_file}" "MOBILE_SIGNING_SECRET")"
-  enabled="${enabled:-false}"
-  required="${required:-false}"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PROJECT_ROOT/selfhost" python3 - "$env_file" <<'PY_VALIDATE'
+from pathlib import Path
+import sys
+from chronicle_ops.credentials import validate_mobile_signing_configuration
+from chronicle_ops.envfile import read_env
 
-  case "${enabled}" in
-    true|false) ;;
-    *) die "Environment file '${env_file}' must set MOBILE_SIGNING_ENABLED to exactly true or false" ;;
-  esac
-  case "${required}" in
-    true|false) ;;
-    *) die "Environment file '${env_file}' must set MOBILE_SIGNING_REQUIRED to exactly true or false" ;;
-  esac
-  if [[ "${enabled}" != "${required}" ]]; then
-    die "Environment file '${env_file}' must set MOBILE_SIGNING_ENABLED and MOBILE_SIGNING_REQUIRED both true or both false"
-  fi
-  if [[ "${enabled}" == false ]]; then
-    [[ -z "${secret}" ]] ||
-      die "Environment file '${env_file}' must leave MOBILE_SIGNING_SECRET blank unless controlled legacy compatibility is enabled"
-    return 0
-  fi
-  if is_placeholder_value "${secret}" || [[ ${#secret} -lt 32 ]]; then
-    die "Environment file '${env_file}' must set a generated 32+ character MOBILE_SIGNING_SECRET when controlled legacy compatibility is enabled"
-  fi
+try:
+    validate_mobile_signing_configuration(read_env(Path(sys.argv[1])))
+except ValueError as error:
+    sys.exit(str(error))
+PY_VALIDATE
 }
 
 require_env_url_scheme() {
@@ -379,7 +371,7 @@ wait_for_healthy() {
   log_info "Waiting for ${service} to become healthy (timeout: ${timeout}s)..."
 
   while [[ ${elapsed} -lt ${timeout} ]]; do
-    if curl -sf --max-time 5 "${url}" > /dev/null 2>&1; then
+    if curl -q --noproxy '*' -sf --max-time 5 "${url}" > /dev/null 2>&1; then
       log_info "${service} healthy after ${elapsed}s"
       return 0
     fi
@@ -419,7 +411,7 @@ for line in sys.stdin:
   fi
 
   # Backend dependency-aware readiness endpoint
-  if ! curl -sf --max-time 10 http://127.0.0.1:40320/chronicle/internal/health/ready > /dev/null 2>&1; then
+  if ! curl -q --noproxy '*' -sf --max-time 10 http://127.0.0.1:40320/chronicle/internal/health/ready > /dev/null 2>&1; then
     log_error "Backend readiness check failed (port 40320)"
     failed=1
   else
@@ -427,7 +419,7 @@ for line in sys.stdin:
   fi
 
   # Frontend health endpoint
-  if ! curl -sf --max-time 5 http://127.0.0.1:8080/health > /dev/null 2>&1; then
+  if ! curl -q --noproxy '*' -sf --max-time 5 http://127.0.0.1:8080/health > /dev/null 2>&1; then
     log_error "Frontend health check failed (port 8080)"
     failed=1
   else
@@ -588,6 +580,7 @@ deploy() {
 
   # Step 2: Update backend (may run migrations)
   log_info "Updating backend..."
+  stage_backend_secrets
   compose_cmd up -d --no-deps chronicle-backend
   if ! wait_for_healthy "backend" "http://127.0.0.1:40320/chronicle/internal/health/ready" "${BACKEND_HEALTH_TIMEOUT}"; then
     log_error "Backend failed health check — initiating rollback"
@@ -646,6 +639,7 @@ rollback_deployment() {
   pull_images
   export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE BACKEND_DIGEST FRONTEND_DIGEST
 
+  stage_backend_secrets
   compose_cmd up -d --no-deps chronicle-backend chronicle-frontend
 
   if wait_for_healthy "backend" "http://127.0.0.1:40320/chronicle/internal/health/ready" "${BACKEND_HEALTH_TIMEOUT}" && \
@@ -688,6 +682,7 @@ main() {
     log_info "Initiating manual rollback to tag=${IMAGE_TAG}"
     pull_images
     export IMAGE_TAG BACKEND_IMAGE FRONTEND_IMAGE BACKEND_DIGEST FRONTEND_DIGEST
+    stage_backend_secrets
     compose_cmd up -d --no-deps chronicle-backend chronicle-frontend
     if verify_deployment; then
       log_audit "MANUAL_ROLLBACK_COMPLETE environment=${ENVIRONMENT} tag=${IMAGE_TAG}"

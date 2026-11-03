@@ -5,10 +5,10 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 bundle=${1:?usage: restore-drill.sh BACKUP_BUNDLE}
 bundle=$(realpath "$bundle")
 secrets_dir=${CHRONICLE_SECRETS_DIR:?Set CHRONICLE_SECRETS_DIR}
-# Must match docker/hetzner/compose.yml — the runtime moved to Percona 18.6.1-3 (see
+# Must match docker/hetzner/compose.yml — the runtime moved to Percona 18.6.1-4 (see
 # toolchain-manifest.yaml postgres.image); drilling on the old 17 image proves nothing
 # about the deployed cluster. The expected major is asserted against the running server below.
-image=${CHRONICLE_PERCONA_IMAGE:-localhost/chronicle-percona:18.6.1-3-hardened}
+image=${CHRONICLE_PERCONA_IMAGE:-localhost/chronicle-percona:18.6.1-4-hardened}
 expected_pg_major=${CHRONICLE_PG_EXPECTED_MAJOR:-18}
 test -f "$bundle/complete"
 (cd "$bundle" && sha256sum -c SHA256SUMS)
@@ -49,6 +49,7 @@ podman run -d \
   --volume "$keyring_volume:/var/lib/postgresql/tde-keyring" \
   --volume "$script_dir/../init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro" \
   --volume "$script_dir/postgres/set-app-role-password.sh:/docker-entrypoint-initdb.d/15-set-app-role-password.sh:ro" \
+  --volume "$script_dir/../../selfhost/database-app-role.sql:/etc/chronicle/database-app-role.sql:ro" \
   --volume "$script_dir/../init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro" \
   --volume "$secrets_dir/chronicle-postgres-password:/run/chronicle-source/postgres_password:ro" \
   --volume "$secrets_dir/chronicle-postgres-app-password:/run/chronicle-source/postgres_app_password:ro" \

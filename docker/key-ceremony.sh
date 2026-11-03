@@ -9,10 +9,11 @@
 # Produces share-{1..5}.txt for each key in the output directory.
 #
 # Requires: ssss-split (from ssss package) OR Python 3
-#
-# HIPAA §164.312(a)(2)(iv) — Encryption key management
 
 set -euo pipefail
+
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backup-format.sh"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 OUTPUT_DIR="./key-ceremony-output"
@@ -166,7 +167,7 @@ cat > "${OUTPUT_DIR}/ceremony-record.json" <<EOF
     "shamir_threshold": ${SHARES_THRESHOLD},
     "shamir_total_shares": ${SHARES_TOTAL},
     "shamir_tool": "${SHAMIR_TOOL}",
-    "backup_key_representation": "passphrase-file-bytes",
+    "backup_key_representation": "$BACKUP_KEY_REPRESENTATION",
     "tde_key_fingerprint_sha256": "${TDE_FINGERPRINT}",
     "backup_key_fingerprint_sha256": "${BACKUP_FINGERPRINT}",
     "tde_key_length_bits": $((${#TDE_KEY} * 4)),

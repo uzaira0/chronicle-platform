@@ -9,9 +9,7 @@ build_images := {
 }
 
 # Services allowed to use host networking
-host_network_allowed := {
-	"fail2ban",
-}
+host_network_allowed := {"fail2ban"}
 
 # Config file extensions that should be mounted read-only
 config_extensions := {".yml", ".yaml", ".toml", ".conf", ".hcl", ".json"}
@@ -20,7 +18,7 @@ config_extensions := {".yml", ".yaml", ".toml", ".conf", ".hcl", ".json"}
 secret_key_patterns := {"password", "secret", "key"}
 
 # Environment keys that contain a secret-like word but select a mechanism
-# rather than carrying credential material.
+# or metadata location rather than carrying credential material.
 non_secret_selector_keys := {"pg_tde_key_provider"}
 
 # Explicit disabled sentinels accepted only for the named optional integration.
@@ -66,6 +64,7 @@ deny contains msg if {
 	not _is_build_image(image)
 	not endswith(image, "-local")
 	not contains(image, "@sha256:")
+
 	# Required whole-image references are digest-checked by the selfhost runtime guard.
 	not image in runtime_pinned_images
 	msg := sprintf("Service '%s' image '%s' is not pinned by digest. Add @sha256:<digest>.", [name, image])
@@ -81,6 +80,7 @@ _is_build_image(image) if {
 # ---------------------------------------------------------------------------
 deny contains msg if {
 	service := input.services[name]
+
 	# Fragments inherit omitted fields; explicit overrides must still be checked.
 	count({"image", "build", "mem_limit"} & object.keys(service)) > 0
 	not _has_memory_limit(service)
@@ -109,18 +109,11 @@ deny contains msg if {
 deny contains msg if {
 	service := input.services[name]
 	service.healthcheck.disable == true
-	msg := sprintf("Service '%s' disables its healthcheck; docker compose up --wait rejects it. Use x-no-healthcheck with a reason instead.", [name])
+	msg := sprintf("Service '%s' disables its healthcheck; docker compose up --wait requires a working probe.", [name])
 }
 
 _has_healthcheck(service) if {
 	service.healthcheck
-}
-
-_has_healthcheck(service) if {
-	not "healthcheck" in object.keys(service)
-	reason := service["x-no-healthcheck"]
-	is_string(reason)
-	trim_space(reason) != ""
 }
 
 # ---------------------------------------------------------------------------
@@ -246,7 +239,7 @@ _has_no_new_privileges(service) if {
 }
 
 # ---------------------------------------------------------------------------
-# 8. PostgreSQL sslmode must not be weaker than verify-full (HIPAA W4)
+# 8. PostgreSQL sslmode must not be weaker than verify-full
 #
 # The prod backend JDBC URL hardcodes sslmode=verify-full (see
 # docker/rhizome-docker.yaml.template). POSTGRES_SSL_MODE is retained only for
@@ -269,7 +262,7 @@ weak_sslmodes := {"disable", "allow", "prefer", "require", "verify-ca"}
 # environment as an object (key: value mapping)
 deny contains msg if {
 	service := input.services[name]
-	raw := service.environment["POSTGRES_SSL_MODE"]
+	raw := service.environment.POSTGRES_SSL_MODE
 	is_string(raw)
 	mode := _sslmode_literal(raw)
 	mode in weak_sslmodes
@@ -306,4 +299,95 @@ _sslmode_literal(raw) = lower(trim_space(fallback)) if {
 	contains(raw, ":-")
 	after := substring(raw, indexof(raw, ":-") + 2, -1)
 	fallback := substring(after, 0, indexof(after, "}"))
+}
+
+# Initializers need ownership repair. These runtime exceptions already document why
+# they read host-owned files or drop privileges in their upstream entrypoint.
+root_user_reasons := {
+	"postgres": "Percona prepares volumes before dropping to postgres",
+	"postgres-replica": "Percona prepares replica volumes before dropping to postgres",
+	"db-backup": "Backup bind mounts use the configured host UID, which may be root",
+	"cadvisor": "Reads root-owned cgroups and Docker storage",
+	"operational-probe": "Reads the private database and monitoring credential mounts",
+	# The monitoring overlay's fragment of the one-shot base service (restart "no" lives in
+	# selfhost/docker-compose.yml, which conftest scans separately).
+	"config-guard": "Writes configuration.prom into the root-owned monitoring_textfiles volume (guard-config.sh write_configuration_metric)",
+	"docker-socket-proxy": "Opens the root-owned host Docker socket; read-only GET proxy on an internal network",
+}
+
+# Capabilities a service keeps after cap_drop ALL, each with the reason it cannot be removed.
+# A cap_add entry passes only when it is listed here for that service (or is an ownership
+# capability on an ownership initializer). Keyed by service name, then capability.
+capability_reasons := {
+	"web": {"NET_BIND_SERVICE": "Caddy binds 80/443 in the tls and local-https modes, and the release caddy binary carries file capability cap_net_bind_service, so a non-root exec fails with EPERM unless the capability stays in the bounding set"},
+	"metrics-exporter": {"NET_BIND_SERVICE": "Same caddy binary as web: its cap_net_bind_service file capability makes exec fail with EPERM when the capability is outside the bounding set, although it binds only :9090"},
+	"caddy-storage-init": {"DAC_READ_SEARCH": "After a rollback the old root Caddy leaves files inside 10001-owned 0700 directories; root needs traversal to chown them back"},
+	"db-backup": {
+		"CHOWN": "Bare-compose fallback runs as root (CHRONICLE_HOST_UID unset) and must write dumps into the operator-owned 0700 ./backups; inert for the operator uid",
+		"DAC_OVERRIDE": "Bare-compose fallback runs as root (CHRONICLE_HOST_UID unset) and must write dumps into the operator-owned 0700 ./backups; inert for the operator uid",
+		"FOWNER": "Bare-compose fallback runs as root (CHRONICLE_HOST_UID unset) and must rotate dumps inside the operator-owned 0700 ./backups; inert for the operator uid",
+	},
+	"operational-probe": {"DAC_READ_SEARCH": "Reads the operator-owned 0700 backup store and the backend-owned 0700 export store, which belong to different uids"},
+}
+
+capability_allowed(name, capability) if capability_reasons[name][capability]
+
+complete_service(service) if {
+	count({"image", "build"} & object.keys(service)) > 0
+}
+
+deny contains msg if {
+	service := input.services[name]
+	complete_service(service)
+	object.get(service, "read_only", false) != true
+	msg := sprintf("Service '%s' must have a read-only root filesystem.", [name])
+}
+
+deny contains msg if {
+	service := input.services[name]
+	complete_service(service)
+	not "ALL" in object.get(service, "cap_drop", [])
+	msg := sprintf("Service '%s' must drop ALL capabilities.", [name])
+}
+
+ownership_capabilities := {"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"}
+
+ownership_initializer(name) if name in one_shot_services
+
+ownership_initializer(name) if name in {"postgres", "postgres-replica"}
+
+deny contains msg if {
+	service := input.services[name]
+	capability := service.cap_add[_]
+	not ownership_initializer(name)
+	not capability_allowed(name, capability)
+	msg := sprintf("Service '%s' retains capability '%s' outside an ownership initializer.", [name, capability])
+}
+
+deny contains msg if {
+	service := input.services[name]
+	capability := service.cap_add[_]
+	ownership_initializer(name)
+	not capability in ownership_capabilities
+	not capability_allowed(name, capability)
+	msg := sprintf("Service '%s' retains non-ownership capability '%s'.", [name, capability])
+}
+
+deny contains msg if {
+	service := input.services[name]
+	regex.match(`^(0|root)(:|$)`, object.get(service, "user", ""))
+	not name in one_shot_services
+	not root_user_reasons[name]
+	msg := sprintf("Service '%s' explicitly runs as root without a documented initializer or user exception.", [name])
+}
+
+_has_pid_limit(service) if to_number(service.pids_limit) > 0
+
+_has_pid_limit(service) if to_number(service.deploy.resources.limits.pids) > 0
+
+deny contains msg if {
+	service := input.services[name]
+	complete_service(service)
+	not _has_pid_limit(service)
+	msg := sprintf("Service '%s' must have a positive PID limit.", [name])
 }

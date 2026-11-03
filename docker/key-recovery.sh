@@ -9,10 +9,11 @@
 #   ./key-recovery.sh --type backup --shares share-1.txt share-2.txt share-4.txt --write-key-file
 #
 # Requires: ssss-combine (from ssss package) OR Python 3
-#
-# HIPAA §164.312(a)(2)(iv) — Encryption key management
 
 set -euo pipefail
+
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backup-format.sh"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 KEY_TYPE=""
@@ -43,7 +44,7 @@ usage() {
     echo "  --type <tde|backup>     Which key to recover"
     echo "  --shares <files...>     At least ${SHARES_THRESHOLD} share files"
     echo "  --fingerprint <sha256>  Expected key fingerprint for validation"
-    echo "  --representation <passphrase-file-bytes|legacy-random-bytes>  Required when writing a backup key; use the ceremony record"
+    echo "  --representation <${BACKUP_KEY_REPRESENTATION}>  Required when writing a backup key; use the ceremony record"
     echo "  --verify-backup <file>  Verify recovered passphrase decrypts this backup before replacement"
     echo "  --write-keyring         Write recovered TDE key to the TDE keyring (type=tde only)"
     echo "  --write-key-file        Write recovered backup key to /etc/chronicle/backup-encryption-key"
@@ -218,26 +219,22 @@ if [ "$KEY_TYPE" = "backup" ] && [ "$WRITE_KEY_FILE" = true ]; then
     trap 'rm -f -- "$TMP_KEY"' EXIT
     # Shares encode the passphrase FILE bytes, including its trailing newline.
     case "$BACKUP_REPRESENTATION" in
-      passphrase-file-bytes) printf '%s' "$RECOVERED_KEY" | xxd -r -p > "$TMP_KEY" ;;
-      legacy-random-bytes) printf '%s' "$RECOVERED_KEY" | xxd -r -p | base64 > "$TMP_KEY" ;;
-      *) log_err "Select the representation recorded at the ceremony; ambiguous legacy recovery is refused"; exit 1 ;;
+      "$BACKUP_KEY_REPRESENTATION") printf '%s' "$RECOVERED_KEY" | xxd -r -p > "$TMP_KEY" ;;
+      *) log_err "Select the representation recorded at the ceremony; unsupported recovery representation"; exit 1 ;;
     esac
     chmod 600 "$TMP_KEY"
     if [[ -n "$VERIFY_BACKUP" ]]; then
         TMP_PLAIN=$(mktemp)
         trap 'rm -f -- "$TMP_KEY" "$TMP_PLAIN"' EXIT
         verified=false
-        for iterations in 600000 100000; do
-            if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$iterations" \
-                -in "$VERIFY_BACKUP" -out "$TMP_PLAIN" -pass "file:$TMP_KEY" 2>/dev/null; then
-                if [[ "$(head -c 5 "$TMP_PLAIN")" == PGDMP ]]; then
-                    pg_restore --list "$TMP_PLAIN" >/dev/null 2>&1 && verified=true
-                elif tar -tzf "$TMP_PLAIN" >/dev/null 2>&1; then
-                    verified=true
-                fi
+        if openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
+            -in "$VERIFY_BACKUP" -out "$TMP_PLAIN" -pass "file:$TMP_KEY" 2>/dev/null; then
+            if [[ "$(head -c 5 "$TMP_PLAIN")" == PGDMP ]]; then
+                pg_restore --list "$TMP_PLAIN" >/dev/null 2>&1 && verified=true
+            elif tar -tzf "$TMP_PLAIN" >/dev/null 2>&1; then
+                verified=true
             fi
-            [[ "$verified" != true ]] || break
-        done
+        fi
         if [[ "$verified" != true ]]; then
             log_err "Recovered passphrase did not decrypt a supported verification backup"
             exit 1

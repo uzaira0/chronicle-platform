@@ -615,6 +615,7 @@ chronicle_required_secret_contracts:
     name: chronicle-app-secrets
     keys:
       POSTGRES_PASSWORD: { min_bytes: 32 }
+      POSTGRES_APP_PASSWORD: { min_bytes: 32 }
       JWT_SECRET: { min_bytes: 32 }
       HAZELCAST_SERVER_PASSWORD: { min_bytes: 32 }
       HAZELCAST_CLIENT_PASSWORD: { min_bytes: 32 }

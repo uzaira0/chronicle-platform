@@ -12,7 +12,7 @@
 #   --verify        Verify current SSL configuration
 #   --help          Show this help message
 #
-# For HIPAA compliance, encryption in transit is required for all database connections.
+# Every database connection is encrypted in transit.
 # This script sets up SSL/TLS encryption between the application and PostgreSQL.
 #
 # Production Considerations:

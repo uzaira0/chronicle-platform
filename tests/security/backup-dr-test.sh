@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=docker/backup-format.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../docker/backup-format.sh"
+
 # ---------------------------------------------------------------------------
 # Backup & Disaster Recovery Tests for Chronicle
 # ---------------------------------------------------------------------------
@@ -73,9 +76,7 @@ decrypt_backup_file() {
     local src="$1"
     local dst="$2"
     local key="$3"
-    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 600000 \
-        -in "$src" -out "$dst" -pass "file:${key}" 2>/dev/null \
-    || openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter 100000 \
+    openssl enc -aes-256-cbc -d -salt -pbkdf2 -iter "$BACKUP_PBKDF2_ITERATIONS" \
         -in "$src" -out "$dst" -pass "file:${key}" 2>/dev/null
 }
 
@@ -116,11 +117,6 @@ if docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep 
     log "PostgreSQL container '$CONTAINER' is running"
 else
     warn "PostgreSQL container '$CONTAINER' is not running -- some tests will be skipped"
-fi
-
-# Legacy key location fallback (same logic as backup-chronicle.sh)
-if [ ! -f "$KEY_FILE" ] && [ -f "${BACKUP_ROOT}/.backup-encryption-key" ]; then
-    KEY_FILE="${BACKUP_ROOT}/.backup-encryption-key"
 fi
 
 KEY_AVAILABLE=false

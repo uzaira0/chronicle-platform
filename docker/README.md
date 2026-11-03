@@ -67,7 +67,7 @@ Default PostgreSQL credentials:
 - Host: `postgres` (internal) or `localhost:5434` (external)
 - Database: `chronicle`
 - Username: `oltest`
-- Password: `test`
+- Password: the `POSTGRES_PASSWORD` value from `docker/.env` (required; there is no default)
 
 Connect with psql:
 ```bash
@@ -145,7 +145,7 @@ The modern Bun dev server runs on port 5173 by default. The legacy webpack shell
 ## Production-Like Validation
 
 Before treating a Docker-backed environment as release-ready, run the current
-production-like validation lane from the repo root:
+production-like validation from the repo root:
 
 ```bash
 ./scripts/chronicle-production-like-validation.sh

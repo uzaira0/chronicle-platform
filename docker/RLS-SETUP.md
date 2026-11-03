@@ -52,18 +52,11 @@ ALTER ROLE chronicle_admin PASSWORD 'your-secure-admin-password';
 ### 2. Apply RLS Migration
 
 RLS policies are enabled by plain Flyway migrations -- `ALTER TABLE ... ENABLE ROW LEVEL
-SECURITY` statements in `V##__*.sql` files under
-`chronicle-server/src/main/resources/db/migration/`. Flyway runs these automatically when the
-Chronicle server starts; there is no separate "upgrade class" step to run. (The old
-`Upgrade`-`@Bean` migration system, which used to include a `RowLevelSecurityUpgrade` class,
-was deleted at the 2026-07-14 Flyway cutover -- do not look for or try to run that class.)
-
-If you need to apply a specific RLS migration manually (e.g. against a fresh database outside
-the normal startup path):
-
-```bash
-psql -U chronicle -d chronicle -f ../chronicle-server/src/main/resources/db/migration/V1__enable_row_level_security.sql
-```
+SECURITY` statements in `V1__fresh_schema.sql` under
+`chronicle-server/src/main/resources/db/migration/`. The role bootstrap and rhizome
+create the framework tables first, then Flyway applies the complete baseline.
+Future changes use V2 and higher. Let the server or owner migration command run
+Flyway; applying the baseline directly to an existing schema is unsupported.
 
 Here `chronicle` is the offline schema owner (`POSTGRES_USER` in the supported selfhost
 deployment). A custom deployment may use another non-runtime schema owner, but it must be

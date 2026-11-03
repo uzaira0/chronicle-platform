@@ -7,14 +7,12 @@
 # Usage:
 #   ./scripts/rotate-secrets.sh --only JWT_SECRET
 #   ./scripts/rotate-secrets.sh --auto --only POSTGRES_PASSWORD
-#   ./scripts/rotate-secrets.sh --dry-run      # preview the legacy full inventory
+#   ./scripts/rotate-secrets.sh --dry-run      # preview the supported inventory
 #   ./scripts/rotate-secrets.sh --only <name>  # PostgreSQL, JWT or Hazelcast password
 # Live batch/Grafana/CrowdSec/TDE rotations are refused before any side effect;
 # use their dedicated coordinated recovery procedures.
 #
 # Secrets that CANNOT be auto-rotated by THIS script (require external coordination):
-#   MOBILE_APP_KEY        — controlled legacy compatibility only; public apps do not carry it
-#   MOBILE_SIGNING_SECRET — shared-HMAC key for an explicitly controlled legacy fleet only
 #   PG_TDE_VAULT_TOKEN    — Vault AUTH token, issued by the external Vault cluster
 #   SMTP_PASSWORD         — managed by the email provider (Office 365 admin)
 #
@@ -411,34 +409,6 @@ rotate_tde_principal_key() {
   # and no service restart is required (re-wrap is online).
 }
 
-rotate_mobile_signing_secret() {
-  warn "MOBILE_SIGNING_SECRET is not used by the public Android/iOS apps."
-  warn "Rotate it only for an explicitly controlled legacy/research-client fleet."
-  if ! $DRY_RUN && ! confirm "Rotate MOBILE_SIGNING_SECRET with controlled legacy-client coordination?"; then
-    warn "Skipped MOBILE_SIGNING_SECRET rotation"
-    return
-  fi
-  local new_file
-  prepare_secret_file new_file base64 32
-  env_set MOBILE_SIGNING_SECRET "$new_file"
-  RESTART_NEEDED[chronicle-backend]=1
-  warn "ACTION REQUIRED: Update only the controlled legacy clients that were explicitly provisioned with this compatibility key."
-}
-
-rotate_mobile_app_key() {
-  warn "MOBILE_APP_KEY is not present in the public APK/AAB."
-  warn "Rotate it only if a controlled legacy integration is explicitly known to consume it."
-  if ! $DRY_RUN && ! confirm "Rotate MOBILE_APP_KEY with controlled legacy-client coordination?"; then
-    warn "Skipped MOBILE_APP_KEY rotation"
-    return
-  fi
-  local new_file
-  prepare_secret_file new_file hex 32
-  env_set MOBILE_APP_KEY "$new_file"
-  RESTART_NEEDED[chronicle-backend]=1
-  warn "ACTION REQUIRED: Coordinate only the controlled legacy integration that consumes MOBILE_APP_KEY."
-}
-
 # ── Determine what to rotate ───────────────────────────────────────
 
 ROTATABLE_SECRETS=(
@@ -450,11 +420,6 @@ ROTATABLE_SECRETS=(
   CROWDSEC_BOUNCER_API_KEY
 )
 
-DANGEROUS_SECRETS=(
-  MOBILE_SIGNING_SECRET
-  MOBILE_APP_KEY
-)
-
 if [[ -n "$ONLY" ]]; then
   case "$ONLY" in
     POSTGRES_PASSWORD)          rotate_postgres_password ;;
@@ -464,18 +429,13 @@ if [[ -n "$ONLY" ]]; then
     GRAFANA_ADMIN_PASSWORD)     rotate_grafana_admin_password ;;
     CROWDSEC_BOUNCER_API_KEY)   rotate_crowdsec_bouncer_key ;;
     TDE_PRINCIPAL_KEY)          rotate_tde_principal_key ;;
-    MOBILE_SIGNING_SECRET)      rotate_mobile_signing_secret ;;
-    MOBILE_APP_KEY)             rotate_mobile_app_key ;;
     *)
-      err "Unknown secret: $ONLY. Rotatable: ${ROTATABLE_SECRETS[*]} TDE_PRINCIPAL_KEY ${DANGEROUS_SECRETS[*]}"
+      err "Unknown secret: $ONLY. Rotatable: ${ROTATABLE_SECRETS[*]} TDE_PRINCIPAL_KEY"
       ;;
   esac
 else
   log "=== Starting full secret rotation ==="
   log "Secrets to rotate: ${ROTATABLE_SECRETS[*]} TDE_PRINCIPAL_KEY"
-  log ""
-  warn "Secrets that require manual coordination (will prompt individually):"
-  warn "  MOBILE_SIGNING_SECRET, MOBILE_APP_KEY"
   log ""
 
   if ! $DRY_RUN && ! $AUTO && ! confirm "Proceed with rotation?"; then
@@ -490,12 +450,7 @@ else
   rotate_crowdsec_bouncer_key
   rotate_tde_principal_key
 
-  if ! $AUTO; then
-    rotate_mobile_signing_secret
-    rotate_mobile_app_key
-  else
-    warn "Skipping MOBILE_SIGNING_SECRET and MOBILE_APP_KEY in --auto mode (require explicit controlled legacy-client coordination)"
-  fi
+
 fi
 
 # ── Restart affected services ──────────────────────────────────────
@@ -547,6 +502,5 @@ if ! $DRY_RUN; then
   log "  1. Verify backend readiness:  curl -fsS http://localhost:40320/chronicle/internal/health/ready"
   log "  2. Verify Traefik health:  docker exec edge-traefik traefik healthcheck"
   log "  3. Verify Grafana login:   open https://\$(grep DOMAIN $ENV_FILE | cut -d= -f2)/grafana"
-  log "  4. Verify mobile API:      curl -s -H 'X-Chronicle-App-Key: <new-key>' https://\$(grep DOMAIN $ENV_FILE | cut -d= -f2)/chronicle/v3/healthz"
-  log "  5. Update HIPAA rotation log with today's date"
+  log "  4. Update the secret rotation log with today's date"
 fi

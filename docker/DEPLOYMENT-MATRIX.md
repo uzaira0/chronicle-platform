@@ -1,7 +1,5 @@
 # Chronicle Deployment Matrix
 
-Updated: 2026-04-06
-
 Use this matrix to choose the correct Docker Compose entrypoint. The compose files are not interchangeable.
 
 | Scenario | Primary compose file(s) | When to use it | Notes |

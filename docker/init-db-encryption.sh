@@ -5,7 +5,7 @@
 # Usage: This script runs automatically as a Docker entrypoint script
 #        Place it in /docker-entrypoint-initdb.d/ to run on first container start
 #
-# For HIPAA/GDPR compliance, data at rest must be encrypted.
+# Participant data at rest is encrypted.
 
 set -euo pipefail
 

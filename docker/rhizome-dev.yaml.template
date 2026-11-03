@@ -1,0 +1,51 @@
+# Generated from selfhost/config/rhizome.yaml.template for the loopback development stack.
+# Rendered by ../backend-entrypoint.sh; the bundled PostgreSQL certificate is the trust anchor.
+enable-persistence: true
+
+hazelcast:
+  server: true
+  group: "chronicle-selfhost"
+  cp-member-count: 0
+  seed-nodes:
+    - "localhost"
+  port: 5710
+  interfaces: ["127.0.0.1"]
+
+hazelcast-clients:
+  IDS:
+    server: false
+    group: "chronicle-selfhost"
+    cp-member-count: 0
+    seed-nodes:
+      - "127.0.0.1:5710"
+
+postgres:
+  initialize-tables: false
+  initialize-indices: false
+  citus: false
+  hikari:
+    jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=disable"
+    username: "chronicle_app"
+    password: "${POSTGRES_APP_PASSWORD}"
+    maximumPoolSize: 20
+    minimumIdle: 5
+    connectionTimeout: 30000
+    idleTimeout: 600000
+    maxLifetime: 1800000
+    leakDetectionThreshold: 300000
+
+datasources:
+  chronicle:
+    initialize-indices: false
+    citus: false
+    initialize-tables: false
+    hikari:
+      jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=disable"
+      username: "chronicle_app"
+      password: "${POSTGRES_APP_PASSWORD}"
+      maximumPoolSize: 20
+      minimumIdle: 5
+      connectionTimeout: 30000
+      idleTimeout: 600000
+      maxLifetime: 1800000
+      leakDetectionThreshold: 300000

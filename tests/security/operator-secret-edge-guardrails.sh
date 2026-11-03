@@ -314,7 +314,7 @@ if [[ "$tde_fixture_status" -ne 0 ]]; then
   fail "TDE ambient fallback fixture failed (status ${tde_fixture_status})"
 fi
 [[ -s "$TDE_HELPER_MARKER" ]] || fail "TDE helper environment boundary was not exercised"
-[[ "$(<"$TDE_DOCKER_COUNT")" == 2 ]] || fail "TDE fallback password did not reach both protected SQL inputs"
+[[ "$(<"$TDE_DOCKER_COUNT")" == 1 ]] || fail "TDE fallback password did not reach the protected SQL input"
 grep -Fq "$TDE_POSTGRES_SENTINEL" "$TDE_STDOUT" "$TDE_STDERR" && \
   fail "ambient Postgres fallback reached TDE rotation output"
 grep -Fq "$TDE_VAULT_SENTINEL" "$TDE_STDOUT" "$TDE_STDERR" && \

@@ -510,7 +510,7 @@ INTEGRITY_BATCH=$(run_sql "
   UNION ALL
   SELECT 'idx_sp|' || count(*) FROM pg_indexes WHERE tablename = 'study_participants'
   UNION ALL
-  SELECT 'idx_sd|' || count(*) FROM pg_indexes WHERE tablename = 'sensor_data'
+  SELECT 'idx_sd|' || count(*) FROM pg_indexes WHERE tablename = 'ios_screen_time_usage'
   UNION ALL
   SELECT 'idx_ue|' || count(*) FROM pg_indexes WHERE tablename = 'chronicle_usage_events'
   UNION ALL
@@ -556,11 +556,11 @@ else
   fail "No indexes on study_participants"
 fi
 
-# 7d. Indexes on sensor_data
+# 7d. Indexes on ios_screen_time_usage
 if [ "$IDX_SD" -gt 0 ] 2>/dev/null; then
-  pass "Indexes exist on sensor_data ($IDX_SD index(es))"
+  pass "Indexes exist on ios_screen_time_usage ($IDX_SD index(es))"
 else
-  pass "sensor_data has no indexes (append-only ingestion table -- no security impact)"
+  fail "No indexes on ios_screen_time_usage (the capture key constraint is missing)"
 fi
 
 # 7e. Indexes on chronicle_usage_events

@@ -78,7 +78,7 @@ http:
           X-Crowdsec-Appsec-User-Agent: ""
     request-body-limit:
       buffering:
-        maxRequestBodyBytes: 10485760
+        maxRequestBodyBytes: 67108864
         memRequestBodyBytes: 1048576
         maxResponseBodyBytes: 33554432
         memResponseBodyBytes: 1048576
@@ -99,7 +99,7 @@ http:
           crowdsecAppsecKeyFile: /run/secrets/crowdsec_bouncer_key
           crowdsecAppsecFailureBlock: true
           crowdsecAppsecUnreachableBlock: true
-          crowdsecAppsecBodyLimit: 10485760
+          crowdsecAppsecBodyLimit: 67108864
           remediationStatusCode: 403
           httpTimeoutSeconds: 5
           forwardedHeadersCustomName: X-Forwarded-For

@@ -8,6 +8,11 @@
 # OPENSEARCH_PASSWORD in the untracked local environment file.
 
 services:
+  health-probe:
+    extends:
+      file: ../selfhost/config/health-probe.yml
+      service: health-probe
+
   # OpenSearch - Log storage and search
   opensearch:
     image: opensearchproject/opensearch:2.11.0@sha256:${OPENSEARCH_IMAGE_DIGEST:?Set OPENSEARCH_IMAGE_DIGEST to the owner-approved SHA-256 digest}
@@ -17,8 +22,22 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - IPC_LOCK
+    # No IPC_LOCK: the image runs as uid 1000, so an added capability only reaches the
+    # bounding set, never the effective set. bootstrap.memory_lock works through the
+    # unlimited memlock ulimit below, which is what lets an unprivileged mlockall succeed.
+    #
+    # Read-only root. Every path opensearch-docker-entrypoint.sh and the server write:
+    #   config/  install_demo_configuration.sh appends to opensearch.yml and writes the demo
+    #            PEMs; the node creates opensearch.keystore. A named volume, seeded from the
+    #            image on first use, so it is not refreshed by an image upgrade.
+    #   logs/    log4j2 rolling files and PerformanceAnalyzer.log (named volume, disk-backed).
+    #   /tmp     JVM tmpdir; JNA unpacks its native library here, so it is not noexec.
+    # The demo installer's last step writes securityadmin_demo.sh into the working directory
+    # and chmods a plugin script; both now fail with EROFS. The script has no `set -e` and the
+    # entrypoint ignores its exit status, so startup continues.
+    read_only: true
+    tmpfs:
+      - /tmp:nosuid,nodev,size=128m,mode=1777
     environment:
       - cluster.name=chronicle-cluster
       - node.name=chronicle-node
@@ -35,6 +54,8 @@ services:
         hard: 65536
     volumes:
       - opensearch_data:/usr/share/opensearch/data
+      - opensearch_config:/usr/share/opensearch/config
+      - opensearch_logs:/usr/share/opensearch/logs
     ports:
       - "127.0.0.1:9200:9200"
     networks:
@@ -65,6 +86,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The entrypoint rewrites config/ only when DISABLE_SECURITY_DASHBOARDS_PLUGIN=true (it is
+    # false here); the server writes its uuid under data/.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m,mode=1777
+      - /usr/share/opensearch-dashboards/data:noexec,nosuid,nodev,size=16m,mode=0750,uid=1000,gid=1000
     environment:
       - OPENSEARCH_HOSTS=["https://opensearch:9200"]
       - DISABLE_SECURITY_DASHBOARDS_PLUGIN=false
@@ -83,7 +110,6 @@ services:
 
   # Fluent Bit - Log shipper
   fluent-bit:
-    x-no-healthcheck: "Distroless image: no shell or HTTP client to probe with. Restart policy covers crashes; the monitoring scrape alerts when it stops answering."
     image: fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845
     container_name: chronicle-fluent-bit
     restart: unless-stopped
@@ -98,6 +124,7 @@ services:
     environment:
       OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:?Set OPENSEARCH_PASSWORD in .env}
     volumes:
+      - health_probe:/probe:ro
       - ./siem/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - audit_logs:/var/log/chronicle:ro
@@ -105,6 +132,7 @@ services:
     networks:
       - chronicle-internal
     depends_on:
+      health-probe: {condition: service_completed_successfully}
       opensearch:
         condition: service_healthy
     deploy:
@@ -113,12 +141,17 @@ services:
           memory: 256M
           pids: 256
 
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:2020/api/v1/health"]
 networks:
   chronicle-internal:
     external: true
 
 volumes:
+  health_probe:
   opensearch_data:
+  opensearch_config:
+  opensearch_logs:
   audit_logs:
     external: true
     name: chronicle_audit_logs

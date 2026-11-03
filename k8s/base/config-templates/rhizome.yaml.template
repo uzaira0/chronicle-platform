@@ -21,10 +21,12 @@ hazelcast-clients:
 
 postgres:
   citus: false
+  initialize-tables: false
+  initialize-indices: false
   hikari:
-    jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
-    username: "${POSTGRES_USER}"
-    password: "${POSTGRES_PASSWORD}"
+    jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
+    username: "chronicle_app"
+    password: "${POSTGRES_APP_PASSWORD}"
     maximumPoolSize: 20
     minimumIdle: 5
     # Readiness has a 10s probe budget and then validates the connection for up
@@ -37,11 +39,12 @@ postgres:
 datasources:
   chronicle:
     citus: false
-    initialize-tables: true
+    initialize-tables: false
+    initialize-indices: false
     hikari:
-      jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
-      username: "${POSTGRES_USER}"
-      password: "${POSTGRES_PASSWORD}"
+      jdbcUrl: "jdbc:postgresql://postgres:5432/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=verify-full&sslrootcert=/app/ssl/ca.crt"
+      username: "chronicle_app"
+      password: "${POSTGRES_APP_PASSWORD}"
       maximumPoolSize: 20
       minimumIdle: 5
       # Keep acquisition within the backend readiness probe budget.

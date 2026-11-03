@@ -7,17 +7,58 @@
 # hot-reload container was deleted with docker/Dockerfile.frontend.dev.
 
 services:
+  # Self-signed server certificate (SAN DNS:postgres) so migrate and the backend connect with
+  # sslmode=verify-full, as in production. Same script, image and volume path as the selfhost
+  # cert-init service; root only to hand the key to uid 26.
+  postgres-cert-init:
+    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["/bin/bash", "/selfhost/cert-init.sh"]
+    environment:
+      POSTGRES_TLS_DIR: /postgres-tls
+      TLS_DIR: /tmp
+    volumes:
+      - ../selfhost:/selfhost:ro
+      - postgres_tls:/postgres-tls
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    mem_limit: 128m
+    pids_limit: 64
+
   postgres:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g
-    image: percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+    # Runs as the image's postgres user (26); only the volumes and tmpfs mounts are writable.
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs:
+      - "/tmp:size=64m,mode=1777"
+      - "/var/run/postgresql:size=8m,mode=3775,uid=26,gid=26"
+    pids_limit: 512
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgres-tls/postgres.crt
+      - -c
+      - ssl_key_file=/etc/postgres-tls/postgres.key
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
     # -dev suffix: the prod stack (docker-compose.traefik.yml) owns the names
     # chronicle-postgres / chronicle-backend on this host — an unsuffixed dev
     # stack cannot start beside it and invites `docker rm -f` against prod.
     container_name: chronicle-postgres-dev
     environment:
       POSTGRES_USER: oltest
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
       POSTGRES_DB: chronicle
     ports:
       - "127.0.0.1:5434:5432"
@@ -35,15 +76,56 @@ services:
       # empty database. `docker inspect <container> --format '{{range .Mounts}}{{.Name}} {{.Destination}}{{"\n"}}{{end}}'`
       # names the anonymous volume holding it.
       - postgres_data:/data/db
+      - ./init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+      - ./hetzner/postgres/set-app-role-password.sh:/docker-entrypoint-initdb.d/15-set-app-role-password.sh:ro
+      - ../selfhost/database-app-role.sql:/etc/chronicle/database-app-role.sql:ro
+      - postgres_tls:/etc/postgres-tls:ro
+    depends_on:
+      postgres-cert-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oltest -d chronicle"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart: "no"
+    entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh", "--migrate"]
+    environment:
+      POSTGRES_DB: chronicle
+      POSTGRES_USER: oltest
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      # sslmode defaults to verify-full in backend-entrypoint.sh.
+      POSTGRES_SSL_ROOT_CERT: /etc/postgres-tls/postgres.crt
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+    volumes:
+      - export_artifacts:/var/lib/chronicle/exports
+      - audit_logs:/var/log/chronicle
+      - postgres_tls:/etc/postgres-tls:ro
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    # The entrypoint stages the migration password here (selfhost migrate uses the same).
+    tmpfs:
+      - /tmp:size=64m,mode=0700,uid=100,gid=101
+    mem_limit: 512m
+    pids_limit: 128
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 3g
+    # Same as the selfhost backend: image user, no capabilities, writes only to the tmpfs
+    # mounts below (rendered config, JVM tmpdir) and the audit/export volumes.
+    cap_drop: ["ALL"]
+    read_only: true
+    pids_limit: 1024
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:40320/chronicle/internal/health/ready"]
       interval: 30s
@@ -61,24 +143,39 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: chronicle
-      POSTGRES_USER: oltest
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-test}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET}
+      CHRONICLE_SECURITY_METRICS_PASSWORD: ${METRICS_PASSWORD:?set METRICS_PASSWORD}
       CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
       CHRONICLE_EXPORT_MAX_ROWS: "1000000"
       CHRONICLE_EXPORT_MAX_BYTES: "536870912"
       CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS: "1800"
       CHRONICLE_EXPORT_MAX_TOTAL_BYTES: "8589934592"
       CHRONICLE_EXPORT_MIN_FREE_BYTES: "1073741824"
+    tmpfs:
+      - /server/scratch:size=256m,mode=0700,uid=100,gid=101
+      - /server/rendered-config:size=1m,mode=0700,uid=100,gid=101
+    entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh"]
+    command: []
     volumes:
       - export_artifacts:/var/lib/chronicle/exports
+      - audit_logs:/var/log/chronicle
+      # The selfhost rhizome template connects with sslmode=verify-full against the
+      # certificate below.
+      - ../selfhost/config:/server/config:ro
+      - ./jetty-http.yaml.template:/server/config/jetty.yaml.template:ro
+      - postgres_tls:/etc/postgres-tls:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       # Loopback only, like the dev database above: the dev backend runs with test
       # credentials and must not be reachable from the rest of the network.
       - "127.0.0.1:40320:40320"
 
 volumes:
+  audit_logs:
   postgres_data:
+  postgres_tls:
   export_artifacts:

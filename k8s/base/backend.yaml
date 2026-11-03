@@ -53,9 +53,52 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: &backend-image ghcr.io/uzaira0/chronicle/chronicle-backend:sha-000000000000
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/server/backend-entrypoint.sh", "--migrate"]
+          env:
+            - name: POSTGRES_DB
+              value: chronicle
+            - name: POSTGRES_USER
+              value: chronicle
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chronicle-app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: CHRONICLE_EXPORT_DIR
+              value: /var/lib/chronicle/exports
+          resources: &backend-resources
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "3"
+              memory: 4Gi
+          securityContext: &backend-security
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: postgres-ca
+              mountPath: /app/ssl
+              readOnly: true
+            - name: audit-logs
+              mountPath: /var/log/chronicle
+            - name: export-artifacts
+              mountPath: /var/lib/chronicle/exports
+            - name: migration-tmp
+              mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/uzaira0/chronicle/chronicle-backend:sha-000000000000
+          image: *backend-image
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 40320
@@ -78,8 +121,6 @@ spec:
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_DB
-              value: chronicle
-            - name: POSTGRES_USER
               value: chronicle
             - name: POSTGRES_SSL_MODE
               value: verify-full
@@ -163,11 +204,11 @@ spec:
               value: "8589934592"
             - name: CHRONICLE_EXPORT_MIN_FREE_BYTES
               value: "1073741824"
-            - name: POSTGRES_PASSWORD
+            - name: POSTGRES_APP_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: chronicle-app-secrets
-                  key: POSTGRES_PASSWORD
+                  key: POSTGRES_APP_PASSWORD
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -225,22 +266,8 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
-          resources:
-            requests:
-              cpu: 500m
-              memory: 2Gi
-            limits:
-              cpu: "3"
-              memory: 4Gi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
-            readOnlyRootFilesystem: true
+          resources: *backend-resources
+          securityContext: *backend-security
           command:
             - sh
             - -c
@@ -312,6 +339,9 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: migration-tmp
+          emptyDir:
+            sizeLimit: 256Mi
         - name: config-templates
           configMap:
             name: chronicle-backend-config-templates

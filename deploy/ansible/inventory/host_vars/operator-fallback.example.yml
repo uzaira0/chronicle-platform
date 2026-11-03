@@ -1,6 +1,6 @@
 ---
 # Example host variables for an operator fallback/restore target.
-# This host is PHI/ePHI-capable, but it is not part of the primary Kubernetes
+# This host may hold participant data, but it is not part of the primary Kubernetes
 # control plane in the initial one-node design.
 
 chronicle_swap_enabled: true

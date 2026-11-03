@@ -30,6 +30,13 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # entrypoint.sh renders config/config_template.yaml into config/docker.yaml with dockerize
+    # on every start, and temporal-server reads it from there (--env docker, root /etc/temporal).
+    # config/ is therefore a named volume, seeded from the image (uid 1000) on first use; it is
+    # not refreshed when the image is upgraded, so remove the volume after an upgrade.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=32m,mode=1777
     environment:
       # Use existing PostgreSQL for persistence
       DB: postgres12
@@ -55,6 +62,7 @@ services:
       # Logging
       LOG_LEVEL: info
     volumes:
+      - temporal_config:/etc/temporal/config
       - ./temporal/dynamic-config.yaml:/etc/temporal/dynamic-config.yaml:ro,z
     ports:
       # gRPC port for SDK workers (internal only — not exposed via Traefik).
@@ -91,7 +99,20 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The image sets no USER; its files belong to temporal (5000). The image's start script
+    # renders the config inside the read-only image, so render it onto the /tmp tmpfs and
+    # point ui-server there (TEMPORAL_ROOT, TEMPORAL_CONFIG_DIR). Recheck on an image bump.
+    user: "5000:5000"
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=16m,mode=1777
+    entrypoint:
+      - /bin/bash
+      - -euc
+      - mkdir -p /tmp/ui-config && dockerize -template ./config-template.yaml:/tmp/ui-config/docker.yaml && exec ./ui-server --env docker start
     environment:
+      TEMPORAL_ROOT: /tmp
+      TEMPORAL_CONFIG_DIR: ui-config
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: https://${DOMAIN}
       TEMPORAL_UI_PORT: 8233
@@ -132,6 +153,12 @@ services:
     image: temporalio/admin-tools:1.25.2@sha256:${TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST:?Set TEMPORAL_ADMIN_TOOLS_IMAGE_DIGEST to the owner-approved SHA-256 digest}
     container_name: chronicle-temporal-admin
     restart: "no"
+    cap_drop: ["ALL"]
+    # tini -- sleep infinity; CLI state (tctl config) goes to the temporal user's home.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=16m,mode=1777
+      - /home/temporal:noexec,nosuid,nodev,size=4m,mode=0700,uid=1000,gid=1000
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CLI_ADDRESS: temporal:7233
@@ -149,6 +176,9 @@ services:
         limits:
           memory: 128M
           pids: 128
+
+volumes:
+  temporal_config:
 
 networks:
   chronicle-internal:

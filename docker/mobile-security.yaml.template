@@ -1,9 +1,7 @@
-# Public clients use enrollment-issued per-device API keys, so the deployment-wide HMAC
-# stays false/false/blank by default. Set both booleans true and generate a 32+ character
-# secret only as an explicit compatibility mode for a controlled legacy fleet.
-enabled: ${MOBILE_SIGNING_ENABLED}
-signing-secret: "${MOBILE_SIGNING_SECRET}"
-signing-required: ${MOBILE_SIGNING_REQUIRED}
+# Public clients use enrollment-issued per-device API keys.
+enabled: false
+signing-secret: ""
+signing-required: false
 max-request-age-minutes: 5
 clock-skew-seconds: 30
 nonce-ttl-minutes: 10

@@ -1,4 +1,4 @@
-# H-7: Migrate Secrets from Environment Variables to Docker Secrets
+# Migrate Secrets from Environment Variables to Docker Secrets
 
 ## Problem
 All secrets (DB password, JWT secret, SMTP credentials) are passed as environment

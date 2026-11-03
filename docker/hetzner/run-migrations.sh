@@ -14,7 +14,7 @@ podman image exists "$image"
 podman network exists "$network"
 [[ "$(podman inspect chronicle-next_postgres_1 --format '{{.State.Health.Status}}')" == healthy ]]
 if podman container exists chronicle-next_backend_1; then
-  echo "backend container must be removed before the migration reserves 10.89.41.2" >&2
+  echo "backend container must be removed before owner migration and restore reconciliation" >&2
   exit 1
 fi
 if podman container exists "$container_name"; then
@@ -34,7 +34,7 @@ podman run --rm --name "$container_name" \
   --memory 512m \
   --pids-limit 128 \
   --network "$network" \
-  --ip 10.89.41.2 \
+  --ip 10.89.41.4 \
   --env POSTGRES_MIGRATION_JDBC_URL='jdbc:postgresql://postgres:5432/chronicle?sslmode=verify-full&sslrootcert=/app/ssl/ca.crt' \
   --env POSTGRES_MIGRATION_USER=chronicle \
   --env POSTGRES_MIGRATION_PASSWORD_FILE=/run/migration/postgres_password \

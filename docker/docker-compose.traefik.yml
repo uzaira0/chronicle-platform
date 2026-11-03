@@ -22,6 +22,11 @@ name: chronicle
 #   2. docker compose -f docker-compose.traefik.yml up -d
 
 services:
+  health-probe:
+    extends:
+      file: ../selfhost/config/health-probe.yml
+      service: health-probe
+
 
   # =========================================
   # Traefik Reverse Proxy
@@ -39,6 +44,10 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The entrypoint renders /tmp/haproxy.cfg and HAProxy writes /run/haproxy.pid; nothing
+    # else is written (same image and tmpfs pair as selfhost/overlays/monitoring.yml).
+    read_only: true
+    tmpfs: ["/run:size=4m,mode=0755", "/tmp:size=4m,mode=1777"]
     environment:
       CONTAINERS: 1
       NETWORKS: 1
@@ -49,8 +58,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       # chronicle-private edge net: only chronicle-traefik can reach the socket proxy.
-      # Previously on the shared traefik-apps bridge, where any sibling app container
-      # could query the docker API by IP. Isolated 2026-06-02 (see docs/NETWORK-TOPOLOGY.md).
+      # Not on the shared traefik-apps bridge, where any sibling app container
+      # could query the docker API by IP.
       - chronicle-edge
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 -O /dev/null http://localhost:2375/version || exit 1"]
@@ -72,15 +81,19 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - NET_BIND_SERVICE
+    # Listens on unprivileged :8080 (traefik/traefik.yml), so no NET_BIND_SERVICE; the host
+    # still publishes port 80. Writes go only to the dynamic/ bind mount, the access-log
+    # volume and /tmp (same layout as docker/hetzner/compose.yml).
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m
     environment:
       CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY:?Set CROWDSEC_BOUNCER_API_KEY in the untracked production env file}
       # Same secret the backend expects for the internal-web signing bypass.
       # Injected below on the /chronicle/api/web file-provider middleware.
       CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?Set CHRONICLE_INTERNAL_WEB_SECRET in the untracked production env file}
     ports:
-      - "${TRAEFIK_BIND_IP:-127.0.0.1}:80:80"
+      - "${TRAEFIK_BIND_IP:-127.0.0.1}:80:8080"
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro,z
       - ./traefik/dynamic/crowdsec-waf.yml.template:/etc/traefik/crowdsec-waf.yml.template:ro,z
@@ -176,6 +189,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # docker_start.sh and the hub/database write only under /etc/crowdsec and
+    # /var/lib/crowdsec/data (both volumes); logs go to stdout. /tmp covers Go temp files.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m
     environment:
       COLLECTIONS: "crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
       BOUNCER_KEY_traefik: ${CROWDSEC_BOUNCER_API_KEY}
@@ -204,10 +222,10 @@ services:
           pids: 256
 
   # PostgreSQL Database with Transparent Data Encryption (TDE) and SSL/TLS
-  # Uses Percona Distribution for PostgreSQL with pg_tde extension for HIPAA/GDPR compliance
+  # Uses Percona Distribution for PostgreSQL with the pg_tde extension (encryption at rest)
   # SSL/TLS encryption in transit protects data between application and database
   postgres:
-    image: percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
     container_name: chronicle-postgres
     # The wrapper prepares root-owned named volumes and TLS material, then the
     # upstream Percona entrypoint drops to postgres before starting the server.
@@ -223,9 +241,18 @@ services:
       - CHOWN
       - DAC_OVERRIDE
       - FOWNER
+    # Writable paths: the data, WAL-archive and keyring volumes plus the tmpfs mounts below.
+    # ssl-run holds the runtime key copy and the Vault token, so they no longer persist in
+    # the container layer.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=8m,mode=3775,uid=26,gid=26
+      - /var/lib/postgresql/ssl-run:size=4m,mode=0700
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       # Enable pg_tde extension for Transparent Data Encryption
       ENABLE_PG_TDE: "1"
@@ -247,6 +274,8 @@ services:
       # request-path RLS wrapper does SET ROLE chronicle_app on every authenticated
       # request, and init-audit-immutability references the roles.
       - ./init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+      - ./hetzner/postgres/set-app-role-password.sh:/docker-entrypoint-initdb.d/15-set-app-role-password.sh:ro
+      - ../selfhost/database-app-role.sql:/etc/chronicle/database-app-role.sql:ro
       # Initialization script for TDE setup
       - ./init-db-encryption.sh:/docker-entrypoint-initdb.d/20-init-db-encryption.sh:ro
       - ./init-replication.sh:/docker-entrypoint-initdb.d/25-init-replication.sh:ro
@@ -257,7 +286,7 @@ services:
       - ./postgres-ssl/server/server.crt:/etc/postgres-ssl-src/server.crt:ro,z
       - ./postgres-ssl/server/server.key:/etc/postgres-ssl-src/server.key:ro,z
       - ./postgres-ssl/ca/ca.crt:/etc/postgres-ssl-src/ca.crt:ro,z
-      # H-9: Mount custom pg_hba.conf to enforce SSL for external connections
+      # Mount custom pg_hba.conf to enforce SSL for external connections
       # Percona 17.5 uses PGDATA=/data/db by default (confirmed via SHOW hba_file)
       - ./postgres-ssl/pg_hba-ssl.conf:/data/db/pg_hba.conf:ro,z
     networks:
@@ -337,7 +366,7 @@ services:
           pids: 512
 
   postgres-replica:
-    image: percona/percona-distribution-postgresql:18.6.1-3@sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327
+    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
     container_name: chronicle-postgres-replica
     user: "0:0"
     restart: unless-stopped
@@ -351,6 +380,12 @@ services:
       - CHOWN
       - DAC_OVERRIDE
       - FOWNER
+    # Same tmpfs layout as the primary; the cluster lives on the /pgdata volume.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=8m,mode=3775,uid=26,gid=26
+      - /var/lib/postgresql/ssl-run:size=4m,mode=0700
     environment:
       PGDATA: /pgdata/data
       PGPASSWORD: ${POSTGRES_PASSWORD}
@@ -459,6 +494,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The cluster lives on the volume; the socket/lock dir and /tmp are tmpfs.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=8m,mode=3775,uid=70,gid=70
     environment:
       POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
       POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-change-me-keycloak-db-password}
@@ -673,25 +713,91 @@ services:
           memory: 1G
           pids: 512
 
-  chronicle-backend:
-    build:
+  migrate:
+    build: &backend-build
       context: ..
       dockerfile: docker/Dockerfile.backend
-    image: chronicle-backend:latest
+    image: &backend-image chronicle-backend:latest
+    restart: "no"
+    # Runs as the image user, like selfhost's migrate. The superuser password comes from the
+    # copy backend-secrets-init stages for it; the operator-owned 0600 secret file itself is
+    # unreadable here.
+    entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh", "--migrate"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_MIGRATION_PASSWORD_FILE: /run/secrets/postgres_password
+      CHRONICLE_EXPORT_DIR: /var/lib/chronicle/exports
+    volumes:
+      # Mounted where compose secrets live; migrate takes no compose secrets of its own.
+      - migrate_secrets:/run/secrets:ro
+      - audit_logs:/var/log/chronicle
+      - export_artifacts:/var/lib/chronicle/exports
+      - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro,z
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp:noexec,nosuid,size=256M,mode=0700,uid=100,gid=101"]
+    mem_limit: 512m
+    pids_limit: 128
+    depends_on:
+      backend-secrets-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    networks: [chronicle-internal]
+
+  # chronicle-backend and migrate run as the image's unprivileged `chronicle` user (100:101).
+  # Compose bind-mounts file secrets with their host owner and mode and ignores uid/gid/mode
+  # for them, and scripts/rotate-secrets.sh keeps those files 0600 and operator-owned, so
+  # neither can read them itself. This one-shot is the only root step: it copies them, owned
+  # by chronicle (100:101) and 0400, into one volume per consumer, so the backend never sees the
+  # superuser password and migrate sees nothing else. It runs before every backend or
+  # migrate start, so a rotated secret file reaches the next start.
+  backend-secrets-init:
+    # A pinned base image rather than the backend image, so docker-compose.production.yml
+    # (which swaps the backend for a registry digest) needs no local build for this step.
+    # 100:101 is the backend image's `chronicle` user, as in selfhost/docker-compose.yml.
+    image: alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["/bin/sh", "-euc"]
+    command:
+      - |
+        umask 077
+        stage() {
+          dir=$$1; shift
+          chown 100:101 "$$dir"
+          chmod 0700 "$$dir"
+          for name in "$$@"; do
+            install -o 100 -g 101 -m 0400 "/run/secrets/$$name" "$$dir/.$$name.new"
+            mv -f "$$dir/.$$name.new" "$$dir/$$name"
+          done
+        }
+        stage /staged jwt_secret hazelcast_server_password hazelcast_client_password
+        stage /staged-migrate postgres_password
+    secrets: [jwt_secret, hazelcast_server_password, hazelcast_client_password, postgres_password]
+    volumes:
+      - backend_secrets:/staged
+      - migrate_secrets:/staged-migrate
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    # Root without these cannot read the operator-owned 0600 files or hand them to uid 100.
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    read_only: true
+    mem_limit: 64m
+    pids_limit: 32
+
+  chronicle-backend:
+    build: *backend-build
+    image: *backend-image
     container_name: chronicle-backend
     restart: unless-stopped
-    env_file:
-      - ${CHRONICLE_ENV_FILE:-./.env}
-    user: "0:0"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - SETUID
-      - SETGID
-      - CHOWN
-      - DAC_OVERRIDE
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=256M
@@ -710,14 +816,13 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # PostgreSQL SSL/TLS Configuration for HIPAA-compliant encryption in transit
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+      # PostgreSQL SSL/TLS configuration for encryption in transit
       # Options: disable, allow, prefer, require, verify-ca, verify-full
       # Default verify-full (validates server certificate AND hostname). The backend JDBC URL
       # (rhizome-docker.yaml.template) also hardcodes sslmode=verify-full; this requires the
       # postgres server cert SAN to cover the 'postgres' hostname and be signed by the mounted
-      # CA (/app/ssl/ca.crt). See docs/security/compliance-evidence/W4-encryption-transport.md.
+      # CA (/app/ssl/ca.crt).
       POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-verify-full}
       # Path to CA certificate for server certificate verification
       POSTGRES_SSL_ROOT_CERT: /app/ssl/ca.crt
@@ -749,7 +854,6 @@ services:
       CHRONICLE_SECURITY_COOKIE_SECURE: ${CHRONICLE_SECURITY_COOKIE_SECURE:?Set CHRONICLE_SECURITY_COOKIE_SECURE=true for production auth cookies}
       # MFA enforcement via RFC 8176 amr/acr claims. Production requires true.
       # Confirm explicit mfa, pwd+possession, or an approved current-session acr.
-      # See docs/security/compliance-evidence/W3-mfa-enforcement.md (HIPAA §164.312(d)).
       CHRONICLE_SECURITY_REQUIRE_MFA: ${CHRONICLE_SECURITY_REQUIRE_MFA:?Set CHRONICLE_SECURITY_REQUIRE_MFA=true for production}
       CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES: ${CHRONICLE_SECURITY_APPROVED_MFA_ACR_VALUES:-}
       CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED: ${CHRONICLE_SECURITY_MFA_IDP_PROOF_VERIFIED:-false}
@@ -767,7 +871,6 @@ services:
       SMTP_ENABLED: ${SMTP_ENABLED:-false}
       # Public clients use enrollment-issued per-device API keys. The shared HMAC is an
       # atomic, controlled-legacy opt-in and therefore defaults false/false/blank.
-      MOBILE_SIGNING_SECRET: ${MOBILE_SIGNING_SECRET:-}
       # Proxy-injected secret authenticating the X-Chronicle-Internal-Web signing
       # bypass (CWE-290 hardening). Must match the value Traefik injects on
       # /chronicle/api/web (see the traefik service + web router below).
@@ -775,8 +878,6 @@ services:
       # Hazelcast cluster authentication
       HAZELCAST_SERVER_PASSWORD: ${HAZELCAST_SERVER_PASSWORD:?Set HAZELCAST_SERVER_PASSWORD in .env}
       HAZELCAST_CLIENT_PASSWORD: ${HAZELCAST_CLIENT_PASSWORD:?Set HAZELCAST_CLIENT_PASSWORD in .env}
-      MOBILE_SIGNING_ENABLED: ${MOBILE_SIGNING_ENABLED:-false}
-      MOBILE_SIGNING_REQUIRED: ${MOBILE_SIGNING_REQUIRED:-false}
       # HashiCorp Vault integration (optional — set VAULT_ENABLED=true to activate)
       VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
@@ -788,7 +889,7 @@ services:
       # Structured JSON logging for Loki/SIEM ingestion
       # Set to "json" for structured output, omit or set to "text" for traditional PatternLayout
       LOG_FORMAT: json
-      # Audit log directory for HIPAA compliance
+      # Audit log directory
       # Logs are written in JSON format for SIEM integration
       AUDIT_LOG_DIR: /var/log/chronicle
       LOG_DIR: /var/log/chronicle
@@ -799,11 +900,13 @@ services:
       CHRONICLE_EXPORT_MAX_TOTAL_BYTES: "8589934592"
       CHRONICLE_EXPORT_MIN_FREE_BYTES: "1073741824"
     volumes:
-      # Persistent volume for HIPAA-compliant audit logs
-      # These logs are critical for compliance - rotated daily, kept 2190 days (6 years per HIPAA)
+      # Persistent volume for audit logs
+      # Rotated daily, kept 2190 days (6 years)
       # Format: JSON (NDJSON) compatible with Splunk, ELK, DataDog, etc.
       - audit_logs:/var/log/chronicle
       - export_artifacts:/var/lib/chronicle/exports
+      # Copies of the jwt/hazelcast secrets readable by uid 100 (see backend-secrets-init).
+      - backend_secrets:/run/chronicle-secrets:ro
       # SSL/TLS CA certificate for PostgreSQL connection verification
       - ./postgres-ssl/ca/ca.crt:/app/ssl/ca.crt:ro,z
       # Config templates — rendered by envsubst at container startup
@@ -814,10 +917,7 @@ services:
       - ./vault.yaml.template:/server/config/vault.yaml.template:ro,z
       - ./cors.yaml.template:/server/config/cors.yaml.template:ro,z
     secrets:
-      - postgres_password
-      - jwt_secret
-      - hazelcast_server_password
-      - hazelcast_client_password
+      # Read by the JVM directly; the host file is 0644 (docs/DEMO-2026-09-RUNBOOK.md).
       - chronicle_security_metrics_password
     # Render config templates from env vars, then start Java with /server/config on classpath
     command:
@@ -825,9 +925,9 @@ services:
       - -c
       - |
         umask 077
-        for secret in POSTGRES_PASSWORD JWT_SECRET HAZELCAST_SERVER_PASSWORD HAZELCAST_CLIENT_PASSWORD; do
+        for secret in POSTGRES_APP_PASSWORD JWT_SECRET HAZELCAST_SERVER_PASSWORD HAZELCAST_CLIENT_PASSWORD; do
           lower=$$(echo "$$secret" | tr "[:upper:]" "[:lower:]")
-          file="/run/secrets/$$lower"
+          file="/run/chronicle-secrets/$$lower"
           [ -f "$$file" ] && export $$secret=$$(cat "$$file")
         done
         metrics_file=/run/secrets/chronicle_security_metrics_password
@@ -846,17 +946,7 @@ services:
             ''|change-me-*|CHANGE_ME*) echo "FATAL: OIDC_ENABLED=true but OIDC_CLIENT_SECRET is missing or still a placeholder" >&2; exit 1 ;;
           esac
         fi
-        case "$$MOBILE_SIGNING_ENABLED" in true|false) ;; *) echo "FATAL: MOBILE_SIGNING_ENABLED must be exactly true or false" >&2; exit 1 ;; esac
-        case "$$MOBILE_SIGNING_REQUIRED" in true|false) ;; *) echo "FATAL: MOBILE_SIGNING_REQUIRED must be exactly true or false" >&2; exit 1 ;; esac
-        if [ "$$MOBILE_SIGNING_ENABLED" != "$$MOBILE_SIGNING_REQUIRED" ]; then
-          echo "FATAL: MOBILE_SIGNING_ENABLED and MOBILE_SIGNING_REQUIRED must either both be true or both be false" >&2; exit 1
-        fi
-        if [ "$$MOBILE_SIGNING_ENABLED" = "false" ]; then
-          [ -z "$$MOBILE_SIGNING_SECRET" ] || { echo "FATAL: MOBILE_SIGNING_SECRET must stay blank unless controlled legacy compatibility is enabled" >&2; exit 1; }
-        else
-          case "$$MOBILE_SIGNING_SECRET" in ''|*CHANGE_ME*) echo "FATAL: controlled legacy compatibility requires a generated 32+ character MOBILE_SIGNING_SECRET" >&2; exit 1 ;; esac
-          [ "$${#MOBILE_SIGNING_SECRET}" -ge 32 ] || { echo "FATAL: controlled legacy compatibility requires a generated 32+ character MOBILE_SIGNING_SECRET" >&2; exit 1; }
-        fi
+
         if [ "$$CHRONICLE_SECURITY_COOKIE_SECURE" != "true" ]; then
           echo "FATAL: production requires CHRONICLE_SECURITY_COOKIE_SECURE=true" >&2; exit 1
         fi
@@ -887,9 +977,11 @@ services:
         ! grep -Eq '^[[:space:]]*development-mode:[[:space:]]*true' /tmp/chronicle-config/cors.yaml || { echo "FATAL: production CORS development-mode must be false" >&2; exit 1; }
         [ -d /var/log/chronicle ] || { echo "FATAL: /var/log/chronicle not mounted (audit logs required)" >&2; exit 1; }
         [ -d /var/lib/chronicle/exports ] || { echo "FATAL: /var/lib/chronicle/exports not mounted (durable exports required)" >&2; exit 1; }
-        chown chronicle:chronicle /var/log/chronicle /var/lib/chronicle/exports
-        chown -R chronicle:chronicle /tmp/chronicle-config 2>/dev/null || true
-        exec su-exec chronicle java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX \
+        # No root step repairs ownership any more; refuse to start rather than lose audit files.
+        for dir in /var/log/chronicle /var/lib/chronicle/exports; do
+          { touch "$$dir/.write-probe" && rm -f "$$dir/.write-probe"; } 2>/dev/null || { echo "FATAL: $$dir is not writable by $$(id -un)" >&2; exit 1; }
+        done
+        exec java $$CHRONICLE_SERVER_XMS $$CHRONICLE_SERVER_XMX \
           -Xss512k -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=256m \
           -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 \
           -cp "/tmp/chronicle-config:/server/lib/*" \
@@ -906,8 +998,10 @@ services:
           memory: 3G
           pids: 512
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      backend-secrets-init:
+        condition: service_completed_successfully
     networks:
       - chronicle-internal
       - chronicle-sso-broker
@@ -921,12 +1015,12 @@ services:
       # A TLS cutover requires backend listener and proxy certificate configuration together.
 
       # ===========================================
-      # MOBILE API: /chronicle/v3/*, /chronicle/v2/*, /chronicle/study/*
+      # MOBILE API: current v3 researcher/settings and v4 device routes
       # The Android app's Retrofit client uses absolute paths from the
       # shared StudyApi interface (e.g., /chronicle/v3/study/{id}/...),
       # so no strip-prefix is needed — the backend expects these paths.
       # ===========================================
-      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`))"
+      - "traefik.http.routers.chronicle-mobile.rule=Host(`${DOMAIN}`) && (PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/limits/`))"
       - "traefik.http.routers.chronicle-mobile.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-mobile.priority=20"
       - "traefik.http.routers.chronicle-mobile.service=chronicle-backend"
@@ -938,7 +1032,7 @@ services:
       # Host header. Keep mobile API paths routed to the backend even when Host
       # is rewritten to the pool member/IP; otherwise these requests fall through
       # to the local frontend router and enrollment/upload fail at the edge.
-      - "traefik.http.routers.chronicle-mobile-proxy-fallback.rule=PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/v2/`) || PathPrefix(`/chronicle/study/`) || PathPrefix(`/chronicle/limits/`)"
+      - "traefik.http.routers.chronicle-mobile-proxy-fallback.rule=PathPrefix(`/chronicle/v4/`) || PathPrefix(`/chronicle/v3/`) || PathPrefix(`/chronicle/limits/`)"
       - "traefik.http.routers.chronicle-mobile-proxy-fallback.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-mobile-proxy-fallback.priority=19"
       - "traefik.http.routers.chronicle-mobile-proxy-fallback.service=chronicle-backend"
@@ -949,7 +1043,7 @@ services:
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.burst=10"
       - "traefik.http.middlewares.chronicle-mobile-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=1"
 
-      # H-8: CORS for mobile — removed wildcard origin (mobile apps don't use CORS)
+      # CORS for mobile: no wildcard origin (mobile apps don't use CORS)
       # Native mobile apps make direct HTTP requests, not browser cross-origin requests.
       # Only allow the app's own domain to prevent browser-based CSRF attacks.
       - "traefik.http.middlewares.chronicle-mobile-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS"
@@ -984,8 +1078,8 @@ services:
       - "traefik.http.routers.chronicle-web.service=chronicle-backend"
       - "traefik.http.routers.chronicle-web.middlewares=crowdsec-waf@file,chronicle-compress,chronicle-web-strip,chronicle-web-internal-header,chronicle-web-ratelimit,chronicle-web-headers,chronicle-web-cors,chronicle-body-limit"
 
-      # Request body size limit (10MB) for API endpoints
-      - "traefik.http.middlewares.chronicle-body-limit.buffering.maxRequestBodyBytes=10485760"
+      # Request body size generated from ontology/chronicle.linkml.yaml for API endpoints
+      - "traefik.http.middlewares.chronicle-body-limit.buffering.maxRequestBodyBytes=67108864"
       - "traefik.http.middlewares.chronicle-compress.compress=true"
 
       # Keep the browser-facing API unversioned while routing it to the v3 server contract.
@@ -1018,11 +1112,18 @@ services:
       - "traefik.http.middlewares.chronicle-web-headers.headers.stsPreload=true"
       - "traefik.http.middlewares.chronicle-web-headers.headers.contentSecurityPolicy=default-src 'none'; frame-ancestors 'none'"
 
+      # Retired mobile prefixes terminate before the frontend, including encoded separators.
+      - "traefik.http.routers.chronicle-retired.rule=PathRegexp(`^/chronicle(/|%2[Ff])(v[12]|study)(/|%2[Ff]|$$)`)"
+      - "traefik.http.routers.chronicle-retired.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
+      - "traefik.http.routers.chronicle-retired.priority=30"
+      - "traefik.http.routers.chronicle-retired.service=noop@internal"
+      - "traefik.http.routers.chronicle-retired.middlewares=crowdsec-waf@file,chronicle-web-headers"
+
       # ===========================================
       # BLOCK direct backend access
       # Returns 404 for the retired top-level /datastore/* alias and direct admin routes.
       # ===========================================
-      - "traefik.http.routers.chronicle-block.rule=Host(`${DOMAIN}`) && (PathPrefix(`/datastore/`) || PathPrefix(`/chronicle/datastore/`) || PathPrefix(`/chronicle/principal/`) || PathPrefix(`/chronicle/compliance/`) || PathPrefix(`/chronicle/import/`) || PathPrefix(`/prometheus/`))"
+      - "traefik.http.routers.chronicle-block.rule=Host(`${DOMAIN}`) && PathRegexp(`^/(datastore|prometheus|chronicle(/|%2[Ff])(datastore|principal|compliance|import))(/|%2[Ff]|$$)`)"
       - "traefik.http.routers.chronicle-block.entrypoints=${TRAEFIK_ENTRYPOINT:-web}"
       - "traefik.http.routers.chronicle-block.priority=15"
       - "traefik.http.routers.chronicle-block.service=chronicle-backend"
@@ -1049,8 +1150,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - IPC_LOCK
+    # No IPC_LOCK: `vault server -dev` already sets disable_mlock = true (DevConfig in
+    # command/server/config.go), and a non-root user under no-new-privileges could not use
+    # the capability anyway.
     environment:
       CHRONICLE_ENV: ${CHRONICLE_ENV:-development}
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-chronicle-dev-token}
@@ -1250,6 +1352,7 @@ services:
     tmpfs:
       - /tmp:noexec,nosuid,size=64M
     volumes:
+      - health_probe:/probe:ro
       - ./monitoring/victoriametrics-scrape.yml:/etc/victoriametrics/scrape.yml:ro,z
       - victoria_metrics_data:/victoria-metrics-data
     secrets:
@@ -1259,7 +1362,6 @@ services:
       - '-retentionPeriod=30d'
       - '-promscrape.config=/etc/victoriametrics/scrape.yml'
       - '-httpListenAddr=:8428'
-    x-no-healthcheck: "Distroless image: no shell or HTTP client to probe with. Restart policy covers crashes; the monitoring scrape alerts when it stops answering."
     networks:
       - chronicle-internal
     deploy:
@@ -1268,6 +1370,10 @@ services:
           memory: 512M
           pids: 256
 
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:8428/health"]
+    depends_on:
+      health-probe: {condition: service_completed_successfully}
   victoria-metrics-credential-reloader:
     image: alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
     container_name: chronicle-victoria-metrics-credential-reloader
@@ -1289,7 +1395,7 @@ services:
           done
         done
     depends_on:
-      - victoria-metrics
+      victoria-metrics: {condition: service_healthy}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- -T 5 http://victoria-metrics:8428/health >/dev/null"]
       interval: 30s
@@ -1316,12 +1422,12 @@ services:
     tmpfs:
       - /tmp:noexec,nosuid,size=64M
     volumes:
+      - health_probe:/probe:ro
       - victoria_logs_data:/victoria-logs-data
     command:
       - '-storageDataPath=/victoria-logs-data'
       - '-retentionPeriod=30d'
       - '-httpListenAddr=:9428'
-    x-no-healthcheck: "Distroless image: no shell or HTTP client to probe with. Restart policy covers crashes; the monitoring scrape alerts when it stops answering."
     networks:
       - chronicle-internal
     deploy:
@@ -1331,6 +1437,10 @@ services:
           pids: 256
 
   # Fluent Bit ships local audit and access logs to VictoriaLogs.
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:9428/health"]
+    depends_on:
+      health-probe: {condition: service_completed_successfully}
   fluent-bit:
     image: fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845
     container_name: chronicle-fluent-bit
@@ -1344,18 +1454,20 @@ services:
       - /tmp:noexec,nosuid,size=16M
       - /run:noexec,nosuid,size=1M
     volumes:
+      - health_probe:/probe:ro
       - ./siem/victorialogs-fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,z
       - ./siem/parsers.conf:/fluent-bit/etc/parsers.conf:ro,z
       - audit_logs:/var/log/chronicle:ro
       - traefik_access_logs:/var/log/traefik:ro
       - fluentbit_state:/fluent-bit/state
     healthcheck:
-      test: ["CMD", "/fluent-bit/bin/fluent-bit", "--version"]
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:2020/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
     depends_on:
-      - victoria-logs
+      health-probe: {condition: service_completed_successfully}
+      victoria-logs: {condition: service_healthy}
     networks:
       - chronicle-internal
     deploy:
@@ -1396,8 +1508,8 @@ services:
       timeout: 5s
       retries: 3
     depends_on:
-      - victoria-metrics
-      - victoria-logs
+      victoria-metrics: {condition: service_healthy}
+      victoria-logs: {condition: service_healthy}
     networks:
       # Off the shared traefik-apps bridge → chronicle-private edge net. Closes the
       # contradiction where Grafana was local-only at the router but reachable by IP
@@ -1464,18 +1576,22 @@ networks:
     external: true
     name: traefik-apps
 volumes:
+  health_probe:
   traefik_access_logs:
   postgres_data:
   postgres_replica_data:
   # Separate volume for TDE keyring to ensure key persistence
   # IMPORTANT: Back up this volume securely - loss of keys means loss of encrypted data
   postgres_tde_keyring:
-  # HIPAA-compliant audit logs volume
+  # Audit logs volume
   # Contains JSON-formatted audit entries for compliance and SIEM integration
-  # Retention: 2190 days (6 years per HIPAA)
+  # Retention: 2190 days (6 years)
   # IMPORTANT: Include in backup strategy for compliance requirements
   audit_logs:
   export_artifacts:
+  # Backend-readable copies of file secrets, rewritten by backend-secrets-init on every start.
+  backend_secrets:
+  migrate_secrets:
   # CrowdSec WAF data
   crowdsec_config:
   crowdsec_data:

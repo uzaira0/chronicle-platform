@@ -7,6 +7,11 @@
 # Access Grafana at http://localhost:3000 (admin/admin)
 
 services:
+  health-probe:
+    extends:
+      file: ../selfhost/config/health-probe.yml
+      service: health-probe
+
   # Loki - Log aggregation
   loki:
     image: grafana/loki:3.6.7@sha256:${LOKI_IMAGE_DIGEST:?Set LOKI_IMAGE_DIGEST to the owner-approved SHA-256 digest}
@@ -22,13 +27,14 @@ services:
     ports:
       - "127.0.0.1:3100:3100"
     volumes:
+      - health_probe:/probe:ro
       - ./siem/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     networks:
       - chronicle-internal
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:3100/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -39,6 +45,8 @@ services:
           pids: 256
 
   # Promtail - Log shipper
+    depends_on:
+      health-probe: {condition: service_completed_successfully}
   promtail:
     # Ubuntu provides Bash; its built-ins probe readiness without curl or wget.
     healthcheck:
@@ -63,7 +71,7 @@ services:
     networks:
       - chronicle-internal
     depends_on:
-      - loki
+      loki: {condition: service_healthy}
     deploy:
       resources:
         limits:
@@ -103,7 +111,7 @@ services:
     networks:
       - chronicle-internal
     depends_on:
-      - loki
+      loki: {condition: service_healthy}
     deploy:
       resources:
         limits:
@@ -115,6 +123,7 @@ networks:
     external: true
 
 volumes:
+  health_probe:
   loki_data:
   grafana_data:
   audit_logs:

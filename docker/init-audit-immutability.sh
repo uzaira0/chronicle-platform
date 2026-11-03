@@ -1,7 +1,7 @@
 #!/bin/bash
 # init-audit-immutability.sh
 # PostgreSQL entrypoint init script: enables pgaudit, enforces audit log immutability,
-# and prepares WAL archiving for HIPAA compliance (§164.312(b)).
+# and prepares WAL archiving.
 #
 # This script runs automatically during container first-start via
 # /docker-entrypoint-initdb.d/ as the postgres superuser.
