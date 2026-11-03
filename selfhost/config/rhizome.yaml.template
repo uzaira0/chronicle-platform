@@ -19,11 +19,13 @@ hazelcast-clients:
       - "127.0.0.1:5710"
 
 postgres:
+  initialize-tables: false
+  initialize-indices: false
   citus: false
   hikari:
-    jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/etc/postgres-tls/postgres.crt"
-    username: "${POSTGRES_USER}"
-    password: "${POSTGRES_PASSWORD}"
+    jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=verify-full&sslrootcert=/etc/postgres-tls/postgres.crt"
+    username: "chronicle_app"
+    password: "${POSTGRES_APP_PASSWORD}"
     maximumPoolSize: 20
     minimumIdle: 5
     connectionTimeout: 30000
@@ -33,12 +35,13 @@ postgres:
 
 datasources:
   chronicle:
+    initialize-indices: false
     citus: false
-    initialize-tables: true
+    initialize-tables: false
     hikari:
-      jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=verify-full&sslrootcert=/etc/postgres-tls/postgres.crt"
-      username: "${POSTGRES_USER}"
-      password: "${POSTGRES_PASSWORD}"
+      jdbcUrl: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?logServerErrorDetail=false&sslmode=verify-full&sslrootcert=/etc/postgres-tls/postgres.crt"
+      username: "chronicle_app"
+      password: "${POSTGRES_APP_PASSWORD}"
       maximumPoolSize: 20
       minimumIdle: 5
       connectionTimeout: 30000

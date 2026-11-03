@@ -14,39 +14,17 @@ if [[ $# -gt 0 ]]; then
   done
   images=$(printf '%s\n' "$@")
 else
-  command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required to read toolchain-manifest.yaml' >&2; exit 127; }
-  images=$(python3 - "$root/toolchain-manifest.yaml" <<'PY'
+  command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required for the image inventory' >&2; exit 127; }
+  images=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 - "$root/selfhost" <<'PY_IMAGE_INVENTORY'
 import re
 import sys
-import yaml
-
-with open(sys.argv[1], encoding="utf-8") as source:
-    manifest = yaml.safe_load(source)
-
-digest = re.compile(r"^sha256:[0-9a-f]{64}$")
-images = set()
-for section in ("postgres", "keycloak_postgres"):
-    record = manifest.get(section)
-    if not isinstance(record, dict):
-        raise SystemExit(f"error: toolchain-manifest.yaml is missing {section}")
-    image, pin = record.get("image"), record.get("index_digest")
-    if not isinstance(image, str) or not isinstance(pin, str) or not digest.fullmatch(pin):
-        raise SystemExit(f"error: {section} must declare an image and immutable index_digest")
-    images.add(f"{image}@{pin}")
-
-runtime = manifest.get("selfhost_images")
-if not isinstance(runtime, dict) or not runtime:
-    raise SystemExit("error: toolchain-manifest.yaml has no selfhost_images inventory")
-for name, image in runtime.items():
-    if not isinstance(image, str) or not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image):
-        raise SystemExit(f"error: selfhost_images.{name} must be an immutable name@sha256 reference")
-    # The release builds, scans and pins its own backup image; this entry is the previous release's.
-    if name != "backup":
-        images.add(image)
-
-for image in sorted(images):
+from chronicle_ops.images import SOURCE_IMAGES, bundle_images
+placeholders = {image.placeholder for image in SOURCE_IMAGES}
+for image in sorted(bundle_images(sys.argv[1]) - placeholders):
+    if not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image):
+        raise SystemExit("error: runtime image inventory contains a mutable image")
     print(image)
-PY
+PY_IMAGE_INVENTORY
   )
   [[ -n "$images" ]] || { echo 'error: no release runtime images were found' >&2; exit 2; }
 fi

@@ -2,9 +2,9 @@
 # Vault is NOT part of the self-host stack (it is BUSL-licensed and adds a key-custody
 # failure mode this bundle deliberately avoids). Kept disabled so the config loader
 # has something valid to read.
-address: "${VAULT_ADDR}"
-token: "${VAULT_TOKEN}"
+address: ""
+token: ""
 secretBasePath: "chronicle"
-enabled: ${VAULT_ENABLED}
+enabled: false
 connectionTimeoutMs: 5000
 readTimeoutMs: 5000

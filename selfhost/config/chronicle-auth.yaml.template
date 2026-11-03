@@ -1,8 +1,7 @@
 # Rendered by ../backend-entrypoint.sh at container start.
 #
-# The base stack is single-admin with no login screen (AUTH_ENABLED=false), so the
-# OIDC block below stays disabled. The source-only experimental auth scaffold can switch
-# OIDC_ENABLED=true, but it is not part of self-host release bundles.
+# The self-host dashboard signs in with the shared dashboard password; no identity provider
+# is configured, so the OIDC entries below are fixed to disabled.
 domain: "${DOMAIN}"
 clientId: "chronicle-selfhost"
 clientSecret: "${JWT_SECRET}"
@@ -11,41 +10,42 @@ configurations:
     issuer: "https://localhost/"
     audience: "dummy-client-id"
     secret: "${JWT_SECRET}"
+    previousSecret: "${JWT_SECRET_PREVIOUS}"
+    previousSecretExpiresAt: ${JWT_SECRET_PREVIOUS_EXPIRES_AT}
     base64EncodedSecret: false
     signingAlgorithm: "HS256"
     testingTokenIssuer: true
   - name: "oidc-broker"
-    issuer: "${OIDC_ISSUER}"
-    audience: "${OIDC_CLIENT_ID}"
-    jwkSetUri: "${OIDC_JWKS_URI}"
+    issuer: ""
+    audience: ""
+    jwkSetUri: ""
     secret: ""
     base64EncodedSecret: false
     signingAlgorithm: "RS256"
     testingTokenIssuer: false
 testingLoginEnabled: ${TESTING_LOGIN_ENABLED}
-allowProductionTestingLogin: ${ALLOW_PRODUCTION_TESTING_LOGIN}
-# The Caddy basic-auth gate and the backend login endpoint intentionally verify the
-# same bcrypt hash. The backend needs it here to mint a cookie-backed dashboard session
-# after Caddy has admitted the request; an empty value fails closed.
+allowProductionTestingLogin: false
+# The backend login endpoint verifies the dashboard password against this bcrypt hash and
+# mints a cookie-backed dashboard session; an empty value fails closed.
 dashboardPasswordHash: "${DASHBOARD_PASSWORD_HASH}"
 oidc:
-  enabled: ${OIDC_ENABLED}
-  providerLabel: "${OIDC_PROVIDER_LABEL}"
-  publicBaseUrl: "${OIDC_PUBLIC_BASE_URL}"
-  issuer: "${OIDC_ISSUER}"
-  authorizationUri: "${OIDC_AUTHORIZATION_URI}"
-  tokenUri: "${OIDC_TOKEN_URI}"
-  jwkSetUri: "${OIDC_JWKS_URI}"
-  clientId: "${OIDC_CLIENT_ID}"
-  clientSecret: "${OIDC_CLIENT_SECRET}"
-  identityProviderHint: "${OIDC_IDP_HINT}"
+  enabled: false
+  providerLabel: ""
+  publicBaseUrl: ""
+  issuer: ""
+  authorizationUri: ""
+  tokenUri: ""
+  jwkSetUri: ""
+  clientId: ""
+  clientSecret: ""
+  identityProviderHint: ""
   scopes:
     - openid
     - email
     - profile
   redirectPath: "/chronicle/v3/auth/oidc/callback"
   postLoginRedirectUri: "/chronicle"
-  cookieTokenClaim: "${OIDC_COOKIE_TOKEN_CLAIM}"
+  cookieTokenClaim: ""
 managementApiUrl: "localhost"
 users:
   - user_id: "local-admin"

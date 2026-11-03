@@ -1,12 +1,9 @@
 # Rendered by ../backend-entrypoint.sh at container start.
-# Disabled and blank by default. Public Android/iOS builds enroll with a one-time link and
-# then authenticate with a per-device API key. The shared fields below are server-side
-# compatibility configuration only for an explicitly controlled legacy/research fleet.
-enabled: ${MOBILE_SIGNING_ENABLED}
-signing-secret: "${MOBILE_SIGNING_SECRET}"
-# Normally blank. Used only while rotating controlled legacy/research clients.
-previous-signing-secret: "${MOBILE_SIGNING_SECRET_PREVIOUS}"
-signing-required: ${MOBILE_SIGNING_REQUIRED}
+# Public clients authenticate with enrollment-issued per-device API keys.
+enabled: false
+signing-secret: ""
+previous-signing-secret: ""
+signing-required: false
 max-request-age-minutes: 5
 clock-skew-seconds: 30
 nonce-ttl-minutes: 10

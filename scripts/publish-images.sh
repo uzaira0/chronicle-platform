@@ -29,28 +29,19 @@ if [[ "$dry_run" == --promote ]]; then
   name="chronicle-selfhost-${release#v}.tar.gz"
   gh release download "$release" --repo "$public_repo" --dir "$candidate_dir" \
     --pattern "$name" --pattern "$name.sha256" --pattern "$name.sha256.sig"
-  previous_release=$(gh release view --repo "$public_repo" --json tagName -q .tagName)
-  previous_name="chronicle-selfhost-${previous_release#v}.tar.gz"
-  mkdir "$candidate_dir/previous"
-  gh release download "$previous_release" --repo "$public_repo" --dir "$candidate_dir/previous" \
-    --pattern "$previous_name" --pattern "$previous_name.sha256" --pattern "$previous_name.sha256.sig"
-  python3 - "$root" "$candidate_dir/$name" "$3" "$candidate_dir/previous/$previous_name" "$release_verify_key" "$public_repo" "$release" <<'PY_PROMOTE'
+  python3 - "$root" "$candidate_dir/$name" "$3" "$release_verify_key" "$public_repo" "$release" <<'PY_PROMOTE'
 from pathlib import Path
 import os
 import runpy
 import sys
 import tarfile
-root, archive, result, previous_archive, verify_key = map(Path, sys.argv[1:6])
-public_repo, release = sys.argv[6:]
+root, archive, result, verify_key = map(Path, sys.argv[1:5])
+public_repo, release = sys.argv[5:]
 builder = runpy.run_path(str(root / 'scripts/build-selfhost-release.py'))
 checksum = Path(str(archive) + '.sha256')
 builder['verify_release_signature'](checksum, Path(str(checksum) + '.sig'), verify_key)
 builder['require_archive_checksum'](archive, checksum)
-previous_checksum = Path(str(previous_archive) + '.sha256')
-builder['require_trusted_release_archive'](
-    previous_archive, previous_checksum, Path(str(previous_checksum) + '.sig'), verify_key,
-    os.environ.get(builder['PREVIOUS_RELEASE_TRUSTED_SHA256_ENV'], ''))
-builder['require_smoke_result'](result, archive, previous_archive)
+builder['require_smoke_result'](result, archive)
 builder['require_public_archive_images'](archive)
 with tarfile.open(archive, 'r:gz') as source:
     manifest = builder['archive_manifest'](source)
@@ -58,15 +49,24 @@ if manifest['release_version'] != release.removeprefix('v'):
     builder['fail']('candidate release version does not match the promotion tag')
 builder['require_public_release_tag'](public_repo, release, manifest.get('public_revision', ''))
 PY_PROMOTE
-  latest=true
-  [[ "$release" != *-* ]] || latest=false
+  catalog_repo=$(gh repo view "$public_repo" --json nameWithOwner -q .nameWithOwner)
+  catalog=$(gh api --paginate --slurp "repos/$catalog_repo/releases")
+  latest=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c '
+import json,sys
+from chronicle_ops.update import is_stable_release, latest_stable_release, version_key
+candidate = sys.argv[1]
+releases = [release for page in json.load(sys.stdin) for release in page]
+stable = [release for release in releases if not release.get("draft") and not release.get("prerelease")]
+print(str(is_stable_release(candidate) and (not stable or version_key(candidate) >= version_key(latest_stable_release(stable)["tag_name"]))).lower())
+' "$release" <<<"$catalog")
   gh release edit "$release" --repo "$public_repo" --draft=false --latest="$latest"
   exit
 fi
 release_signing_key=${CHRONICLE_RELEASE_SIGNING_KEY:-$HOME/.config/chronicle/release-signing-key}
 # capture assigns these variables by name, including symbolic values in dry runs.
-login='' revision='' epoch='' backend_digest='' frontend_digest='' caddy_digest='' backup_digest=''
+login='' revision='' epoch='' backend_digest='' frontend_digest='' caddy_digest='' backup_digest='' grafana_digest=''
 public_repo='' notes_dir='' public_revision='' sbom_output='' release_key_fingerprint=''
+inputs_tree='' inputs_tree_label=''
 
 run() {
   if [[ -n "$dry_run" ]]; then
@@ -114,8 +114,36 @@ require_unchanged_source() {
   }
 }
 
+scan_publication_source() (
+  local evidence="$1" snapshot reports
+  if [[ -n "$dry_run" ]]; then
+    run bash "$root/scripts/local-ci.sh" bun-audit osv
+    return
+  fi
+  snapshot=$(mktemp -d "${TMPDIR:-$root/build/releases}/chronicle-release-sca.XXXXXX")
+  trap 'rm -rf -- "$snapshot"' EXIT
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c \
+    'from chronicle_ops.images import archive_source; import sys; archive_source(*sys.argv[1:4], sys.stdout.buffer)' \
+    "$root" "$revision" . | tar -xf - -C "$snapshot"
+  reports="$root/build/releases/sca-${release#v}"
+  CHRONICLE_LOCAL_BIN_DIR="${CHRONICLE_LOCAL_BIN_DIR:-$root/.local/bin}" \
+    CHRONICLE_LOCAL_CI_REPORT_DIR="$reports" bash "$snapshot/scripts/local-ci.sh" bun-audit osv
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 - "$revision" "$reports" "$evidence" <<'PY_SCA_EVIDENCE'
+from pathlib import Path
+import sys
+from chronicle_ops.dump import file_sha256
+from chronicle_ops.receipts import write_json
+revision, directory, target = sys.argv[1:]
+root = Path(directory)
+write_json(target, dict(sourceRevision=revision, status="passed", artifacts={
+    path.relative_to(root).as_posix(): file_sha256(path) for path in root.rglob('*') if path.is_file()}))
+PY_SCA_EVIDENCE
+)
+
 run cd "$root"
 capture revision git rev-parse HEAD
+capture inputs_tree_label env PYTHONPATH="$root/selfhost" python3 -c 'from chronicle_ops.images import INPUTS_TREE_LABEL; print(INPUTS_TREE_LABEL)'
+capture inputs_tree env PYTHONPATH="$root/selfhost" python3 -c 'from chronicle_ops.images import source_inputs_tree; import sys; print(source_inputs_tree(*sys.argv[1:]))' "$root" "$revision"
 if [[ -z "$dry_run" ]]; then
   [[ -n "${GHCR_TOKEN:-}" ]] || {
     echo 'error: GHCR_TOKEN is unset; export a dedicated token with only write:packages' >&2
@@ -177,19 +205,22 @@ backend="ghcr.io/$login/chronicle-backend:$release"
 frontend="ghcr.io/$login/chronicle-selfhost-frontend:$release"
 caddy="ghcr.io/$login/chronicle-selfhost-caddy:$release"
 backup="ghcr.io/$login/chronicle-selfhost-backup:$release"
+grafana="ghcr.io/$login/chronicle-selfhost-grafana:$release"
 # Build from a tar of tracked files. The directory walk of the checkout (hundreds of MB of
 # untracked build output) starves the BuildKit session healthcheck on a loaded host and
 # dockerd cancels the build; the tracked tree is a few tens of MB.
-build_image() { # build_image <context dir> <dockerfile in context> <tag> [docker build args...]
-  local ctx=$1 dockerfile=$2 tag=$3
-  shift 3
+build_image() { # build_image <component> <context dir> <dockerfile in context> <tag> [docker build args...]
+  local component=$1 ctx=$2 dockerfile=$3 tag=$4
+  shift 4
   if [[ -n "$dry_run" ]]; then
-    printf '(cd %q && git ls-files --recurse-submodules -z | tar --null -T - -cf -) | ' "$ctx"
-    printf '%q ' docker build -f "$dockerfile" -t "$tag" "$@" -
+    # shellcheck disable=SC2016 # The plan intentionally prints the revision variable literally.
+    printf '(cd %q && git archive --format=tar "$revision") | ' "$ctx"
+    printf '%q ' docker build -f "$dockerfile" -t "$tag" --label "org.opencontainers.image.revision=$revision" --label "$inputs_tree_label=$inputs_tree" "$@" -
     printf '\n'
   else
-    (cd "$ctx" && git ls-files --recurse-submodules -z | tar --null -T - -cf -) |
-      docker build -f "$dockerfile" -t "$tag" "$@" -
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c 'from chronicle_ops.images import SOURCE_IMAGES; import sys
+next(image for image in SOURCE_IMAGES if image.component == sys.argv[3]).archive(sys.argv[1], sys.argv[2], sys.stdout.buffer)' "$root" "$revision" "$component" |
+      docker build -f "$dockerfile" -t "$tag" --label "org.opencontainers.image.revision=$revision" --label "$inputs_tree_label=$inputs_tree" "$@" -
   fi
 }
 # Nothing reaches the registry with a fixable HIGH or CRITICAL finding. Each image is scanned
@@ -198,28 +229,44 @@ scan_image() {
   stamp "scan $1"
   run bash "$root/scripts/scan-selfhost-release-images.sh" "$1"
 }
-stamp "build $caddy"
-build_image . selfhost/Dockerfile.caddy "$caddy" --build-arg "SOURCE_REF=$release"
-scan_image "$caddy"
-stamp "build $backup"
-build_image selfhost Dockerfile.backup "$backup"
-scan_image "$backup"
-stamp "build $frontend"
-build_image . selfhost/Dockerfile.frontend "$frontend" \
+build_component() {
+  local component=$1 tag=$2 paths context dockerfile
+  shift 2
+  paths=$(PYTHONPATH="$root/selfhost" python3 - "$component" <<'PY_IMAGE_PATHS'
+import os
+import sys
+from chronicle_ops.images import SOURCE_IMAGES
+image = next(image for image in SOURCE_IMAGES if image.component == sys.argv[1])
+context = os.path.normpath('selfhost/' + image.context)
+print(context, os.path.relpath('selfhost/' + image.dockerfile, context))
+PY_IMAGE_PATHS
+  )
+  read -r context dockerfile <<<"$paths"
+  stamp "build $tag"
+  build_image "$component" "$context" "$dockerfile" "$tag" "$@"
+  scan_image "$tag"
+}
+build_component backup "$backup"
+build_component frontend "$frontend" \
   --build-arg "GIT_SHA=$revision" --build-arg "SOURCE_REF=$release"
-scan_image "$frontend"
-stamp "build $backend"
-build_image . docker/Dockerfile.backend "$backend" \
+build_component caddy "$caddy" --build-arg "SOURCE_REF=$release" --build-context "chronicle-selfhost-frontend:release=docker-image://$frontend"
+build_component grafana "$grafana"
+build_component backend "$backend" \
   --build-arg "VCS_REF=$revision" --build-arg "SOURCE_REF=$release"
-scan_image "$backend"
 stamp 'scan release runtime dependencies'
 run bash "$root/scripts/scan-selfhost-release-images.sh"
+run require_unchanged_source
+stamp 'frontend lockfile vulnerability evidence'
+run mkdir -p "$root/build/releases"
+sca_evidence="$root/build/releases/chronicle-frontend-vulnerabilities-${release#v}.json"
+run scan_publication_source "$sca_evidence"
 run require_unchanged_source
 stamp push
 run docker push "$backend"
 run docker push "$frontend"
 run docker push "$caddy"
 run docker push "$backup"
+run docker push "$grafana"
 resolve_published_digest() {
   docker inspect --format '{{json .RepoDigests}}' "$1" |
     jq -er --arg repository "${1%:*}" '
@@ -230,6 +277,7 @@ capture backend_digest resolve_published_digest "$backend"
 capture frontend_digest resolve_published_digest "$frontend"
 capture caddy_digest resolve_published_digest "$caddy"
 capture backup_digest resolve_published_digest "$backup"
+capture grafana_digest resolve_published_digest "$grafana"
 # The private HEAD exists in no public repository. Record and tag the curated public commit
 # verified above so the bundle maps to published source.
 stamp 'bundle and GitHub release'
@@ -241,7 +289,7 @@ fi
 run python3 scripts/build-selfhost-release.py --version "$release" \
   --source-revision "$revision" --public-revision "$public_revision" --source-date-epoch "$epoch" \
   --backend-image "$backend_digest" --frontend-image "$frontend_digest" --caddy-image "$caddy_digest" \
-  --backup-image "$backup_digest"
+  --backup-image "$backup_digest" --grafana-image "$grafana_digest"
 run ssh-keygen -Y sign -n "$release_signer" -f "$release_signing_key" "$bundle.sha256"
 run python3 -c '
 from pathlib import Path
@@ -251,8 +299,8 @@ root, checksum, verify_key = map(Path, sys.argv[1:])
 runpy.run_path(str(root / "scripts/build-selfhost-release.py"))["verify_release_signature"](
     checksum, Path(str(checksum) + ".sig"), verify_key)
 ' "$root" "$bundle.sha256" "$release_verify_key"
-capture sbom_output bash "$root/scripts/write-image-sboms.sh" "$release" "$root/build/releases" \
-  "$backend_digest" "$frontend_digest" "$caddy_digest" "$backup_digest"
+capture sbom_output env CHRONICLE_SBOM_SOURCE_REVISION="$revision" bash "$root/scripts/write-image-sboms.sh" "$release" "$root/build/releases" \
+  "$backend_digest" "$frontend_digest" "$caddy_digest" "$backup_digest" "$grafana_digest"
 mapfile -t sbom_assets <<< "$sbom_output"
 run mkdir -p "$HOME/tmp"
 capture notes_dir mktemp -d -p "$HOME/tmp" chronicle-release-notes.XXXXXX
@@ -269,51 +317,57 @@ release, destination, fingerprint, signer = sys.argv[1:]
 v = release.removeprefix("v")
 Path(destination).write_text(f"""## New installation
 
-Download `chronicle-selfhost-{v}.tar.gz`, its `.sha256` and `.sha256.sig` sidecars. Obtain the
-release public key independently from your institution handoff, save it as `release-signing.pub`,
-and compare its fingerprint with the handoff before installation. This release expects:
-`{fingerprint}`. On the Linux server, as a user in the `docker` group:
+Download `chronicle-selfhost-{v}.tar.gz`, its `.sha256` and `.sha256.sig` sidecars.
+The public key ships in the bundle. Extract only the key and show its fingerprint:
 
 ```bash
 set -e
-# 1. Compare this fingerprint with the independently trusted institution handoff
+tar -xzOf chronicle-selfhost-{v}.tar.gz chronicle-selfhost-{v}/selfhost/release-signing.pub > release-signing.pub
 ssh-keygen -lf release-signing.pub -E sha256
+```
+
+Compare it with the fingerprint the maintainer sent separately by email or message from
+the Chronicle contact for your study. If it differs, stop. Do not install.
+This release expects `{fingerprint.split()[1]}`.
+Run the next commands on the Linux server, as a user in the `docker` group:
+
+```bash
+set -e
 printf "{signer} %s\\n" "$(cat release-signing.pub)" > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I {signer} -n {signer} \\
   -s chronicle-selfhost-{v}.tar.gz.sha256.sig < chronicle-selfhost-{v}.tar.gz.sha256
-# 2. Check the download and unpack it (nothing is built; images are pulled later)
+# Check the download and unpack it. Images are pulled later.
 sha256sum -c chronicle-selfhost-{v}.tar.gz.sha256
 tar -xzpf chronicle-selfhost-{v}.tar.gz
 cd chronicle-selfhost-{v}/selfhost
-
-# 3. Answer the setup questions (domain, TLS mode, dashboard password; secrets are generated)
+# Configure the domain, TLS mode and dashboard password. Secrets are generated.
 ./chronicle setup
-
-# 4. Check the host, pull the images and start
+# Check the host, pull the images and start.
 ./chronicle up
-
-# 5. Confirm the server is exposed as intended, then check backups and health
+# Check server access, backups and health.
 ./chronicle verify
 ./chronicle doctor
 ```
 
-The dashboard is on the private listener, e.g. `https://127.0.0.1:8081/chronicle` over an SSH
-tunnel. The public domain serves only the phones. Full guide: `selfhost/README.md` in the bundle,
-section "Quick start".
+Use an SSH tunnel for the private dashboard at `https://127.0.0.1:8081/chronicle`.
+The public domain serves only phones. See `selfhost/README.md`, section "Quick start".
 
-To replace an existing installation and discard its data, first follow
-`selfhost/docs/UNINSTALL-DATA-DELETION.md`, section "Remove the application and all installation
-storage".
+To discard an existing installation and its data, first follow `selfhost/docs/UNINSTALL-DATA-DELETION.md`,
+section "Remove the application and all installation storage".
 
 ## Updating an existing installation
 
 From the current installation'"'"'s `selfhost/` directory:
 
 ```bash
+./chronicle update --check
 ./chronicle update
 ```
 
-It downloads this release, verifies it, takes a verified backup, and upgrades in place.
+Post-reset installations upgrade in place and keep their data. The signed manifest declares
+`upgrade_from_minimum`. Installs below that floor require a fresh installation with fresh
+volumes. Pre-reset backups cannot migrate into this baseline. See `selfhost/docs/UPGRADE-ROLLBACK.md`.
+A failed update automatically restores its safety dump and previous release.
 
 ## What changed
 
@@ -324,7 +378,10 @@ See `CHANGELOG.md` in the bundle, section [{v}].
 release_flags=(--draft --latest=false)
 [[ "$release" != *-* ]] || release_flags+=(--prerelease)
 run gh release create "$release" --repo "$public_repo" --target "$public_revision" \
-  "$bundle" "$bundle.sha256" "$bundle.sha256.sig" "${sbom_assets[@]}" --notes-file "$notes_dir/notes.md" "${release_flags[@]}"
+  "$bundle" "$bundle.sha256" "$bundle.sha256.sig" "$sca_evidence" "${sbom_assets[@]}" --notes-file "$notes_dir/notes.md" "${release_flags[@]}"
+run env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -m chronicle_ops.migrations \
+  "$root" "${bundle%.tar.gz}/release-manifest.json"
+printf 'Commit selfhost/published-migrations.json before building another release.\n'
 if [[ -n "$dry_run" ]]; then
   run rm -rf -- "$notes_dir"
 fi

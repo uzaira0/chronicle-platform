@@ -6,6 +6,8 @@ context:
   parent-loader-priority: true
 web-endpoint:
   http-port: 40320
+  # Plain HTTP serves only the in-container healthcheck; peers use 8443.
+  http-host: 127.0.0.1
   https-port: 8443
   use-ssl: true
   require-ssl: false

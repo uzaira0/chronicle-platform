@@ -1,93 +1,96 @@
 #!/usr/bin/env bash
-# Generate digest-bound SPDX release assets for all images published by this repository.
+# Bind runtime and frontend lockfile SPDX assets to the immutable publication revision.
 set -euo pipefail
-
-[[ $# -eq 6 ]] || {
-  echo 'usage: scripts/write-image-sboms.sh <release> <output-dir> <backend-ref> <frontend-ref> <caddy-ref> <backup-ref>' >&2
-  exit 2
-}
-release=$1
-output_dir=$2
-shift 2
-images=("$@")
-[[ "$release" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
-  echo 'error: release must be a Docker-tag-compatible semantic version' >&2
-  exit 2
-}
-command -v syft >/dev/null 2>&1 || { echo 'error: syft is required to produce release SBOMs' >&2; exit 127; }
-command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required to hash release SBOMs' >&2; exit 127; }
-
-for image in "${images[@]}"; do
-  [[ "$image" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || {
-    echo 'error: SBOM input must be an immutable name@sha256 image reference' >&2
-    exit 2
-  }
-done
-
-mkdir -p -- "$output_dir"
-output_dir=$(cd "$output_dir" && pwd -P)
-version=${release#v}
-asset_names=("chronicle-backend-${version}.spdx.json" "chronicle-frontend-${version}.spdx.json" "chronicle-caddy-${version}.spdx.json" "chronicle-backup-${version}.spdx.json")
-manifest_name="chronicle-image-sboms-${version}.json"
-checksums_name="chronicle-image-sboms-${version}.sha256"
-for asset in "${asset_names[@]}" "$manifest_name" "$checksums_name"; do
-  [[ ! -e "$output_dir/$asset" && ! -L "$output_dir/$asset" ]] || {
-    echo "error: refusing to replace existing SBOM release asset: $output_dir/$asset" >&2
-    exit 2
-  }
-done
-
-staging=$(mktemp -d "$output_dir/.image-sboms.XXXXXX")
-trap 'rm -rf -- "$staging"' EXIT
-for index in "${!images[@]}"; do
-  syft "${images[$index]}" -o spdx-json > "$staging/${asset_names[$index]}"
-  [[ -s "$staging/${asset_names[$index]}" ]] || {
-    echo "error: Syft produced an empty SBOM for ${images[$index]}" >&2
-    exit 1
-  }
-done
-
-python3 - "$release" "$staging" "$manifest_name" "$checksums_name" \
-  "${asset_names[@]}" -- "${images[@]}" <<'PY'
-import hashlib
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+# shellcheck source=scripts/local-ci.sh
+source "$root/scripts/local-ci.sh"
+ensure_syft
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 - "$root" "$@" <<'PY_SBOMS'
 import json
-import pathlib
+import os
+from pathlib import Path
+import re
+import shutil
 import sys
+import tempfile
 
-release, staging_arg, manifest_name, checksums_name = sys.argv[1:5]
-staging = pathlib.Path(staging_arg)
-separator = sys.argv.index("--", 5)
-names = sys.argv[5:separator]
-images = sys.argv[separator + 1:]
-if len(names) != len(images):
-    raise SystemExit("error: SBOM assets and image references must have equal lengths")
+from chronicle_ops.common import run
+from chronicle_ops.dump import file_sha256
+from chronicle_ops.images import SOURCE_IMAGES
 
-assets = []
-for name, image in zip(names, images):
-    path = staging / name
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise SystemExit(f"error: Syft did not produce valid JSON for {image}: {error}")
-    if not isinstance(document, dict) or not str(document.get("spdxVersion", "")).startswith("SPDX-"):
-        raise SystemExit(f"error: Syft output for {image} is not an SPDX document")
-    assets.append({
-        "image": image,
-        "asset": name,
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-    })
 
-manifest = {"schemaVersion": 1, "release": release, "sboms": assets}
-manifest_path = staging / manifest_name
-manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-hash_targets = [*names, manifest_name]
-(staging / checksums_name).write_text(
-    "".join(f"{hashlib.sha256((staging / name).read_bytes()).hexdigest()}  {name}\n" for name in hash_targets),
-    encoding="utf-8",
-)
-PY
+def frontend_source(root, revision, staging):
+    web_revision = run(['git', '-C', str(root), 'rev-parse', revision + ':chronicle-web'], capture=True, check=True).stdout.strip()
+    directory = staging / 'frontend-source'; directory.mkdir()
+    with (directory / 'bun.lock').open('w') as output:
+        run(['git', '-C', str(root / 'chronicle-web'), 'show', web_revision + ':bun.lock'], stdout=output, check=True)
+    return directory
 
-for asset in "${asset_names[@]}" "$manifest_name" "$checksums_name"; do
-  mv -- "$staging/$asset" "$output_dir/$asset"
-  printf '%s\n' "$output_dir/$asset"
-done
+
+def write_sbom(target, path):
+    with path.open('w') as output:
+        run(['syft', target, '-o', 'spdx-json'], stdout=output, check=True)
+    document = json.loads(path.read_text())
+    if not str(document.get('spdxVersion', '')).startswith('SPDX-'):
+        raise ValueError('Syft did not produce an SPDX document')
+    return document
+
+
+def generate_sboms(references, release, staging, source):
+    assets = []
+    for image, reference in zip(SOURCE_IMAGES, references):
+        name = f'chronicle-{image.component}-{release.removeprefix("v")}.spdx.json'
+        path = staging / name
+        write_sbom(reference, path)
+        asset = dict(image=reference, asset=name, sha256=file_sha256(path))
+        if image.component == 'frontend':
+            inventory_name = name.replace('.spdx.json', '-npm.spdx.json')
+            inventory_path = staging / inventory_name
+            document = write_sbom('dir:' + str(source), inventory_path)
+            if not any(ref.get('referenceLocator', '').startswith('pkg:npm/')
+                       for package in document.get('packages', []) for ref in package.get('externalRefs', [])):
+                raise ValueError('frontend SBOM has no lockfile npm dependency inventory')
+            asset['inventories'] = [dict(asset=inventory_name, sha256=file_sha256(inventory_path))]
+        assets.append(asset)
+    return assets
+
+
+def main():
+    if len(sys.argv) != len(SOURCE_IMAGES) + 4:
+        raise ValueError('usage: write-image-sboms.sh RELEASE OUTPUT_DIR ' + ' '.join(image.component.upper() + '_REF' for image in SOURCE_IMAGES))
+    root, release, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]).resolve()
+    references = sys.argv[4:]
+    if not re.fullmatch(r'v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', release):
+        raise ValueError('release must be a Docker-tag-compatible semantic version')
+    if shutil.which('syft') is None:
+        raise ValueError('syft is required to produce release SBOMs')
+    if any(not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', ref) for ref in references):
+        raise ValueError('SBOM input must be an immutable name@sha256 image reference')
+    output.mkdir(parents=True, exist_ok=True)
+    revision = os.environ.get('CHRONICLE_SBOM_SOURCE_REVISION') or run(['git', '-C', str(root), 'rev-parse', 'HEAD'], capture=True, check=True).stdout.strip()
+    version = release.removeprefix('v')
+    manifest_name = f'chronicle-image-sboms-{version}.json'
+    checksums_name = f'chronicle-image-sboms-{version}.sha256'
+    with tempfile.TemporaryDirectory(prefix='.image-sboms.', dir=output) as folder:
+        staging = Path(folder)
+        source = frontend_source(root, revision, staging)
+        assets = generate_sboms(references, release, staging, source)
+        manifest = dict(schemaVersion=1, release=release, sourceRevision=revision, sboms=assets)
+        (staging / manifest_name).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+        digests = {document['asset']: document['sha256'] for asset in assets
+                   for document in [asset, *asset.get('inventories', [])]}
+        digests[manifest_name] = file_sha256(staging / manifest_name)
+        (staging / checksums_name).write_text(''.join(f'{digest}  {name}\n' for name, digest in digests.items()))
+        names = [*digests, checksums_name]
+        if any(os.path.lexists(output / name) for name in names):
+            raise ValueError('refusing to replace an existing SBOM release asset')
+        for name in names:
+            os.link(staging / name, output / name)
+            print(output / name)
+
+
+try:
+    main()
+except (OSError, ValueError) as error:
+    sys.exit('error: ' + str(error))
+PY_SBOMS

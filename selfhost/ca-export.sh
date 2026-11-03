@@ -37,14 +37,23 @@ fi
 # A copy beside the compose file, for the researcher's own laptop and for any device that
 # is easier to load a file onto than to point at a URL.
 cp "$CA_SRC" "$CA_OUT"
+# This one-shot runs as root; leave the copy owned like the directory it lands in.
+chown "$(stat -c '%u:%g' /out)" "$CA_OUT"
 chmod 644 "$CA_OUT"
 
 echo
 echo "======================================================================"
-echo " Install this stack's certificate authority on each test phone"
+echo " This stack's certificate authority (trial mode)"
 echo "======================================================================"
 echo
-echo "  1. Put the phone on the SAME wifi as this machine."
+echo "  The invitation link carries this CA, and the Chronicle app trusts it for this"
+echo "  server only. The phone's browser does not: even past its warning, Chrome on"
+echo "  Android can refuse the invitation page's request to this server and show"
+echo "  \"Invitation unavailable\"."
+echo
+echo "  Install the CA on a test device that opens the invitation in its browser, or"
+echo "  that enrolls by typing the server address instead of using the link:"
+echo "  1. Put the device on the SAME wifi as this machine."
 echo "  2. Scan the QR code below, or open:  ${URL}"
 echo "  3. Android: Settings -> Security -> Encryption & credentials ->"
 echo "             Install a certificate -> CA certificate."
@@ -57,13 +66,8 @@ qrencode -t ANSIUTF8 -m 2 "$URL" || echo "  (could not render the QR code — us
 echo
 echo "  A copy is also in the configured state directory at tls/local-ca.crt."
 echo
-echo "  ANDROID APP NOTE: a user-installed CA is trusted by browsers but NOT by apps,"
-echo "  unless the app opts in. The Chronicle 'open' build must ship a"
-echo "  network-security-config that trusts user CAs, or enrollment fails with a TLS"
-echo "  error while the same URL loads fine in Chrome on the same phone."
-echo
-echo "  This CA is for YOUR OWN test devices. Do not ask participants to install it —"
-echo "  for a real study use a certificate their phones already trust"
+echo "  This CA is for YOUR OWN test devices. For a real study use a certificate"
+echo "  participants' phones already trust"
 echo "  (overlays/mode-behind-proxy-internal.yml or overlays/mode-own-tls-internal.yml)."
 echo "======================================================================"
 echo

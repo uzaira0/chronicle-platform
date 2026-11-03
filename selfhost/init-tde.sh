@@ -20,10 +20,9 @@
 #   and pg_dump cannot rescue it either. The protection against that is NOT a second copy
 #   of the key -- it is the plain-SQL dumps in ./backups, which are written through the
 #   running server and therefore contain no encryption at all. A dump taken while the key
-#   was alive restores into any stock Postgres with no pg_tde present (tested against
-#   postgres:18.4-alpine: it logs ~40 errors about the missing extension and its key-provider
-#   functions, all of which concern objects belonging to pg_tde itself, then restores every
-#   table and every row as plain heap).
+#   was alive needs no old keyring. Recover with `./chronicle restore`, which prepares the
+#   required extensions and replays with ON_ERROR_STOP. Raw replay into stock Postgres can
+#   miss tables and functions even when some row counts match.
 #
 #   That is why `./chronicle up` refuses to enable encryption when backups are disabled.
 
@@ -35,22 +34,25 @@ PROVIDER="chronicle_keyring"
 KEY_NAME="chronicle_key"
 
 database_tde_sql() {
-  local POSTGRES_DB="$1"
+  local POSTGRES_DB="$1" purpose="${2:-initializer}" temporary="" evidence_schema=chronicle_secret_generation
+  case "$purpose" in
+    initializer) echo "CREATE SCHEMA IF NOT EXISTS ${evidence_schema};" ;;
+    restore-check) temporary=TEMP; evidence_schema=pg_temp ;;
+    *) echo 'unknown TDE bootstrap purpose' >&2; return 1 ;;
+  esac
   echo "CREATE EXTENSION IF NOT EXISTS pg_tde;"
 
-  # IF NOT EXISTS creates at the image's default_version but does NOT upgrade an extension
-  # that is already there at an older one. On Percona 18.4-5 the default is pg_tde 2.2, while
-  # a database restored from a 17-era dump arrives carrying 1.0 -- and stays on 1.0 forever
-  # without this line. Safe to run unconditionally: when the extension is already current
-  # Postgres answers NOTICE: version "2.2" ... is already installed and changes nothing.
-  # Nothing we call was removed between 1.0 and 2.2 (the 1.0->2.0 step only ADDS the vault_v2
-  # provider functions), so this is a version-record fix rather than a behaviour change.
+  # A restored database can carry an older extension version.
   echo "ALTER EXTENSION pg_tde UPDATE;"
 
   # The provider and bootstrap key are created only when no principal key is active. An online
   # rotation deliberately gives the active key a timestamped name; forcing KEY_NAME on every
   # db-init run would silently undo that rotation after the next `down`/`up` or release upgrade.
   cat <<SQL
+-- Key creation date, read by ./chronicle doctor for the key's age until its first rotation receipt.
+CREATE ${temporary} TABLE IF NOT EXISTS ${evidence_schema}.chronicle_generated_key (
+  key_name text PRIMARY KEY, generated_at timestamptz NOT NULL
+) USING heap;
 -- pg_tde_list_all_database_key_providers() returns (id, name, type, options): the column
 -- is "name", not "provider_name".
 DO \$\$
@@ -63,23 +65,15 @@ BEGIN
 END
 \$\$;
 
--- pg_tde_key_info() always returns exactly one row and fills it with NULLs when no key is
--- set, so only that bootstrap state should select KEY_NAME. Creating the key and adopting an
--- existing one are separate cases, because the key lives
--- in the KEYRING VOLUME while the record of which key this database uses lives in the DATA
--- DIRECTORY. Those are two different volumes and they can legitimately come apart:
--- restoring a dump into a fresh data volume, or rebuilding the cluster while keeping the
--- keyring, leaves a database with no key set and a keyring that already holds
--- '${KEY_NAME}'. Creating unconditionally then fails with
---   ERROR: cannot create key "${KEY_NAME}" because it already exists
--- and db-init exits 3, which stops the whole deployment on a state that is actually fine.
--- Adopting the existing key is also the only correct action there: inventing a second key
--- would leave the old one unreferenced and any data it encrypted unreadable.
+-- A restored database may need to adopt an existing keyring key. Only successful
+-- key creation records evidence; adoption must not invent a generation date.
 DO \$\$
 BEGIN
   IF (SELECT key_name FROM pg_tde_key_info()) IS NULL THEN
     BEGIN
       PERFORM pg_tde_create_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER}');
+      INSERT INTO ${evidence_schema}.chronicle_generated_key VALUES ('${KEY_NAME}', clock_timestamp())
+        ON CONFLICT (key_name) DO UPDATE SET generated_at = EXCLUDED.generated_at;
       RAISE NOTICE 'created principal key ${KEY_NAME}';
     EXCEPTION WHEN OTHERS THEN
       -- Narrow on purpose: only "it is already there" is survivable. A missing provider or
@@ -105,7 +99,7 @@ SQL
 
 # Reuse exactly this database bootstrap for the backup scratch restore.
 if [[ "${1:-}" == --database-sql ]]; then
-  database_tde_sql "${2:?database name is required}"
+  database_tde_sql "${2:?database name is required}" restore-check
   exit 0
 fi
 
@@ -148,7 +142,7 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
-database_tde_sql "$POSTGRES_DB" | psql_run >/dev/null
+database_tde_sql "$POSTGRES_DB" | psql_run -q
 
 # Convert anything still on plain heap. ALTER TABLE ... SET ACCESS METHOD rewrites the
 # table, so this is the expensive step on first run and a no-op on every run after.

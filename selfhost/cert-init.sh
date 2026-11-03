@@ -25,7 +25,7 @@ chmod 755 "$TLS_DIR"
 # whoever owns ./tls (the operator, who can then renew it with a plain cp), in group 0, and
 # the key is 0640: readable by Caddy, never world-readable on the host. A root-owned ./tls,
 # or an owner this container cannot map, falls back to root ownership.
-TLS_OWNER="$(stat -c %u "$TLS_DIR")"
+TLS_OWNER="$(stat -c %u "$TLS_DIR" 2>/dev/null || stat -f %u "$TLS_DIR")"
 protect() { # <path> <mode>
   chown "${TLS_OWNER}:0" "$1" 2>/dev/null || chown 0:0 "$1"
   chmod "$2" "$1"
@@ -89,12 +89,18 @@ if [[ -n "${BACKEND_TLS_DIR:-}" ]]; then
   mv -f "$BACKEND_TLS_DIR/.backend.p12.new" "$BACKEND_TLS_DIR/backend.p12"
 fi
 if [[ "${MONITORING_ENABLED:-false}" == true ]]; then
-  prepare_service_pair "$TLS_DIR" monitoring "DNS:grafana,DNS:localhost,IP:127.0.0.1,IP:${GRAFANA_BIND:-127.0.0.1}" "${TLS_OWNER}:0"
+  monitoring_directory=${MONITORING_TLS_DIR:-$TLS_DIR}
+  prepare_service_pair "$monitoring_directory" monitoring "DNS:grafana,DNS:localhost,IP:127.0.0.1,IP:${GRAFANA_BIND:-127.0.0.1}" "${TLS_OWNER}:0"
+  # Host-side health, rotation and viewer clients need only the public trust certificate.
+  cp "$monitoring_directory/monitoring.crt" "$TLS_DIR/.monitoring.crt.new"
+  protect "$TLS_DIR/.monitoring.crt.new" 644
+  mv -f "$TLS_DIR/.monitoring.crt.new" "$TLS_DIR/monitoring.crt"
 fi
 
 if ((${#service_certificates[@]})); then
-  sha256sum "${service_certificates[@]}" >"$TLS_DIR/service-certificates.sha256"
-  protect "$TLS_DIR/service-certificates.sha256" 644
+  service_digest_file="${SERVICE_CERTIFICATE_DIGEST_FILE:-$TLS_DIR/service-certificates.sha256}"
+  sha256sum "${service_certificates[@]}" >"$service_digest_file"
+  protect "$service_digest_file" 644
 fi
 
 # ------------------------------------------------------------- the operator's certificate
@@ -133,13 +139,17 @@ KEY="$TLS_DIR/internal-key.pem"
 # name can add it explicitly through INTERNAL_CERT_SANS.
 SAN="DNS:localhost,DNS:web,IP:127.0.0.1,IP:::1"
 [[ "$INTERNAL_BIND" != 127.0.0.1 && "$INTERNAL_BIND" != 0.0.0.0 ]] && SAN="${SAN},IP:${INTERNAL_BIND}"
-[[ -n "$INTERNAL_CERT_SANS" ]] && SAN="${SAN},${INTERNAL_CERT_SANS}"
+# With POOL_LISTENER_TLS the load balancer reaches the pool listener by HTTP_BIND.
+POOL_SAN=""
+[[ "${POOL_LISTENER_TLS:-true}" == true && "${HTTP_BIND:-127.0.0.1}" != 0.0.0.0 ]] && POOL_SAN="IP:${HTTP_BIND:-127.0.0.1}"
+EXTRA_SANS="${POOL_SAN}${INTERNAL_CERT_SANS:+${POOL_SAN:+,}$INTERNAL_CERT_SANS}"
+[[ -n "$EXTRA_SANS" ]] && SAN="${SAN},${EXTRA_SANS}"
 management_host="${DASHBOARD_BASE_URL:-$INTERNAL_BIND}"
 management_host="${management_host#https://}"
 management_host="${management_host%%/*}"
-if [[ "$management_host" == \[* ]]; then
-  management_host="${management_host#\[}"
-  management_host="${management_host%%\]*}"
+if [[ "$management_host" == '['* ]]; then
+  management_host="${management_host#'['}"
+  management_host="${management_host%%']'*}"
 elif [[ -n "${DASHBOARD_BASE_URL:-}" ]]; then
   management_host="${management_host%%:*}"
 fi
@@ -161,7 +171,7 @@ if [[ -s "$CRT" && -s "$KEY" ]]; then
       expiring=true
     fi
     local_sans_match=false
-    covers_sans "$CRT" "${REQUIRED_SAN}${INTERNAL_CERT_SANS:+,$INTERNAL_CERT_SANS}" && local_sans_match=true
+    covers_sans "$CRT" "${REQUIRED_SAN}${EXTRA_SANS:+,$EXTRA_SANS}" && local_sans_match=true
     if [[ "$local_sans_match" == false && "$(openssl x509 -noout -subject -nameopt RFC2253 -in "$CRT" 2>/dev/null)" != 'subject=CN=chronicle-dashboard' ]]; then
       covers_sans "$CRT" "$REQUIRED_SAN" || {
         echo "FATAL: operator internal certificate does not cover management identity: $REQUIRED_SAN" >&2
@@ -200,18 +210,11 @@ trap 'rm -f "$TMP_KEY" "$TMP_CRT" "$TMP_CSR" "$TMP_EXT" "$TMP_CA_KEY" "$TMP_CA_C
 CA_CRT="$TLS_DIR/internal-ca.crt"
 CA_KEY="$TLS_DIR/internal-ca.key"
 if [[ ! -s "$CA_CRT" && ! -s "$CA_KEY" ]]; then
-  if valid_pair "$CRT.expired" "$KEY.expired" &&
-      openssl x509 -checkend $((30 * 86400)) -noout -in "$CRT.expired" >/dev/null 2>&1 &&
-      openssl x509 -noout -ext basicConstraints -in "$CRT.expired" | grep -q 'CA:TRUE' &&
-      openssl verify -CAfile "$CRT.expired" "$CRT.expired" >/dev/null 2>&1; then
-    # Legacy self-signed dashboard certificates are already installed as trust anchors.
-    cp "$CRT.expired" "$TMP_CA_CRT"
-    cp "$KEY.expired" "$TMP_CA_KEY"
-  else
-    openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-      -keyout "$TMP_CA_KEY" -out "$TMP_CA_CRT" -subj '/CN=Chronicle dashboard CA' \
-      -addext 'basicConstraints=critical,CA:TRUE' >/dev/null 2>&1
-  fi
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
+    -keyout "$TMP_CA_KEY" -out "$TMP_CA_CRT" -subj '/CN=Chronicle dashboard CA' \
+    -addext 'basicConstraints=critical,CA:TRUE' \
+    -addext 'subjectKeyIdentifier=hash' \
+    -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
   valid_pair "$TMP_CA_CRT" "$TMP_CA_KEY"
   protect "$TMP_CA_CRT" 644
   protect "$TMP_CA_KEY" 600
@@ -221,7 +224,7 @@ fi
 valid_pair "$CA_CRT" "$CA_KEY" && openssl x509 -checkend $((30 * 86400)) -noout -in "$CA_CRT" >/dev/null || {
   echo 'FATAL: dashboard CA needs reviewed trust-anchor replacement' >&2; exit 1;
 }
-printf 'subjectAltName=%s\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' "$SAN" >"$TMP_EXT"
+printf 'subjectAltName=%s\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n' "$SAN" >"$TMP_EXT"
 { openssl req -new -newkey rsa:2048 -sha256 -nodes -keyout "$TMP_KEY" -out "$TMP_CSR" \
     -subj '/CN=chronicle-dashboard' >/dev/null 2>&1 &&
   openssl x509 -req -in "$TMP_CSR" -CA "$CA_CRT" -CAkey "$CA_KEY" -CAcreateserial \
@@ -231,6 +234,8 @@ printf 'subjectAltName=%s\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAut
 
 protect "$TMP_CRT" 644
 protect "$TMP_KEY" 640
+# -CAcreateserial leaves the CA's serial file root-owned in the operator's directory.
+protect "$TLS_DIR/internal-ca.srl" 644
 mv -f "$TMP_KEY" "$KEY"
 mv -f "$TMP_CRT" "$CRT"
 

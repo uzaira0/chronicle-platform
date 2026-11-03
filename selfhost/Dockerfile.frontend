@@ -48,7 +48,5 @@ LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic" \
 
 COPY --from=builder /app/dist /dist
 
-# Replace the volume's contents rather than merging, so files deleted between builds do
-# not linger. Reconcile leaves an unchanged release intact while Caddy serves it.
-# A failed copy must not leave a version marker that makes the next attempt skip it.
-CMD ["sh", "-ec", "cmp -s /dist/version.json /out/version.json && exit 0; trap 'rm -f /out/version.json' EXIT; rm -rf /out/* /out/.[!.]*; cp -a /dist/. /out/; trap - EXIT; echo \"published $(find /out -type f | wc -l) files to frontend_build\""]
+# Build artifact consumed by Dockerfile.caddy; the serving tree is immutable.
+CMD ["true"]
