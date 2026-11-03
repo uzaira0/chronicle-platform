@@ -1,6 +1,7 @@
 """Local operation receipts and best-effort monitoring events."""
 
 import datetime
+import errno
 import json
 import os
 from pathlib import Path
@@ -45,8 +46,26 @@ def write_text(destination, content):
             temporary.unlink(missing_ok=True)
 
 
+def json_text(data):
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+
 def write_json(destination, data):
-    write_text(destination, json.dumps(data, indent=2, sort_keys=True) + "\n")
+    write_text(destination, json_text(data))
+
+
+def publish_journal(marker, files):
+    """Publish an operation marker directory together with its complete recovery journal.
+
+    The files are written and flushed in a private staging directory that is then renamed into
+    place, so an interruption or a failed write leaves either no marker or a complete one."""
+    marker = Path(marker)
+    if os.path.lexists(marker):
+        raise FileExistsError(errno.EEXIST, "an operation marker already exists", str(marker))
+    with tempfile.TemporaryDirectory(prefix="." + marker.name + "-", dir=marker.parent) as staging:
+        for name, content in files.items():
+            write_text(Path(staging) / name, content)
+        durable_replace(staging, marker)
 
 
 def write_operation_receipt(operation, outcome, category="none", duration=0):

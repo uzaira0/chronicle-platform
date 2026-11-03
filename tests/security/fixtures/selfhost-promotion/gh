@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1 $2" in
+  'release view')
+    [[ "$*" != *isDraft* ]] || printf 'true\n' ;;
+  'release download')
+    tag=$3
+    destination=''
+    shift 3
+    while (( $# )); do
+      if [[ "$1" == --dir ]]; then destination=$2; shift; fi
+      shift
+    done
+    cp "$ASSETS/chronicle-selfhost-${tag#v}.tar.gz"* "$destination/" ;;
+  'repo view') printf 'example/chronicle\n' ;;
+  'api --paginate') printf '%s\n' "$RELEASE_CATALOG" ;;
+  'release edit') printf '%s\n' "$@" >"$PROMOTED" ;;
+  *) exit 1 ;;
+esac

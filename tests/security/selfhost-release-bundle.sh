@@ -5,11 +5,15 @@ export CHRONICLE_RECONCILE_ENABLED=false
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 BUILDER="${ROOT_DIR}/scripts/build-selfhost-release.py"
 SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse HEAD)"
-RELEASE_VERSION=2026.10.9
+# The builder requires a CHANGELOG entry for the bundle version: use the newest released heading.
+RELEASE_VERSION=$(git -C "$ROOT_DIR" show "${SOURCE_REVISION}:CHANGELOG.md" |
+  sed -n 's/^## \[\([0-9][0-9.]*\)\]$/\1/p' | head -1)
 RUN_PARENT="${SELFHOST_RELEASE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-release}"
 BACKEND_IMAGE='ghcr.io/example/chronicle-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 FRONTEND_IMAGE='ghcr.io/example/chronicle-selfhost-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 CADDY_IMAGE='ghcr.io/example/chronicle-selfhost-caddy@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+BACKUP_IMAGE='ghcr.io/example/chronicle-selfhost-backup@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+GRAFANA_IMAGE='ghcr.io/example/chronicle-selfhost-grafana@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 PRIVATE_REGISTRY_IMAGE='registry.example.org:5443/chronicle/backend@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
 
 fail() {
@@ -29,6 +33,37 @@ umask 077
 /bin/mkdir -p "$RUN_PARENT"
 RUN_DIR="$(/usr/bin/mktemp -d "${RUN_PARENT}/run.XXXXXX")"
 trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
+
+# The publisher archives HEAD. Give its clean-source check that same immutable tree,
+# leaving developer edits in place; fresh-bundle Python tests package the working files.
+SOURCE_SNAPSHOT="${RUN_DIR}/committed-inputs"
+mkdir "$SOURCE_SNAPSHOT"
+git -C "$ROOT_DIR" archive "$SOURCE_REVISION" -- \
+  selfhost docker/init-db-roles.sql LICENSE THIRD-PARTY.md CHANGELOG.md SECURITY.md |
+  tar -xf - -C "$SOURCE_SNAPSHOT"
+run_builder() {
+  GIT_WORK_TREE="$SOURCE_SNAPSHOT" GIT_OPTIONAL_LOCKS=0 "$BUILDER" "$@"
+}
+
+# The fixture digests exist in no registry: answer the builder's provenance-label lookup for them and pass
+# every other docker call through.
+REAL_DOCKER="$(command -v docker)"
+INPUTS_TREE="$(git -C "$ROOT_DIR" rev-parse "${SOURCE_REVISION}^{tree}")"
+MISLABELLED_IMAGE='ghcr.io/example/chronicle-backend@sha256:9999999999999999999999999999999999999999999999999999999999999999'
+/bin/mkdir "${RUN_DIR}/bin"
+cat >"${RUN_DIR}/bin/docker" <<STUB
+#!/usr/bin/env bash
+if [[ "\$1 \$2" == "image inspect" ]]; then
+  case "\${@: -1}" in
+    "$MISLABELLED_IMAGE") echo 0000000000000000000000000000000000000000; exit 0 ;;
+    "$BACKEND_IMAGE"|"$FRONTEND_IMAGE"|"$CADDY_IMAGE"|"$BACKUP_IMAGE"|"$GRAFANA_IMAGE"|"$PRIVATE_REGISTRY_IMAGE")
+      echo "$INPUTS_TREE"; exit 0 ;;
+  esac
+fi
+exec "$REAL_DOCKER" "\$@"
+STUB
+/bin/chmod 700 "${RUN_DIR}/bin/docker"
+export PATH="${RUN_DIR}/bin:${PATH}"
 
 python3 - "$BUILDER" "$RUN_DIR" <<'PY'
 import importlib.util
@@ -63,7 +98,7 @@ PY
 build_bundle() {
   local output_dir="$1"
   /bin/mkdir -p "$output_dir"
-  "$BUILDER" \
+  run_builder \
     --version "v${RELEASE_VERSION}" \
     --source-revision "$SOURCE_REVISION" \
     --public-revision fedcba9876543210fedcba9876543210fedcba98 \
@@ -71,19 +106,23 @@ build_bundle() {
     --backend-image "$BACKEND_IMAGE" \
     --frontend-image "$FRONTEND_IMAGE" \
     --caddy-image "$CADDY_IMAGE" \
+    --backup-image "$BACKUP_IMAGE" \
+    --grafana-image "$GRAFANA_IMAGE" \
     --output-dir "$output_dir" >/dev/null
 }
 
 build_bundle "${RUN_DIR}/first"
 build_bundle "${RUN_DIR}/second"
 
-"$BUILDER" \
+run_builder \
   --version "v${RELEASE_VERSION}" \
   --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 1700000000 \
   --backend-image "$PRIVATE_REGISTRY_IMAGE" \
   --frontend-image "$FRONTEND_IMAGE" \
   --caddy-image "$CADDY_IMAGE" \
+  --backup-image "$BACKUP_IMAGE" \
+  --grafana-image "$GRAFANA_IMAGE" \
   --output-dir "${RUN_DIR}/private-registry" >/dev/null \
   || fail "builder rejected an immutable image in a private registry with an explicit port"
 grep -Fqx "BACKEND_IMAGE=${PRIVATE_REGISTRY_IMAGE}" \
@@ -94,6 +133,12 @@ ARCHIVE="${RUN_DIR}/first/chronicle-selfhost-${RELEASE_VERSION}.tar.gz"
 CHECKSUM="${ARCHIVE}.sha256"
 BUNDLE="${RUN_DIR}/first/chronicle-selfhost-${RELEASE_VERSION}"
 [[ -s "$ARCHIVE" && -s "$CHECKSUM" && -d "$BUNDLE" ]] || fail "builder did not emit all bundle artifacts"
+python3 - "$BUILDER" "$BUNDLE" <<'PY_OFFLINE_LINKS'
+from pathlib import Path
+import runpy
+import sys
+runpy.run_path(sys.argv[1])['require_offline_links'](Path(sys.argv[2]))
+PY_OFFLINE_LINKS
 
 first_hash="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
 second_hash="$(sha256sum "${RUN_DIR}/second/$(basename "$ARCHIVE")" | awk '{print $1}')"
@@ -108,7 +153,7 @@ publish_plan="$(cd "$ROOT_DIR" && bash scripts/publish-images.sh "$RELEASE_VERSI
   || fail "publish-images dry run failed"
 grep -Fq -- '--public-revision' <<<"$publish_plan" || fail "publish does not pass the public revision to the builder"
 grep -Eq 'gh release create .*--target' <<<"$publish_plan" || fail "GitHub release is not pinned to the public revision"
-# Launch audit I1: no image reaches the registry with a fixable HIGH/CRITICAL finding.
+# No image reaches the registry with a fixable HIGH/CRITICAL finding.
 for image_name in chronicle-backend chronicle-selfhost-frontend chronicle-selfhost-caddy; do
   scan_line=$(grep -n "bash .*scan-selfhost-release-images.sh .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
   push_line=$(grep -n "docker push .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
@@ -121,7 +166,7 @@ last_build=$(grep -n 'docker build ' <<<"$publish_plan" | tail -1 | cut -d: -f1)
 [[ -n "$first_scan" && -n "$last_build" && "$first_scan" -lt "$last_build" ]] \
   || fail "publish builds every image before scanning any"
 grep -Fq -- '--severity HIGH,CRITICAL --exit-code 1' "$ROOT_DIR/scripts/scan-selfhost-release-images.sh" || fail "publish scan does not gate HIGH and CRITICAL"
-# Launch audit I5: a dedicated write:packages token, never the operator's general gh token.
+# A dedicated write:packages token, never the operator's general gh token.
 ! grep -Fq 'gh auth token' "$ROOT_DIR/scripts/publish-images.sh" || fail "publish logs in to GHCR with the general gh token"
 grep -Fq 'GHCR_TOKEN' <<<"$publish_plan" || fail "publish does not log in with GHCR_TOKEN"
 unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-images.sh "$RELEASE_VERSION" 2>&1)" \
@@ -129,7 +174,7 @@ unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-imag
 grep -Fq 'GHCR_TOKEN' <<<"$unset_token_out" || fail "publish without GHCR_TOKEN did not name the missing token"
 grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docker-compose.yml" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks selfhost/docker-compose.yml"
-for shipped in CHANGELOG.md SECURITY.md LICENSE THIRD-PARTY.md selfhost/docs/POSTGRES-18-UPGRADE.md \
+for shipped in CHANGELOG.md SECURITY.md LICENSE THIRD-PARTY.md \
                selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh selfhost/network-subnet.py selfhost/release-signing.pub; do
   grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/${shipped}" "${RUN_DIR}/archive-members.txt" \
     || fail "archive lacks ${shipped}"
@@ -138,8 +183,7 @@ grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/docker/init-db-roles.sql" "${RU
   || fail "archive lacks the database role bootstrap dependency"
 grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/backup-entrypoint.sh" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the restart-safe backup entrypoint"
-grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/upgrade.sh" "${RUN_DIR}/archive-members.txt" \
-  || fail "archive lacks the guarded upgrade command"
+
 grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/rotate-secret.sh" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks the guarded secret-rotation command"
 grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docs/UPGRADE-ROLLBACK.md" "${RUN_DIR}/archive-members.txt" \
@@ -182,9 +226,9 @@ grep -Fqx "CADDY_IMAGE=${CADDY_IMAGE}" "$ENV_EXAMPLE" || fail "Caddy digest was 
 grep -Fq './backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro' \
   "${BUNDLE}/selfhost/overlays/backups.yml" \
   || fail "backup overlay does not use the bundled readiness wrapper"
-grep -Fq 'reverse_proxy /chronicle/study/* backend:40320' \
+grep -Fq 'respond @chronicle_retired_api 404' \
   "${BUNDLE}/selfhost/caddy/snippets.caddy" \
-  || fail "bundle drops the legacy mobile API behind the SPA fallback"
+  || fail "bundle does not reject retired mobile API prefixes"
 [[ -f "${BUNDLE}/selfhost/monitoring/grafana-datasources.yml" ]] \
   || fail "bundle omits the Grafana metrics/logs data-source provisioning"
 for dashboard in system-overview application database-storage containers operational-events operational-logs; do
@@ -197,7 +241,6 @@ done
   || fail "bundle omits the executable operational probe"
 "${ROOT_DIR}/tests/security/selfhost-log-sanitizer.sh" >/dev/null \
   || fail "structured log sanitizer fixtures failed"
-[[ -x "${BUNDLE}/selfhost/upgrade.sh" ]] || fail "bundled upgrade command is not executable"
 [[ -x "${BUNDLE}/selfhost/rotate-secret.sh" ]] || fail "bundled secret-rotation command is not executable"
 [[ -x "${BUNDLE}/selfhost/chronicle" ]] || fail "bundled operator command is not executable"
 help_output="$(cd "$BUNDLE" && selfhost/chronicle help)" \
@@ -214,29 +257,17 @@ grep -Fq 'write_operation_receipt()' "${BUNDLE}/selfhost/chronicle" \
   || fail "bundled operator command omits secret-free operation receipts"
 grep -Fq 'restore) cmd_restore' "${BUNDLE}/selfhost/chronicle" \
   || fail "bundled operator command omits guarded restore orchestration"
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${BUNDLE}/selfhost:${ROOT_DIR}/tests/selfhost-py" \
-  python3 -c 'import chronicle_ops.restore; import unittest; unittest.main(module=None)' \
+source "$ROOT_DIR/tests/security/lib/selfhost-fixtures.sh"
+SELFHOST_PYTHON_PACKAGE="${BUNDLE}/selfhost" run_selfhost_python_suite \
     test_restore.RestoreTests.test_success_order_permissions_and_profile \
   || fail "bundled restore command does not mark an orchestrated one-shot restore"
-grep -Fq 'CHRONICLE_EXPORT_DIR: /exports' "${BUNDLE}/selfhost/docker-compose.yml" \
-  || fail "bundled backend omits persistent managed export storage"
 grep -Fq 'direct restore-service execution is disabled' "${BUNDLE}/selfhost/restore.sh" \
   || fail "bundled restore service permits unsafe direct execution"
 
-# A rejected upgrade must leave a freshly extracted release byte-for-byte eligible for a
-# corrected retry. The operator receipt root is not known until upgrade.sh validates the old
-# deployment and writes the merged .env; writing a failure receipt earlier pollutes the exact
-# bundle inventory and bricks the next attempt.
-set +e
-(cd "${BUNDLE}/selfhost" && ./chronicle upgrade --from relative-missing) \
-  >"${RUN_DIR}/rejected-upgrade.log" 2>&1
-rejected_upgrade_status=$?
-set -e
-[[ "$rejected_upgrade_status" -ne 0 ]] || fail "upgrade accepted a missing previous release"
-[[ ! -e "${BUNDLE}/selfhost/operator-receipts" ]] \
-  || fail "rejected upgrade polluted the immutable release extraction"
-grep -Fq 'previous selfhost directory does not exist' "${RUN_DIR}/rejected-upgrade.log" \
-  || fail "rejected upgrade did not explain the invalid previous release"
+# The shipped updater enforces the reset floor before staging or stopping writers.
+SELFHOST_PYTHON_PACKAGE="${BUNDLE}/selfhost" run_selfhost_python_suite \
+  test_forward_update.ForwardPolicyTests.test_floor_and_downgrade_are_refused \
+  || fail "bundled update does not enforce the upgrade floor"
 
 mapfile -t bundled_modes < <(
   find "${BUNDLE}/selfhost/overlays" -maxdepth 1 -type f -name 'mode-*.yml' -exec basename {} \; | LC_ALL=C sort
@@ -248,14 +279,6 @@ expected_modes=$'mode-behind-proxy-internal.yml\nmode-local-https.yml\nmode-own-
   || fail "bundle contains obsolete public-dashboard Caddyfiles"
 grep -Fq 'CHRONICLE_STATE_DIR=.' "$ENV_EXAMPLE" \
   || fail "bundle omits release-independent mutable state configuration"
-grep -Fq 'MOBILE_SIGNING_SECRET_PREVIOUS=' "$ENV_EXAMPLE" \
-  || fail "bundle omits the bounded mobile-key overlap setting"
-grep -Fqx 'MOBILE_SIGNING_ENABLED=false' "$ENV_EXAMPLE" \
-  || fail "bundle does not default controlled legacy mobile HMAC off"
-grep -Fqx 'MOBILE_SIGNING_REQUIRED=false' "$ENV_EXAMPLE" \
-  || fail "bundle does not default controlled legacy mobile HMAC enforcement off"
-grep -Fqx 'MOBILE_SIGNING_SECRET=' "$ENV_EXAMPLE" \
-  || fail "bundle requires an unnecessary public-client deployment-wide mobile key"
 grep -Fq 'SECRET_ROTATION_WAIT_TIMEOUT_SECONDS=300' "$ENV_EXAMPLE" \
   || fail "bundle omits the bounded secret-rotation wait"
 grep -Fqx 'RESTORE_START_WAIT_TIMEOUT_SECONDS=3600' "$ENV_EXAMPLE" \
@@ -279,15 +302,9 @@ grep -Fq 'partial id_gen bootstrap' "${BUNDLE}/selfhost/db-init.sh" \
   || fail "bundled database initialization does not fail closed on a partial ID range set"
 grep -Fq 'first_partition <> 0 OR last_partition <> 65535' "${BUNDLE}/selfhost/db-init.sh" \
   || fail "bundled database initialization does not reject a corrupt ID partition range"
-# Import the bundled package before the tests add their source-checkout search path.
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${BUNDLE}/selfhost:${ROOT_DIR}/tests/selfhost-py" \
-  python3 - <<'PY'
-import chronicle_ops
-import unittest
-suite = unittest.TestLoader().loadTestsFromNames(["test_upgrade.UpgradeTests", "test_release.ReleaseTests"])
-if not unittest.TextTestRunner().run(suite).wasSuccessful():
-    raise SystemExit(1)
-PY
+# The shared runner imports the bundled package before tests can alter their search path.
+SELFHOST_PYTHON_PACKAGE="${BUNDLE}/selfhost" run_selfhost_python_suite test_update test_release.ReleaseTests \
+  test_upstream_runtime.UpstreamRuntimeTests.test_reset_release_refuses_all_in_place_handoffs_before_reading_old_state
 grep -Fq '.chronicle-restore.lock' "${BUNDLE}/selfhost/rotate-secret.sh" \
   || fail "bundled secret rotation does not exclude an active restore"
 grep -Fq "IF (SELECT key_name FROM pg_tde_key_info()) IS NULL THEN" \
@@ -313,7 +330,8 @@ PY
 
 setup_password='turnkey-dashboard-password-123!'
 # A non-public hostname must stop the wizard at the hostname question, not at `up`.
-if printf '1\nstudy.pilot.test\n' | (cd "${BUNDLE}/selfhost" && ./chronicle setup) \
+if write_selfhost_setup_answers "$setup_password" false false --public-host study.pilot.test |
+    (cd "${BUNDLE}/selfhost" && ./chronicle setup) \
     >"${RUN_DIR}/turnkey-setup-badhost.log" 2>&1; then
   fail "setup accepted a non-public hostname"
 fi
@@ -321,10 +339,9 @@ grep -Fq 'is not a public DNS name' "${RUN_DIR}/turnkey-setup-badhost.log" || fa
 [[ ! -e "${BUNDLE}/selfhost/.env" ]] || fail "setup wrote .env for a refused hostname"
 # The refusal leaves its own failed-setup receipt; the assertions below want the real one.
 /bin/rm -rf -- "${BUNDLE}/selfhost/operator-receipts"
-# kind, host, proxy bind, dashboard bind, 10 saved/default public+LB+researcher settings,
-# password twice, no legacy shared key, monitoring on, then Grafana bind, retentions, webhook.
-{ printf '1\nturnkey.study-host.org\n\n\n'; printf '\n%.0s' {1..10}
-  printf '%s\n%s\n\ny\n\n\n\n\n' "$setup_password" "$setup_password"; } |
+SELFHOST_SETUP_MONITORING=y write_selfhost_setup_answers "$setup_password" false false \
+    --public-host turnkey.study-host.org \
+    --backup-storage-encryption-waiver synthetic-bundle-test-fixture-no-study-data |
   (cd "${BUNDLE}/selfhost" && \
     CADDY_SETUP_HASH_IMAGE='caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d' \
     ./chronicle setup) >"${RUN_DIR}/turnkey-setup.log" 2>&1 \
@@ -356,9 +373,14 @@ SELFHOST_MATRIX_ROOT="${BUNDLE}/selfhost" \
 /bin/cp "$ENV_EXAMPLE" "${BUNDLE}/selfhost/.env"
 copied_env_mode="$(stat -c '%a' "${BUNDLE}/selfhost/.env" 2>/dev/null || stat -f '%Lp' "${BUNDLE}/selfhost/.env")"
 [[ "$copied_env_mode" == 600 ]] || fail "cp .env.example .env did not retain private mode 0600"
+# Backup retention has no default; setup records the operator's choice.
+sed -i -E 's/^(BACKUP_KEEP_DAYS|BACKUP_KEEP_WEEKS|BACKUP_KEEP_MONTHS|PRE_OP_BACKUP_KEEP_DAYS)=$/\1=all/' \
+  "${BUNDLE}/selfhost/.env"
+# Setup also records the operator UID/GID that owns the state directories.
+printf 'CHRONICLE_HOST_UID=%s\nCHRONICLE_HOST_GID=%s\n' "$(id -u)" "$(id -g)" >>"${BUNDLE}/selfhost/.env"
 (cd "${BUNDLE}/selfhost" && docker compose config --images >"${RUN_DIR}/compose-images.txt") \
   || fail "standalone bundle does not render with Docker Compose"
-for expected_image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$CADDY_IMAGE"; do
+for expected_image in "$BACKEND_IMAGE" "$CADDY_IMAGE" "$BACKUP_IMAGE"; do
   grep -Fqx "$expected_image" "${RUN_DIR}/compose-images.txt" \
     || fail "rendered Compose omits release image: ${expected_image}"
 done
@@ -368,13 +390,15 @@ if (cd "${BUNDLE}/selfhost" && docker compose config --format json | jq -e \
 fi
 
 set +e
-"$BUILDER" \
+run_builder \
   --version "v${RELEASE_VERSION}" \
   --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 1700000000 \
   --backend-image ghcr.io/example/chronicle-backend:latest \
   --frontend-image "$FRONTEND_IMAGE" \
   --caddy-image "$CADDY_IMAGE" \
+  --backup-image "$BACKUP_IMAGE" \
+  --grafana-image "$GRAFANA_IMAGE" \
   --output-dir "${RUN_DIR}/invalid" >"${RUN_DIR}/invalid.log" 2>&1
 invalid_status=$?
 set -e
@@ -382,17 +406,36 @@ set -e
 grep -Fq 'must be an immutable name@sha256 reference' "${RUN_DIR}/invalid.log" \
   || fail "mutable-image rejection was not comprehensible"
 
+set +e
+run_builder \
+  --version "v${RELEASE_VERSION}" \
+  --source-revision "$SOURCE_REVISION" \
+  --source-date-epoch 1700000000 \
+  --backend-image "$MISLABELLED_IMAGE" \
+  --frontend-image "$FRONTEND_IMAGE" \
+  --caddy-image "$CADDY_IMAGE" \
+  --backup-image "$BACKUP_IMAGE" \
+  --grafana-image "$GRAFANA_IMAGE" \
+  --output-dir "${RUN_DIR}/mislabelled" >"${RUN_DIR}/mislabelled.log" 2>&1
+invalid_status=$?
+set -e
+[[ "$invalid_status" -ne 0 ]] || fail "builder accepted an image built from another source tree"
+grep -Fq 'backend image was not built from the declared source inputs tree' "${RUN_DIR}/mislabelled.log" \
+  || fail "source-tree provenance rejection was not comprehensible"
+
 invalid_version_index=0
 for invalid_version in v01.2.3 v1.2.3-01 v1.2.3-rc.; do
   invalid_version_index=$((invalid_version_index + 1))
   set +e
-  "$BUILDER" \
+  run_builder \
     --version "$invalid_version" \
     --source-revision "$SOURCE_REVISION" \
     --source-date-epoch 1700000000 \
     --backend-image "$BACKEND_IMAGE" \
     --frontend-image "$FRONTEND_IMAGE" \
     --caddy-image "$CADDY_IMAGE" \
+    --backup-image "$BACKUP_IMAGE" \
+    --grafana-image "$GRAFANA_IMAGE" \
     --output-dir "${RUN_DIR}/invalid-version-${invalid_version_index}" \
     >"${RUN_DIR}/invalid-version-${invalid_version_index}.log" 2>&1
   invalid_status=$?
@@ -403,13 +446,15 @@ done
 
 overflow_dir="${RUN_DIR}/invalid-source-date"
 set +e
-"$BUILDER" \
+run_builder \
   --version "v${RELEASE_VERSION}" \
   --source-revision "$SOURCE_REVISION" \
   --source-date-epoch 4294967296 \
   --backend-image "$BACKEND_IMAGE" \
   --frontend-image "$FRONTEND_IMAGE" \
   --caddy-image "$CADDY_IMAGE" \
+  --backup-image "$BACKUP_IMAGE" \
+  --grafana-image "$GRAFANA_IMAGE" \
   --output-dir "$overflow_dir" >"${RUN_DIR}/invalid-source-date.log" 2>&1
 invalid_status=$?
 set -e
