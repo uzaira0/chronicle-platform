@@ -67,9 +67,10 @@ export function uploadAcknowledged(response, rows, usage) {
   try {
     const receipt = response.json();
     if (!usage) return receipt === rows.length;
-    if (!Array.isArray(receipt.acceptedIds) || !Array.isArray(receipt.discardedIds) || !Array.isArray(receipt.heldIds)) return false;
+    // UploadReceipt (chronicle-models) partitions the submitted IDs into accepted and discarded only.
+    if (!Array.isArray(receipt.acceptedIds) || !Array.isArray(receipt.discardedIds)) return false;
     const ids = new Set(receipt.acceptedIds);
-    return receipt.discardedIds.length === 0 && receipt.heldIds.length === 0 && ids.size === rows.length
+    return receipt.discardedIds.length === 0 && ids.size === rows.length
       && rows.every(event => ids.has(event.clientEventId));
   } catch (_) {
     return false;

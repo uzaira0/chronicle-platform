@@ -37,7 +37,7 @@ function respond(method: string, url: string, body?: string, options?: { headers
   } };
   if (path.endsWith('/enroll')) payload = { apiKey: headers[headerNames.proposedApiKey] };
   if (path.endsWith('/android') && method === 'post') payload = {
-    acceptedIds: JSON.parse(body ?? '[]').map((event: { clientEventId: string }) => event.clientEventId), discardedIds: [], heldIds: [], settingsVersion: 1,
+    acceptedIds: JSON.parse(body ?? '[]').map((event: { clientEventId: string }) => event.clientEventId), discardedIds: [], settingsVersion: 1,
   };
   if (path.endsWith('/android/sensors') && method === 'post') payload = JSON.parse(body ?? '[]').length;
   if (method === 'delete' && path.endsWith('/participants')) payload = [operationIdFor()];
