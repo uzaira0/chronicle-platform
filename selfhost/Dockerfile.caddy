@@ -18,10 +18,13 @@ FROM caddy:2.11.7-builder-alpine@sha256:bb53bc0dd94d5e93eca88bac50e435fd5f9dc6cc
 # (trivy gate in scripts/publish-images.sh). Drop each replace once Caddy's go.mod reaches it.
 # go-jose v3 (via smallstep/certificates, the local-https CA) has no fixed release: build it from
 # v3.0.5 plus go-jose's own v4 fix a0111f82 (bound RSA modulus, check p*q == n) for CVE-2026-116587.
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 COPY selfhost/caddy/go-jose-v3-rsa-bounds.patch /patches/
 RUN dir="$(go mod download -json github.com/go-jose/go-jose/v3@v3.0.5 | sed -n 's/^\t"Dir": "\(.*\)",$/\1/p')" && \
-    cp -R "$dir" /go-jose-v3 && chmod -R u+w /go-jose-v3 && \
-    cd /go-jose-v3 && git apply /patches/go-jose-v3-rsa-bounds.patch && CGO_ENABLED=0 go test ./...
+    cp -R "$dir" /go-jose-v3 && chmod -R u+w /go-jose-v3
+WORKDIR /go-jose-v3
+RUN git apply /patches/go-jose-v3-rsa-bounds.patch && CGO_ENABLED=0 go test ./...
+WORKDIR /usr/bin
 RUN xcaddy build v2.11.7 \
     --with github.com/mholt/caddy-ratelimit@v0.1.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
@@ -31,7 +34,6 @@ RUN xcaddy build v2.11.7 \
 # The binary links BSD- and MIT-licensed Go modules whose notices must ship with it. Copy the
 # license files of every module the binary records (after replacements) from the module cache;
 # a module without one fails the build. Cache paths escape capitals as "!" plus lowercase.
-SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 RUN cache="$(go env GOMODCACHE)" && \
     go version -m /usr/bin/caddy | \
     awk '$1 == "dep" { module[++n] = $2 "@" $3 } $1 == "=>" { module[n] = ($2 ~ /^\// ? $2 : $2 "@" $3) } END { for (i = 1; i <= n; i++) print module[i] }' | \

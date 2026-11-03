@@ -264,7 +264,7 @@ for image_contract in \
   "overlays/monitoring.yml|$SELFHOST_SOCKET_PROXY_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_VM_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_VL_IMAGE" \
-  "overlays/monitoring.yml|$SELFHOST_FLUENT_BIT_IMAGE" \
+  "Dockerfile.fluentbit|$SELFHOST_FLUENT_BIT_IMAGE" \
   "Dockerfile.grafana|$SELFHOST_GRAFANA_IMAGE"; do
   selfhost_file="${image_contract%%|*}"
   selfhost_image="${image_contract#*|}"

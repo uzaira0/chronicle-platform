@@ -15,6 +15,7 @@ CADDY_IMAGE='ghcr.io/example/chronicle-selfhost-caddy@sha256:ccccccccccccccccccc
 BACKUP_IMAGE='ghcr.io/example/chronicle-selfhost-backup@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
 GRAFANA_IMAGE='ghcr.io/example/chronicle-selfhost-grafana@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 POSTGRES_IMAGE='ghcr.io/example/chronicle-selfhost-postgres@sha256:9999999999999999999999999999999999999999999999999999999999999999'
+FLUENTBIT_IMAGE='ghcr.io/example/chronicle-selfhost-fluentbit@sha256:8888888888888888888888888888888888888888888888888888888888888888'
 PRIVATE_REGISTRY_IMAGE='registry.example.org:5443/chronicle/backend@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
 
 fail() {
@@ -57,7 +58,7 @@ cat >"${RUN_DIR}/bin/docker" <<STUB
 if [[ "\$1 \$2" == "image inspect" ]]; then
   case "\${@: -1}" in
     "$MISLABELLED_IMAGE") echo 0000000000000000000000000000000000000000; exit 0 ;;
-    "$BACKEND_IMAGE"|"$FRONTEND_IMAGE"|"$CADDY_IMAGE"|"$BACKUP_IMAGE"|"$GRAFANA_IMAGE"|"$POSTGRES_IMAGE"|"$PRIVATE_REGISTRY_IMAGE")
+    "$BACKEND_IMAGE"|"$FRONTEND_IMAGE"|"$CADDY_IMAGE"|"$BACKUP_IMAGE"|"$GRAFANA_IMAGE"|"$POSTGRES_IMAGE"|"$FLUENTBIT_IMAGE"|"$PRIVATE_REGISTRY_IMAGE")
       echo "$INPUTS_TREE"; exit 0 ;;
   esac
 fi
@@ -110,6 +111,7 @@ build_bundle() {
     --backup-image "$BACKUP_IMAGE" \
     --grafana-image "$GRAFANA_IMAGE" \
     --postgres-image "$POSTGRES_IMAGE" \
+    --fluentbit-image "$FLUENTBIT_IMAGE" \
     --output-dir "$output_dir" >/dev/null
 }
 
@@ -126,6 +128,7 @@ run_builder \
   --backup-image "$BACKUP_IMAGE" \
   --grafana-image "$GRAFANA_IMAGE" \
   --postgres-image "$POSTGRES_IMAGE" \
+  --fluentbit-image "$FLUENTBIT_IMAGE" \
   --output-dir "${RUN_DIR}/private-registry" >/dev/null \
   || fail "builder rejected an immutable image in a private registry with an explicit port"
 grep -Fqx "BACKEND_IMAGE=${PRIVATE_REGISTRY_IMAGE}" \
@@ -403,6 +406,7 @@ run_builder \
   --backup-image "$BACKUP_IMAGE" \
   --grafana-image "$GRAFANA_IMAGE" \
   --postgres-image "$POSTGRES_IMAGE" \
+  --fluentbit-image "$FLUENTBIT_IMAGE" \
   --output-dir "${RUN_DIR}/invalid" >"${RUN_DIR}/invalid.log" 2>&1
 invalid_status=$?
 set -e
@@ -421,6 +425,7 @@ run_builder \
   --backup-image "$BACKUP_IMAGE" \
   --grafana-image "$GRAFANA_IMAGE" \
   --postgres-image "$POSTGRES_IMAGE" \
+  --fluentbit-image "$FLUENTBIT_IMAGE" \
   --output-dir "${RUN_DIR}/mislabelled" >"${RUN_DIR}/mislabelled.log" 2>&1
 invalid_status=$?
 set -e
@@ -442,6 +447,7 @@ for invalid_version in v01.2.3 v1.2.3-01 v1.2.3-rc.; do
     --backup-image "$BACKUP_IMAGE" \
     --grafana-image "$GRAFANA_IMAGE" \
     --postgres-image "$POSTGRES_IMAGE" \
+    --fluentbit-image "$FLUENTBIT_IMAGE" \
     --output-dir "${RUN_DIR}/invalid-version-${invalid_version_index}" \
     >"${RUN_DIR}/invalid-version-${invalid_version_index}.log" 2>&1
   invalid_status=$?
@@ -462,6 +468,7 @@ run_builder \
   --backup-image "$BACKUP_IMAGE" \
   --grafana-image "$GRAFANA_IMAGE" \
   --postgres-image "$POSTGRES_IMAGE" \
+  --fluentbit-image "$FLUENTBIT_IMAGE" \
   --output-dir "$overflow_dir" >"${RUN_DIR}/invalid-source-date.log" 2>&1
 invalid_status=$?
 set -e

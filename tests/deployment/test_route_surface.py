@@ -226,7 +226,8 @@ class CaddyLogRedactionTests(unittest.TestCase):
     def fluent_bit(self, raw):
         """The shipped parser and Lua filters, fed the way Docker's fluentd driver wraps a line: {"log": line}."""
         import yaml
-        image = yaml.safe_load((ROOT / "selfhost/overlays/monitoring.yml").read_text())["services"]["fluent-bit"]["image"]
+        # The vendor parent of selfhost/Dockerfile.fluentbit, which changes only libbrotli1.
+        image = yaml.safe_load((ROOT / "toolchain-manifest.yaml").read_text())["selfhost_images"]["fluent_bit"]
         source = self.folder / "caddy-raw.log"
         source.write_text("".join(line + "\n" for line in raw))
         source.chmod(0o644)

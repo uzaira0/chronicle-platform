@@ -54,8 +54,8 @@ class PostgresLoggingTests(PgTdeFixture):
         self.assertNotIn('SELECT', json.dumps(event))
 
     def parse_log(self, line):
-        overlay = yaml.safe_load((ROOT / 'selfhost/overlays/monitoring.yml').read_text())['services']
-        image = overlay['fluent-bit']['image']
+        # The vendor parent of Dockerfile.fluentbit, which changes only libbrotli1.
+        image = yaml.safe_load((ROOT / 'toolchain-manifest.yaml').read_text())['selfhost_images']['fluent_bit']
         config_root = Path(os.environ.get('SELFHOST_MONITORING_TEST_DIR', ROOT / 'selfhost/monitoring'))
         config = self.work / 'fluent-bit.conf'
         config.write_text('''[SERVICE]

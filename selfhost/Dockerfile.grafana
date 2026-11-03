@@ -11,6 +11,7 @@ RUN wget -q -O /plugin.zip https://grafana.com/api/plugins/victoriametrics-logs-
 # CGO off, -trimpath, -buildvcs=false, version ldflags) and go-jose raised to 4.1.8.
 # Drop this stage once a Grafana release image links go-jose 4.1.6 or newer.
 FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS server
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN git clone --quiet --depth 1 --branch v13.2.4 https://github.com/grafana/grafana /src && \
     test "$(git -C /src rev-parse HEAD)" = af4a33e3786594ad72f72d97e6744010330c2977
 WORKDIR /src

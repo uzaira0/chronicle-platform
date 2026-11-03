@@ -23,7 +23,7 @@ fail() { printf 'monitoring-config: %s\n' "$*" >&2; exit 1; }
 case "$GRAFANA_ADMIN_PASSWORD" in *CHANGE_ME*|*changeme*) fail "Grafana password is a placeholder" ;; esac
 # The same release digest rule as config-guard, for the images this stack runs from .env.
 if [[ "${RELEASE_VERSION:-development}" != development ]]; then
-  for image_var in POSTGRES_IMAGE CADDY_IMAGE GRAFANA_IMAGE; do
+  for image_var in POSTGRES_IMAGE CADDY_IMAGE GRAFANA_IMAGE FLUENT_BIT_IMAGE; do
     [[ "${!image_var:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] ||
       fail "${image_var} must be digest-pinned (name@sha256:...) in a release"
   done

@@ -237,10 +237,12 @@ class TopologyTests(unittest.TestCase):
     def test_monitoring_start_refuses_unpinned_release_images(self):
         pinned = 'registry.example/chronicle@sha256:' + 'a' * 64
         environment = dict(os.environ, METRICS_PASSWORD='m' * 32, GRAFANA_ADMIN_PASSWORD='g' * 32,
-                           RELEASE_VERSION='2026.10.21', POSTGRES_IMAGE=pinned, CADDY_IMAGE=pinned, GRAFANA_IMAGE=pinned)
+                           RELEASE_VERSION='2026.10.21', POSTGRES_IMAGE=pinned, CADDY_IMAGE=pinned, GRAFANA_IMAGE=pinned,
+                           FLUENT_BIT_IMAGE=pinned)
         script = ['bash', str(ROOT / 'selfhost/monitoring/render-config.sh')]
         for overrides, refused in ((dict(CADDY_IMAGE='caddy:latest'), True),
                                    (dict(GRAFANA_IMAGE=''), True),
+                                   (dict(FLUENT_BIT_IMAGE='fluent/fluent-bit:latest'), True),
                                    (dict(CADDY_IMAGE='caddy:latest', RELEASE_VERSION='development'), False),
                                    ({}, False)):
             with self.subTest(**overrides):

@@ -36,10 +36,13 @@ the image under /usr/share/doc.
 project from the pinned Percona Distribution for PostgreSQL image (https://github.com/percona/postgres)
 with unused packages removed.
 
+`ghcr.io/uzaira0/chronicle-selfhost-fluentbit` (monitoring overlay) is the pinned Fluent Bit image
+(Apache-2.0, https://github.com/fluent/fluent-bit) with Debian's security build of libbrotli1 (MIT)
+in place of the shipped one.
+
 | Image | Used by | Upstream |
 |---|---|---|
 | `victoriametrics/victoria-metrics`, `victoriametrics/victoria-logs` | monitoring overlay | https://github.com/VictoriaMetrics/VictoriaMetrics |
-| `fluent/fluent-bit` | monitoring overlay | https://github.com/fluent/fluent-bit |
 | `ghcr.io/google/cadvisor` | monitoring overlay | https://github.com/google/cadvisor |
 | `tecnativa/docker-socket-proxy` | monitoring overlay | https://github.com/Tecnativa/docker-socket-proxy |
 

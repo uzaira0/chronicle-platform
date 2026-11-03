@@ -449,7 +449,7 @@ class UpstreamRuntimeTests(unittest.TestCase):
                 try:
                     with patch.object(images, 'run', side_effect=docker), patch.object(images.SourceImage, 'archive', archive), \
                          patch.dict(os.environ, BACKUP_IMAGE=backup, CADDY_IMAGE='__CHRONICLE_SELFHOST_CADDY_IMAGE__'):
-                        for name in ('BACKEND_IMAGE', 'SELFHOST_FRONTEND_IMAGE', 'GRAFANA_IMAGE', 'POSTGRES_IMAGE'):
+                        for name in ('BACKEND_IMAGE', 'SELFHOST_FRONTEND_IMAGE', 'GRAFANA_IMAGE', 'POSTGRES_IMAGE', 'FLUENT_BIT_IMAGE'):
                             os.environ.pop(name, None)
                         if failing:
                             with self.assertRaises(subprocess.CalledProcessError):

@@ -80,6 +80,7 @@ services:
       POSTGRES_IMAGE: ${POSTGRES_IMAGE:-}
       CADDY_IMAGE: ${CADDY_IMAGE:-}
       GRAFANA_IMAGE: ${GRAFANA_IMAGE:-}
+      FLUENT_BIT_IMAGE: ${FLUENT_BIT_IMAGE:-}
     volumes:
       - ./monitoring/render-config.sh:/monitoring/render-config.sh:ro,z
       - ./network-policy.sh:/network-policy.sh:ro,z
@@ -312,7 +313,7 @@ services:
       test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:9428/health"]
   fluent-bit:
     networks: [monitoring]
-    image: fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845
+    image: ${FLUENT_BIT_IMAGE:?set FLUENT_BIT_IMAGE in .env}
     restart: unless-stopped
     logging: *default-logging
     user: "100:101"
@@ -411,6 +412,7 @@ services:
     user: "0:0"
     environment:
       GRAFANA_IMAGE: ${GRAFANA_IMAGE:?set GRAFANA_IMAGE in .env}
+      FLUENT_BIT_IMAGE: ${FLUENT_BIT_IMAGE:?set FLUENT_BIT_IMAGE in .env}
       MONITORING_ENABLED: "true"
       GRAFANA_BIND: ${GRAFANA_BIND:-127.0.0.1}
       GRAFANA_PORT: ${GRAFANA_PORT:-3000}
