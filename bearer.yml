@@ -2,15 +2,15 @@
 # (see .github/workflows/analysis.yml :: bearer job, scanner: sast).
 #
 # Why this skip-path:
-# Bearer is a sensitive-data-flow (PII/PHI) SAST tool aimed at Chronicle's own
+# Bearer is a sensitive-data-flow SAST tool aimed at Chronicle's own
 # Kotlin/TypeScript code. A `bearer scan .` of the whole tree also descends into
 # docker/traefik/plugins-local/.../crowdsec-bouncer-traefik-plugin/ — a VENDORED,
 # upstream, SHA-pinned third-party Go plugin (the CrowdSec Traefik bouncer) that
 # Chronicle does not author or maintain. Every finding Bearer produced (2 critical,
 # 9 high, 1 medium) was located in that vendored plugin and its own vendored deps,
 # and was a generic gosec Go rule (command/subproc, file-permission, SSRF,
-# InsecureSkipVerify, permissive regex) — NONE were PII/PHI data-flow findings, and
-# NONE were in Chronicle source. Bearer detected ZERO PII/PHI data subjects in the
+# InsecureSkipVerify, permissive regex) — NONE were personal-data flow findings, and
+# NONE were in Chronicle source. Bearer detected ZERO personal-data subjects in the
 # project's own code.
 #
 # Skipping the vendored plugin scopes Bearer to first-party code (its intended
@@ -20,3 +20,11 @@
 scan:
   skip-path:
     - "docker/traefik/plugins-local"
+rule:
+  # Python here is the operator CLI and build/test scripts. No Python handles network or
+  # participant input; their paths come from the install directory and the operator's own
+  # arguments, so the Python path-traversal rules only re-flag the operator's own choices.
+  # Kotlin and TypeScript path rules stay on.
+  skip-rule:
+    - python_lang_path_traversal
+    - python_lang_path_using_user_input

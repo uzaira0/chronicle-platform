@@ -95,76 +95,76 @@
     "false_positive": true,
     "ignored_at": "2026-10-09T00:00:00Z"
   },
-  "8ec0723e200784c7ec8406351e60872e_0": {
+  "ff16809942cc066a6facf1923f5f9970_0": {
     "author": "chronicle",
-    "comment": "selfhost/backup-image/selfcheck.py:66 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "os.execv replaces this process with the signature-verified release operator and fixed upgrade/--from argv. The verified bundle must own signals and rollback traps; spawning a child breaks interruption recovery. No shell or evaluated code.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-10-16T00:00:00Z"
   },
-  "fa67f15cfee808e6c42e633bf2ac0c47_0": {
+  "9a08db01ba6e1f8e1426bd83ae2dbe00_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/dump.py:31 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "Local CI runs the caller-selected argv directly through Popen without a shell. start_new_session isolates the command so timeout signals reach only the process group this wrapper created. CI command execution is the intended trust boundary.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-10-16T00:00:00Z"
   },
-  "fa67f15cfee808e6c42e633bf2ac0c47_1": {
+  "f187bd2327048228706883fbaa912501_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/dump.py:43 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "This exception names an offending member in a public release archive, not participant data or credentials. repr escapes newlines/control characters and preserves the diagnostic needed to inspect unsafe/duplicate members.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-10-16T00:00:00Z"
   },
-  "fa67f15cfee808e6c42e633bf2ac0c47_2": {
+  "f43f5192af941a266c59a1abbea25767_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/dump.py:65 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/i18n-lint-cases.py:29 False positive: developer-run lint self-test; subprocess.run takes an argv list without a shell, and the cases path is the developer's own argument.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-10-23T00:00:00Z"
   },
-  "86d6c592a51f203478dec16a5ceb32ba_0": {
+  "f43f5192af941a266c59a1abbea25767_1": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/receipts.py:45 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/i18n-lint-cases.py:37 False positive: developer-run lint self-test; subprocess.run takes an argv list without a shell, and the cases path is the developer's own argument.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-10-23T00:00:00Z"
   },
-  "86d6c592a51f203478dec16a5ceb32ba_1": {
+  "8462e975df41c1e7c47582477f17c4a4_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/receipts.py:77 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/check-dependency-overrides.py:21 False positive: subprocess receives an argv list (no shell); git runs with fixed arguments over repository paths the checker enumerates itself.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   },
-  "457613a070534ad4c4044427182b656c_0": {
+  "9d1c72b9c453b90b76de13b72b700376_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/reconcile.py:47 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/check-detekt-waiver-source.py:127 False positive: subprocess receives an argv list (no shell); git runs with fixed arguments over repository paths the checker enumerates itself.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   },
-  "457613a070534ad4c4044427182b656c_1": {
+  "8623497d2875eb3f2793934a4a7ac1d7_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/reconcile.py:71 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/check-machine-paths.py:20 False positive: subprocess receives an argv list (no shell); git runs with fixed arguments over repository paths the checker enumerates itself.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   },
-  "2c0b904f2379ffbbf82dab572241569b_0": {
+  "8623497d2875eb3f2793934a4a7ac1d7_1": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/release.py:31 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/check-machine-paths.py:25 False positive: subprocess receives an argv list (no shell); git grep takes the checker's fixed path patterns and literal pathspec exclusions.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   },
-  "2c0b904f2379ffbbf82dab572241569b_1": {
+  "0e093084955f353ba14f0212e3c01349_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/release.py:266 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/check-python-dev-pins.py:84 False positive: subprocess receives an argv list (no shell); git runs with fixed arguments over repository paths the checker enumerates itself.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   },
-  "2c0b904f2379ffbbf82dab572241569b_2": {
+  "cb3d607ae5ae5eeb17faec2d752cb378_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/release.py:307 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/check-python-shell.py:13 False positive: subprocess receives an argv list (no shell); git runs with fixed arguments over repository paths the checker enumerates itself.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   },
-  "2c0b904f2379ffbbf82dab572241569b_3": {
+  "3f423e53bc78e24bb4b165c54c266d43_0": {
     "author": "chronicle",
-    "comment": "selfhost/chronicle_ops/release.py:404 False positive: operator-owned local state, backup or bundle path; release manifest entries are rejected unless relative, traversal-free and checksummed before use.",
+    "comment": "scripts/web_dependency_age.py:95 False positive: subprocess receives an argv list (no shell); curl gets fixed flags and a registry URL whose package name is percent-encoded.",
     "false_positive": true,
-    "ignored_at": "2026-10-09T00:00:00Z"
+    "ignored_at": "2026-11-02T00:00:00Z"
   }
 }

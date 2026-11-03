@@ -1,6 +1,4 @@
-# Grype configuration — auto-loaded by `grype dir:.` and anchore/scan-action
-# (see .github/workflows/analysis.yml :: grype job, which runs `path: .` with
-# fail-build: true).
+# Grype configuration loaded by scripts/local-ci.sh job_grype.
 #
 # Why these exclusions:
 # `grype dir:.` walks the ENTIRE working tree, including build outputs and the
@@ -19,8 +17,7 @@
 # trusted; it is not a resolved dependency manifest, so scanning it reports
 # historical versions that are absent from every runtime graph.
 #
-# Resolved runtime vulnerabilities remain blocking except for the explicit,
-# package-and-version-scoped acceptances documented below.
+# Resolved runtime vulnerabilities remain blocking.
 exclude:
   - './.gradle/**'
   - '**/.gradle/**'
@@ -30,109 +27,4 @@ exclude:
   - '**/gradle/verification-metadata.xml'
   - './docker/traefik/plugins-local/**/vendor/**'
 
-# Documented, package+version-scoped ignores for the residual findings that remain
-# after the runtime CVE bumps (netty 4.2.15.Final, grpc 1.75.0, bcpkix 1.84,
-# poi-ooxml 5.4.0, commons-compress 1.26.0 on the runtime/compile classpath). Each
-# rule below matches a SPECIFIC vulnerable package+version that is either confined
-# to a build-time-only tool classpath (Checkstyle/SpotBugs/Dokka/PIT/test fixtures,
-# never compiled into or shipped with the runtime artifact) or is a runtime dep
-# whose vulnerable code path is unreachable and whose fixed release cannot be
-# adopted without an out-of-scope source change. The patched runtime version of
-# each library (where one exists on the runtime classpath) is NOT covered by these
-# rules, so any regression to a vulnerable runtime version still fails the build.
-# Rationale mirrors the per-module gradle osv-scanner.toml files.
-ignore:
-  # commons-lang3 3.17.0 / 3.14.0 — GHSA-j288-q9x7-2f5v (CVE-2025-48924).
-  # Uncontrolled-recursion DoS in ClassUtils.getClass(String); that API is unused
-  # in the codebase (verified by source grep). The 3.18.0 fix deprecates
-  # StringUtils.removeStart / StringUtils.equals which are used in -Werror Kotlin
-  # source, so it cannot be adopted without an out-of-scope source edit.
-  - vulnerability: GHSA-j288-q9x7-2f5v
-    package:
-      name: commons-lang3
-      version: 3.17.0
-  - vulnerability: GHSA-j288-q9x7-2f5v
-    package:
-      name: commons-lang3
-      version: 3.14.0   # pitest-only mutation-testing tool classpath
-  # guava 19.0 — Checkstyle 7.4's own bundled dependency (checkstyle config only).
-  # Build-time static-analysis tool; never on the runtime/compile classpath.
-  - vulnerability: GHSA-5mg8-w23w-74h3
-    package:
-      name: guava
-      version: "19.0"
-  - vulnerability: GHSA-7g45-4rm6-3mm3
-    package:
-      name: guava
-      version: "19.0"
-  - vulnerability: GHSA-mvr2-9pj6-7w5j
-    package:
-      name: guava
-      version: "19.0"
-  # checkstyle 7.4 — the build-time static-analysis tool itself (never shipped).
-  # XXE advisories only affect parsing of untrusted Checkstyle config; we feed it
-  # our trusted in-repo checkstyle.xml.
-  - vulnerability: GHSA-763g-fqq7-48wg
-    package:
-      name: checkstyle
-      version: "7.4"
-  - vulnerability: GHSA-gp32-7h29-rpxm
-    package:
-      name: checkstyle
-      version: "7.4"
-  # log4j-core 2.25.2 — SpotBugs 4.9.8's own dependency (spotbugs config only).
-  # The application's runtime log4j-core is 2.25.4 (patched).
-  - vulnerability: GHSA-3pxv-7cmr-fjr4
-    package:
-      name: log4j-core
-      version: 2.25.2
-  - vulnerability: GHSA-445c-vh5m-36rj
-    package:
-      name: log4j-core
-      version: 2.25.2
-  - vulnerability: GHSA-6hg6-v5c8-fphq
-    package:
-      name: log4j-core
-      version: 2.25.2
-  - vulnerability: GHSA-vc5p-v9hr-52mj
-    package:
-      name: log4j-core
-      version: 2.25.2
-  # woodstox-core 6.2.4 — Dokka doc-generation classpath only (dokka*Runtime).
-  # The application's runtime woodstox-core is 7.1.1 (patched).
-  - vulnerability: GHSA-3f7h-mf4q-vrm4
-    package:
-      name: woodstox-core
-      version: 6.2.4
-  # commons-compress 1.24.0 — test-only fixture (tmpTestImplementation config).
-  # The application's runtime commons-compress is forced to 1.26.0 (patched).
-  - vulnerability: GHSA-4265-ccf5-phj5
-    package:
-      name: commons-compress
-      version: 1.24.0
-  - vulnerability: GHSA-4g9r-vxhx-9pgx
-    package:
-      name: commons-compress
-      version: 1.24.0
-  # jackson-databind 2.12.7.1 — Dokka doc-generation classpath only (dokka*Runtime).
-  # Pulled transitively by the Dokka plugin; never on the compile/runtime classpath, never shipped.
-  - vulnerability: GHSA-3wrr-7qpf-2prh
-    package:
-      name: jackson-databind
-      version: 2.12.7.1
-  - vulnerability: GHSA-5jmj-h7xm-6q6v
-    package:
-      name: jackson-databind
-      version: 2.12.7.1
-  - vulnerability: GHSA-hgj6-7826-r7m5
-    package:
-      name: jackson-databind
-      version: 2.12.7.1
-  - vulnerability: GHSA-j3rv-43j4-c7qm
-    package:
-      name: jackson-databind
-      version: 2.12.7.1
-  - vulnerability: GHSA-rmj7-2vxq-3g9f
-    package:
-      name: jackson-databind
-      version: 2.12.7.1
+ignore: []

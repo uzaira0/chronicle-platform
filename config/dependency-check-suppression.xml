@@ -17,7 +17,7 @@
          appear on the `checkstyle` / `spotbugs` Gradle configurations. They
          run on the developer/CI machine at build time and are never deployed
          in the chronicle-server runtime image, so they pose no risk to the
-         PHI backend. Suppressions are scoped to the exact build-tool GAV so
+         backend. Suppressions are scoped to the exact build-tool GAV so
          any real (shipped) occurrence of these libraries would still fail.
          Verified 2026-06-22 via dependency-check report projectReferences:
            guava-19.0      <= chronicle-api:checkstyle
@@ -72,7 +72,6 @@
          and future — while a genuine expressly-vendored advisory (correct CPE)
          would still fail the gate. Confirmed 2026-07-18: no real advisory exists
          for org.glassfish.expressly:expressly 5.0.0.
-         See docs/security/pentest-2026-findings.md (F-3).
          ==================================================================== -->
     <suppress>
         <notes><![CDATA[
@@ -100,11 +99,11 @@
          The real fix is upgrading the Kotlin toolchain to >= 2.4.20, which is
          NOT YET RELEASED as a stable version (only 2.4.20-Beta1 exists on Maven
          Central as of 2026-07-18; latest stable is 2.4.10, still affected). We
-         will not pin the HIPAA backend build to a beta compiler. This is a
+         will not pin the backend build to a beta compiler. This is a
          CVE-scoped (not CPE-scoped) suppression so any genuine future stdlib
          advisory still fails the gate; it becomes inert once we upgrade to a
          fixed version (a fixed version is simply not flagged). Remove this entry
-         at the Kotlin 2.4.20 GA upgrade. See docs/security/pentest-2026-findings.md.
+         at the Kotlin 2.4.20 GA upgrade.
          ==================================================================== -->
     <suppress>
         <notes><![CDATA[
@@ -132,16 +131,6 @@
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.latencyutils/LatencyUtils@.*$</packageUrl>
         <cve>CVE-2021-4277</cve>
-    </suppress>
-
-    <suppress>
-        <notes><![CDATA[
-            CVE-2025-7962 is an SMTP command-injection issue in Jakarta Mail /
-            Angus SMTP. org.eclipse.angus:angus-activation is the Jakarta
-            Activation implementation and contains no SMTP transport.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.eclipse\.angus/angus-activation@.*$</packageUrl>
-        <cve>CVE-2025-7962</cve>
     </suppress>
 
     <suppress>
@@ -186,12 +175,16 @@
 
     <suppress until="2026-11-08Z">
         <notes><![CDATA[
-            jackson-databind copies shaded inside hazelcast 5.7.0 (no newer Hazelcast OSS release). Bytecode scan:
-            no Hazelcast class references the shaded databind; metadata uses jackson-core, Jet JSON uses
-            jackson-jr. Chronicle's own databind is 2.22.3 with a Chronicle-namespace subtype validator.
+            Hazelcast 5.7.0 bundles jackson-databind 2.21.2 and 3.1.2 under
+            com.hazelcast.shaded.com.fasterxml.jackson.databind (812 classes) and
+            com.hazelcast.shaded.tools.jackson.databind (904 classes). Verified 2026-10-17:
+            all 9,435 classes outside those packages have zero constant-pool references to either
+            package (internal names and dotted strings scanned); the bundled classes reference themselves.
+            Jar SHA-256: 241ec66cea8491787f68c3336f069ac463877af50bdb7676cd9d538f1940dc33.
+            Covers every databind advisory on these two unreachable bundled copies until the review date.
+            Exact package/version pairs exclude Chronicle's direct jackson-databind 2.22.3.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/(com\.fasterxml|tools)\.jackson\.core/jackson-databind@(2\.21\.2|3\.1\.2)$</packageUrl>
-        <cve>CVE-2026-54512</cve>
-        <cve>CVE-2026-54513</cve>
+        <packageUrl regex="true">^pkg:maven/(com\.fasterxml\.jackson\.core/jackson-databind@2\.21\.2|tools\.jackson\.core/jackson-databind@3\.1\.2)$</packageUrl>
+        <vulnerabilityName regex="true">.*</vulnerabilityName>
     </suppress>
 </suppressions>
