@@ -38,7 +38,8 @@
     "fileMatch": [
       "(^|/)build\\.gradle(\\.kts)?$",
       "(^|/)settings\\.gradle(\\.kts)?$",
-      "(^|/)gradle\\.properties$"
+      "(^|/)gradle\\.properties$",
+      "(^|/)gradles/[^/]+\\.gradle$"
     ]
   },
 

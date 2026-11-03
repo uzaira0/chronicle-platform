@@ -3,7 +3,9 @@
 # scripts/verify-toolchain.sh enforces this file against the repo (wrappers,
 # workflows, Dockerfiles, package pins — root AND submodules). Change a version
 # HERE first, then update the pinned artifacts; the checker fails CI/local-ci on
-# any drift. Rationale for each choice: the "Deliberately not upgraded" section
+# any drift. docker/ and k8s/ are frozen and outside this
+# check until they are ported as selfhost overlays; their pins may lag this file.
+# Rationale for each choice: the "Deliberately not upgraded" section
 # and docs/db/MIGRATION-LEDGER-AUDIT.md (migrations).
 #
 # JDK model (two dials):
@@ -26,16 +28,17 @@ kotlin: "2.4.10"
 
 bun: "1.3.12"               # sole JS runtime — Node is not a dependency of this repo
 
-python: "3.12"              # floor for scripts/ tests/ selfhost/ helpers; python3 on PATH must be >= this, with PyYAML installed
-                            # (RHEL 9 ships 3.9 as /usr/bin/python3: `uv python install 3.14 --default`; then `uv pip install --system --break-system-packages --python "$(command -v python3)" pyyaml`)
+python: "3.12"              # floor for scripts/ tests/ selfhost/ helpers; python3 on PATH must be >= this, with requirements-dev.txt installed
+                            # (RHEL 9 ships 3.9 as /usr/bin/python3: `uv python install 3.14 --default`; then `uv pip install --system --break-system-packages --python "$(command -v python3)" --require-hashes -r requirements-dev.txt`)
+                            # requirements-dev.txt pins PyYAML and openpyxl with hashes; scripts/check-python-dev-pins.py fails on any other installed version
 
 postgres:
-  image: "percona/percona-distribution-postgresql:18.6.1-3"  # pg_tde pins prod; same image in dev/CI/testcontainers
-  index_digest: "sha256:cf1ef553805898b73764a19276bf2fc9f78148a0215761ad7491c37c3ed31327"
+  image: "percona/percona-distribution-postgresql:18.6.1-4"  # pg_tde pins prod; same image in dev/CI/testcontainers
+  index_digest: "sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e"
   # Percona, not stock Postgres, because pg_tde is a Percona extension and it IS the
   # encryption-at-rest model (init-db-encryption.sh, migrate-tde.sh, selfhost/init-tde.sh,
-  # rotate-tde-principal-key.sh, the HIPAA evidence). Percona tracks upstream:
-  # 18.6.1-3 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
+  # rotate-tde-principal-key.sh). Percona tracks upstream:
+  # 18.6.1-4 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
   #
   # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:
   #   - The data directory is not forward-compatible. An existing cluster needs a
@@ -46,7 +49,7 @@ postgres:
   #     do that themselves.
 
 keycloak_postgres:
-  image: "postgres:18.6-alpine"  # SSO tier only — stock Postgres, no pg_tde, no PHI
+  image: "postgres:18.6-alpine"  # SSO tier only — stock Postgres, no pg_tde, no participant data
   index_digest: "sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 
 selfhost_images:
@@ -58,21 +61,87 @@ selfhost_images:
   victoria_metrics: "victoriametrics/victoria-metrics:v1.153.0@sha256:5eff7af5341e401471002f58d106d399e614a62f3d240f2dbc21901e49eed5dd"
   victoria_logs: "victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d"
   fluent_bit: "fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845"
-  grafana: "grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572"
+  grafana: "grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f"
   keycloak: "quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc"
+
+semgrep: "1.182.0"
 
 flyway:
   version: "11.20.3"        # gradles/chronicle.gradle ext.flyway_version + scripts/flyway-migrate.sh image
 
-# Deliberately NOT upgraded (a Rust service layer replaces these; see
-# docs/architecture/SENSING-PLAN-LANGUAGE-ROADMAP.md):
-#   hazelcast: 5.5.0   android-agp: 9.0.1
-#
 # scripts/deps-freshness.sh compares every pin above with upstream and FAILS on a
 # major-version lag unless the component is listed here. Minor/patch lag is reported.
 freshness:
   accepted_behind:
-    - hazelcast          # kept on 5.5 with spring 6
-    - android-agp        # 9.0.x pinned to Gradle 9.3 pairing
     - flyway             # 12/13 changed licensing terms; review before moving
-    - vault              # 2.x is a licence change; stays on 1.x
+  # A direct chronicle-web dependency whose newest registry release is older than this is treated
+  # as unmaintained and fails deps-freshness (scripts/web_dependency_age.py), unless it is listed in
+  # web_stale_accepted as {name, reason, expires: YYYY-MM-DD}. Expired or stale entries also fail.
+  web_max_release_age_days: 1095
+  web_stale_accepted: []
+
+# Gate tools scripts/local-ci.sh downloads into .local/bin. The sha256 committed here for each
+# release asset (keyed by os-arch as machine_os/machine_arch print it, or "any" when one file serves
+# every platform) is the trust root: local-ci refuses a download whose bytes differ, and refuses a
+# release checksums file that disagrees, so a replaced asset plus a replaced checksums file cannot
+# pass. The version must equal the one local-ci.sh downloads. Each value was checked against both
+# the release's own checksums file and GitHub's recorded asset digest (detekt-cli
+# predates GitHub asset digests; its value is the one local-ci.sh committed earlier).
+gate_tools:
+  container-structure-test:
+    version: "v1.22.1"
+    sha256:
+      darwin-amd64: "1ca7265ed9061785a39cda83d5a8104c769bbf432dab40a269596ea6f1a13c45"
+      darwin-arm64: "ba00172029ecec3afda7fd93a5eee7cdaef710196df7103689da3386eba56b0a"
+      linux-amd64: "fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca"
+      linux-arm64: "801826ed107222120eb6df8c143b7de752cfebbe3aebfeea576e7098486917c2"
+  hadolint:
+    version: "v2.14.0"
+    sha256:
+      darwin-amd64: "2b69a853433f1eca522ffb921cd490bd1321424d03331fd8390f93b7fb4a02e9"
+      darwin-arm64: "3625e2e9f43dcfe7bd38738a5f5520ed50ce39ed28485266e6803dd7bc197b10"
+      linux-amd64: "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47"
+      linux-arm64: "331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed"
+  ast-grep:
+    version: "0.42.1"
+    sha256:
+      darwin-amd64: "a038965bfd7fe44257c771cdf8918dc3467dd8ec0eef673b8b14f639b144cdbd"
+      darwin-arm64: "c3961d8e8a4ee0ce2d0d98c7beeb168bb331cdc766b53630118a7b6c4fd39015"
+      linux-amd64: "5de8b87cba67fc8dc3e239d54b6484802ad745a7ae3de76be4fe89661dc52657"
+      linux-arm64: "3ba383839044cf9817929435f5ce0027f91d06931e8efb32d942e58d73d92be5"
+  pmd:
+    version: "7.18.0"
+    sha256:
+      any: "2edb886669c91e1dee6b745beb2f9129a899e7f402a21ad616f034455c0af74a"
+  bearer:
+    version: "2.0.2"
+    sha256:
+      darwin-amd64: "1abfa29acd12c5f0157354a6716576e873dc3244b375808cea979603a3ba6303"
+      darwin-arm64: "84f089005c643271572e45ebd507732b29326f4123602f7d6f5ca41844805717"
+      linux-amd64: "865c80c5f80aaca1f83e98bca4decb0fd5b5d024e13f8ec48e94d69430d0d23b"
+      linux-arm64: "cd6b64990c5df0cdfd88be1417fedfb0118f607897baac2f9cda9cb292f665a2"
+  osv-scanner:
+    version: "v2.3.8"
+    sha256:
+      darwin-amd64: "b8a80a9f14ca4c0cd0fc2d351b28f740da9e6a5b18385ac9f9d083360b5b504e"
+      darwin-arm64: "a8cd6507b06239f463a7642430cfd2d154882f150f6e30cdc0653e28dfc34216"
+      linux-amd64: "bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc"
+      linux-arm64: "8158b18edd2d03b1a30d905ca91b032bc62262167be8f206c27114f08823e27c"
+  grype:
+    version: "0.115.0"
+    sha256:
+      darwin-amd64: "f2c50aa2c00b633b24535dd44804f09d22b55a3f76d42b5290655af85e55aa64"
+      darwin-arm64: "a5faa957bca6f39e252a046b9431cd79745030c692dd400ab4c0c74266edc406"
+      linux-amd64: "3fad92940650e514c0aa2dad83526942a055e210cec09a8a59d9c024adc2b90e"
+      linux-arm64: "b8541b9ecc3e936e7db4ff14b71a9474b25f3898ccaad63ee0bfe3449fcd734d"
+  syft:
+    version: "1.46.0"
+    sha256:
+      darwin-amd64: "5c983db13533de02e5331aae88091116f25365840741f86234084a30166672a7"
+      darwin-arm64: "cd4e2c40e075684a5746d8959f76b6572bb2d2dda8cf6877dbfff1cc0baeea01"
+      linux-amd64: "d654f678b709eb53c393d38519d5ed7d2e57205529404018614cfefa0fb2b5ca"
+      linux-arm64: "9fafef4db4f032ce81008d3a1529985d41ceb6ccdf2b388c9ce2f1ed7d32082e"
+  detekt-cli:
+    version: "1.23.7"
+    sha256:
+      any: "84beded283012cb2b38bcaef4996452fcd6069d2e9ca74b50eaa79e0ad21897e"

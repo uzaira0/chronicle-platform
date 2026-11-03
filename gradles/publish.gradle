@@ -11,6 +11,10 @@ def jarname = ""
 def scmUrl = ""
 def connectionUrl = ""
 def developerConnectionUrl = ""
+def projectLicense = file('LICENSE')
+def mavenLicense = projectLicense.exists() && projectLicense.getText('UTF-8').contains('Version 3, 29 June 2007')
+        ? [name: 'GNU General Public License, version 3', url: 'https://www.gnu.org/licenses/gpl-3.0.html']
+        : [name: 'The Apache License, Version 2.0', url: 'http://www.apache.org/licenses/LICENSE-2.0.txt']
 
 // Check this project's OWN extra properties (ext.has), not the inherited
 // project property chain (project.hasProperty). In composite/multi-project
@@ -31,10 +35,12 @@ if (ext.has('projectName') && ext.has('scmUrl') && ext.has('connectionUrl') && e
 
 println "Basename for jars will be: " + jarname
 
+// A source tree without .git (a release archive) still configures; it just has no branch.
 def maybeBranch = providers.exec {
     workingDir rootProject.projectDir
     commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
-}.standardOutput.asText.get().trim()
+    ignoreExitValue = true
+}.standardOutput.asText.get().trim() ?: null
 def ghBranch = System.getenv("GITHUB_REF")
 println "Branch from git: " + maybeBranch
 println "Github ref: " + ghBranch
@@ -129,9 +135,12 @@ task sourcesJar(type: Jar) {
     from sourceSets.main.allSource
 }
 
-task javadocJar(type: Jar, dependsOn: javadoc) {
+def usesDokka = plugins.hasPlugin('org.jetbrains.dokka')
+def javadocProducer = tasks.named(usesDokka ? 'dokkaGeneratePublicationHtml' : 'javadoc')
+task javadocJar(type: Jar, dependsOn: javadocProducer) {
     archiveClassifier.set('javadoc')
-    from javadoc.destinationDir
+    from(usesDokka ? javadocProducer.flatMap { it.outputDirectory }
+                   : javadocProducer.map { it.destinationDir })
 }
 
 task testJar(type: Jar, dependsOn: testClasses) {
@@ -201,8 +210,8 @@ if (ext."signing.password" != null) {
 
                             licenses {
                                 license {
-                                    name 'The Apache License, Version 2.0'
-                                    url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                                    name mavenLicense.name
+                                    url mavenLicense.url
                                     distribution 'repo'
                                 }
                             }
@@ -263,8 +272,8 @@ if (ext."signing.password" != null) {
 
                             licenses {
                                 license {
-                                    name 'The Apache License, Version 2.0'
-                                    url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                                    name mavenLicense.name
+                                    url mavenLicense.url
                                     distribution 'repo'
                                 }
                             }

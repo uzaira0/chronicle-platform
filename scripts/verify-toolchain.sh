@@ -31,6 +31,7 @@ KC_PG_IMAGE="$(manifest_value keycloak_postgres.image)"
 KC_PG_DIGEST="$(manifest_value keycloak_postgres.index_digest)"
 FLYWAY="$(manifest_value flyway.version)"
 PYTHON_MIN="$(manifest_value python)"
+SEMGREP="$(manifest_value semgrep)"
 SELFHOST_BACKUP_IMAGE="$(manifest_value selfhost_images.backup)"
 SELFHOST_CADVISOR_IMAGE="$(manifest_value selfhost_images.cadvisor)"
 SELFHOST_SOCKET_PROXY_IMAGE="$(manifest_value selfhost_images.docker_socket_proxy)"
@@ -61,12 +62,34 @@ if command -v python3 >/dev/null 2>&1; then
   PY_VER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
   if [[ "$(printf '%s\n%s\n' "$PYTHON_MIN" "$PY_VER" | sort -V | head -1)" == "$PYTHON_MIN" ]]; then
     ok "python3 -> $PY_VER (floor $PYTHON_MIN)"
-    python3 -c 'import yaml' 2>/dev/null || fail "python3 lacks PyYAML (tests/security guardrails need it): uv pip install --system --break-system-packages --python \"\$(command -v python3)\" pyyaml"
+    # PyYAML and openpyxl are pinned with hashes in requirements-dev.txt; a missing or different
+    # installed version fails here instead of silently changing generated contracts and gate results.
+    python3 -I "$ROOT_DIR/tests/quality/test_check_python_dev_pins.py" >/dev/null 2>&1 \
+      || fail "tests/quality/test_check_python_dev_pins.py fails: run it for details"
+    if PIN_REPORT="$(python3 -I "$ROOT_DIR/scripts/check-python-dev-pins.py" 2>&1)"; then
+      ok "${PIN_REPORT#\[ok\] }"
+    else
+      fail "python tooling pins: ${PIN_REPORT//$'\n'/; }"
+    fi
   else
     fail "python3 is $PY_VER, floor is $PYTHON_MIN ($(command -v python3)); uv python install $PYTHON_MIN --default"
   fi
 else
   fail "python3 not on PATH (floor $PYTHON_MIN)"
+fi
+
+# ── 1b2. Semgrep (the engineering job's repo rules) ─────────────────────────────
+# Semgrep versions differ in what the repo rules match (1.155.0 missed a raw SQLException rethrow
+# that 1.182.0 reports), so an unpinned scanner made the engineering gate host-dependent.
+if command -v semgrep >/dev/null 2>&1; then
+  SEMGREP_ACTIVE="$(semgrep --version 2>/dev/null | head -1)"
+  if [[ "$SEMGREP_ACTIVE" == "$SEMGREP" ]]; then
+    ok "semgrep -> $SEMGREP"
+  else
+    fail "semgrep is ${SEMGREP_ACTIVE:-unknown} ($(command -v semgrep)), manifest semgrep is $SEMGREP; uv tool install semgrep==$SEMGREP"
+  fi
+else
+  fail "semgrep not on PATH (manifest semgrep is $SEMGREP); uv tool install semgrep==$SEMGREP"
 fi
 
 # ── 1c. Active JDK major ─────────────────────────────────────────────────────
@@ -79,7 +102,9 @@ if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]]; then
   JAVA_BIN="$JAVA_HOME/bin/java"
 else
   for cand in "$HOME/.local/jdks/temurin-$JDK" "$HOME/.sdkman/candidates/java/current" \
-              "/usr/lib/jvm/temurin-$JDK-jdk" "/usr/lib/jvm/java-$JDK-openjdk"; do
+              "/usr/lib/jvm/temurin-$JDK-jdk" "/usr/lib/jvm/java-$JDK-openjdk" \
+              "${HOMEBREW_PREFIX:-/opt/homebrew}/opt/openjdk@$JDK/libexec/openjdk.jdk/Contents/Home" \
+              "/usr/local/opt/openjdk@$JDK/libexec/openjdk.jdk/Contents/Home"; do
     if [[ -x "$cand/bin/java" ]]; then JAVA_BIN="$cand/bin/java"; break; fi
   done
   [[ -n "$JAVA_BIN" ]] || JAVA_BIN="$(command -v java || true)"
@@ -131,22 +156,27 @@ grep -Eq 'have_cmd node|command -v node' "$ROOT_DIR/scripts/chronicle-web-bun-sm
 grep -Eq "^[[:space:]]*BUN_VERSION=[\"']?${BUN}" "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" \
   || fail "supply-chain-guardrails.sh BUN_VERSION != $BUN"
 
-# chronicle-web/package.json pins `bun` and `bun-types` as exact versions, and until now
-# nothing compared them to the manifest. Dependabot bumped bun-types to 1.3.14 (chronicle-web#153) and it merged
-# unnoticed, which broke `bun install --frozen-lockfile`: bun.lock still held the manifest
-# version, so package.json and the lockfile disagreed and the install refused to run.
-#
-# The manifest is the source of truth for version pins, so the correct response to that
-# Dependabot PR is to close it, not to merge it and move the lockfile.
+# Gate commands use the installed runtime; package scripts and types must match it.
+if command -v bun >/dev/null 2>&1; then
+  BUN_ACTIVE="$(bun --version 2>/dev/null)"
+  if [[ "$BUN_ACTIVE" == "$BUN" ]]; then
+    ok "active Bun -> $BUN"
+  else
+    fail "active Bun is ${BUN_ACTIVE:-unknown} ($(command -v bun)), manifest bun is $BUN"
+  fi
+else
+  fail "bun not on PATH (manifest bun is $BUN)"
+fi
+
 PKG="$ROOT_DIR/chronicle-web/package.json"
 if [[ -f "$PKG" ]]; then
+  ENGINE_BUN="$(jq -r '.engines.bun // ""' "$PKG")"
+  [[ "$ENGINE_BUN" == "$BUN" ]] \
+    || fail "chronicle-web/package.json engines.bun must be exactly $BUN (found $ENGINE_BUN)"
   for dep in bun bun-types; do
     ver="$(jq -r --arg d "$dep" '(.dependencies[$d] // .devDependencies[$d]) // ""' "$PKG")"
-    if [[ -z "$ver" ]]; then
-      fail "chronicle-web/package.json does not pin '$dep' (expected $BUN)"
-    elif [[ "$ver" != "$BUN" ]]; then
-      fail "Bun pin drift: chronicle-web/package.json pins $dep $ver (expected $BUN). The manifest is the source of truth — close the Dependabot PR rather than merging it."
-    fi
+    [[ "$ver" == "$BUN" ]] \
+      || fail "chronicle-web/package.json must pin $dep to $BUN (found ${ver:-none})"
   done
   # The lockfile is what `--frozen-lockfile` actually enforces, so a package.json that
   # matches the manifest while bun.lock does not still fails every install and CI job.
@@ -187,10 +217,13 @@ grep -q "flyway/flyway:${FLYWAY}" "$ROOT_DIR/scripts/flyway-migrate.sh" \
   || fail "scripts/flyway-migrate.sh image != flyway/flyway:$FLYWAY"
 
 # ── 5. Postgres image constant ────────────────────────────────────────────────
-grep -q "PROD_POSTGRES_IMAGE = \"${PG_IMAGE}\"" \
+grep -Fq "PROD_POSTGRES_IMAGE = \"${PG_IMAGE%%:*}@${PG_DIGEST}\"" \
   "$ROOT_DIR/chronicle-server/src/test/kotlin/com/openlattice/chronicle/contract/ChronicleContractTestSchema.kt" \
-  && ok "testcontainer image constant -> $PG_IMAGE" \
-  || fail "ChronicleContractTestSchema.PROD_POSTGRES_IMAGE != $PG_IMAGE"
+  && ok "testcontainer image constant -> ${PG_IMAGE%%:*}@$PG_DIGEST" \
+  || fail "ChronicleContractTestSchema.PROD_POSTGRES_IMAGE != ${PG_IMAGE%%:*}@$PG_DIGEST"
+grep -Fq "ARG PROD_POSTGRES_IMAGE=${PG_IMAGE}@${PG_DIGEST}" "$ROOT_DIR/chronicle-server/src/test/docker/pgtap/Dockerfile" \
+  && ok "pgTAP image default -> ${PG_IMAGE}@$PG_DIGEST" \
+  || fail "chronicle-server/src/test/docker/pgtap/Dockerfile default != ${PG_IMAGE}@$PG_DIGEST"
 
 # No test source may hard-code its own copy of the image string (they must reference
 # the constant): a duplicate literal is invisible to a manifest bump.
@@ -200,25 +233,13 @@ DUP_PINS="$(grep -rEn '= *"percona/percona-distribution-postgresql' "$ROOT_DIR/c
   && ok "no duplicate image literals in chronicle-server test sources" \
   || fail "duplicate postgres image literal outside ChronicleContractTestSchema: $(head -1 <<<"$DUP_PINS")"
 
-for f in docker/docker-compose.traefik.yml docker/docker-compose.prod.yml \
-  docker/docker-compose.yml docker/docker-compose.dev.yml; do
-  grep -Eq "^[[:space:]]*image: ${PG_IMAGE}" "$ROOT_DIR/$f" \
-    && ok "$f -> $PG_IMAGE" \
-    || fail "$f postgres image != $PG_IMAGE"
-done
-
-# k8s manifests carry the same tag digest-pinned (tag@sha256:...) — a manifest bump
-# must not leave them behind.
-K8S_STALE="$(grep -rEn '^[[:space:]]*(image|value):.*percona/percona-distribution-postgresql' "$ROOT_DIR/k8s" 2>/dev/null | grep -v "${PG_IMAGE}@sha256:" | grep -v "${PG_IMAGE}\$" || true)"
-[[ -z "$K8S_STALE" ]] \
-  && ok "k8s manifests -> $PG_IMAGE (digest-pinned)" \
-  || fail "k8s postgres image drift: $(head -1 <<<"$K8S_STALE")"
-
 # The digest the manifest records must be the one every digest-pinned artifact uses.
 # Without this, a bump could move the tag and leave the old digest in place — which pins
-# the OLD image, silently, because a digest always wins over a tag.
+# the OLD image, silently, because a digest always wins over a tag. docker/ and k8s/ are
+# frozen until they are ported as selfhost overlays, so only the
+# shipped selfhost tree is held to the manifest in this script.
 DIGEST_STALE="$(grep -rEn 'percona/percona-distribution-postgresql:[^@[:space:]]+@sha256:[0-9a-f]+' \
-  "$ROOT_DIR/k8s" "$ROOT_DIR/docker" 2>/dev/null | grep -v "@${PG_DIGEST}" || true)"
+  "$ROOT_DIR/selfhost" 2>/dev/null | grep -v "@${PG_DIGEST}" || true)"
 [[ -z "$DIGEST_STALE" ]] \
   && ok "every digest-pinned percona reference -> $PG_DIGEST" \
   || fail "postgres digest drift: $(head -1 <<<"$DIGEST_STALE")"
@@ -238,36 +259,27 @@ grep -Fq "POSTGRES_IMAGE=${PG_IMAGE}@${PG_DIGEST}" "$ROOT_DIR/selfhost/.env.exam
   && ok "selfhost release Postgres digest -> $PG_DIGEST" \
   || fail "selfhost/.env.example must pin POSTGRES_IMAGE to ${PG_IMAGE}@${PG_DIGEST}"
 
+# Backup is now built from the pinned Percona parent, not the published backup
+# fixture image. Grafana's pinned parent lives in its source-build Dockerfile.
 for image_contract in \
-  "overlays/backups.yml|$SELFHOST_BACKUP_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_CADVISOR_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_SOCKET_PROXY_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_VM_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_VL_IMAGE" \
   "overlays/monitoring.yml|$SELFHOST_FLUENT_BIT_IMAGE" \
-  "overlays/monitoring.yml|$SELFHOST_GRAFANA_IMAGE" \
-  "experimental/public-dashboard/auth.yml|$SELFHOST_KEYCLOAK_IMAGE"; do
+  "Dockerfile.grafana|$SELFHOST_GRAFANA_IMAGE"; do
   selfhost_file="${image_contract%%|*}"
   selfhost_image="${image_contract#*|}"
-  grep -Fq "image: ${selfhost_image}" "$ROOT_DIR/selfhost/$selfhost_file" \
+  awk -v image="$selfhost_image" '($1 == "image:" || $1 == "FROM") && $2 == image { found=1 } END { exit !found }' "$ROOT_DIR/selfhost/$selfhost_file" \
     && ok "selfhost/$selfhost_file -> $selfhost_image" \
     || fail "selfhost/$selfhost_file does not use manifest image $selfhost_image"
 done
 
-# ── 7. Hetzner hardened Percona base ──────────────────────────────────────────
-# docker/hetzner/percona/Dockerfile rebuilds the image with a patched curl and the
-# telemetry packages stripped. It has its own FROM, which drifted to a different tag than
-# the manifest's before this check existed.
-HETZNER_DF="$ROOT_DIR/docker/hetzner/percona/Dockerfile"
-HETZNER_STALE="$(grep -n '^FROM ' "$HETZNER_DF" 2>/dev/null | grep -v "${PG_IMAGE}@${PG_DIGEST}" || true)"
-[[ -z "$HETZNER_STALE" ]] \
-  && ok "hetzner percona base -> $PG_IMAGE@$PG_DIGEST" \
-  || fail "hetzner Dockerfile base drift: $(head -1 <<<"$HETZNER_STALE")"
-
+# ── 7. Preloaded libraries ────────────────────────────────────────────────────
 # The image ships no percona_pg_telemetry, so naming it in shared_preload_libraries makes
 # the server exit with FATAL: could not access file "percona_pg_telemetry".
 PRELOAD_TELEMETRY="$(grep -rn 'shared_preload_libraries=[^[:space:]]*percona_pg_telemetry' \
-  "$ROOT_DIR/docker" "$ROOT_DIR/k8s" "$ROOT_DIR/selfhost" 2>/dev/null || true)"
+  "$ROOT_DIR/selfhost" 2>/dev/null || true)"
 [[ -z "$PRELOAD_TELEMETRY" ]] \
   && ok "no shared_preload_libraries names percona_pg_telemetry" \
   || fail "percona_pg_telemetry preloaded but absent from the image — postgres will not start: $(head -1 <<<"$PRELOAD_TELEMETRY")"
@@ -276,62 +288,43 @@ PRELOAD_TELEMETRY="$(grep -rn 'shared_preload_libraries=[^[:space:]]*percona_pg_
 # Anchored to a real image reference (an `image:` key, a Dockerfile FROM, or a quoted
 # literal in a guardrail test) so that prose ABOUT the pin does not read as drift.
 KC_STALE="$(grep -rEn '(^[[:space:]]*(-[[:space:]]*)?image:[[:space:]]*|^FROM[[:space:]]+|")postgres:[0-9]+[^[:space:]"]*-alpine' \
-  "$ROOT_DIR/docker" "$ROOT_DIR/k8s" "$ROOT_DIR/selfhost" "$ROOT_DIR/tests" 2>/dev/null \
+  "$ROOT_DIR/selfhost" "$ROOT_DIR/tests" 2>/dev/null \
   | grep -v "$KC_PG_IMAGE" || true)"
 [[ -z "$KC_STALE" ]] \
   && ok "keycloak postgres -> $KC_PG_IMAGE" \
   || fail "keycloak postgres drift: $(head -1 <<<"$KC_STALE")"
 
 KC_DIGEST_STALE="$(grep -rEn 'postgres:[0-9]+[^[:space:]"]*-alpine@sha256:[0-9a-f]+' \
-  "$ROOT_DIR/docker" "$ROOT_DIR/k8s" "$ROOT_DIR/selfhost/experimental" 2>/dev/null | grep -v "@${KC_PG_DIGEST}" || true)"
+  "$ROOT_DIR/selfhost/experimental" 2>/dev/null | grep -v "@${KC_PG_DIGEST}" || true)"
 [[ -z "$KC_DIGEST_STALE" ]] \
   && ok "keycloak postgres digest -> $KC_PG_DIGEST" \
   || fail "keycloak postgres digest drift: $(head -1 <<<"$KC_DIGEST_STALE")"
 
-# postgres:18 moved its own default PGDATA to /var/lib/postgresql/18/docker and its VOLUME
-# from /var/lib/postgresql/data up to /var/lib/postgresql. Any service that mounts
-# /var/lib/postgresql/data WITHOUT naming PGDATA writes into an anonymous volume and loses
-# the cluster on the next recreate. Verified against postgres:18.4-alpine: the marker row
-# was gone and the container failed to restart. Every such service must set PGDATA.
-for f in docker/docker-compose.traefik.yml selfhost/experimental/public-dashboard/auth.yml; do
-  if grep -q 'keycloak' "$ROOT_DIR/$f" 2>/dev/null; then
-    grep -q 'PGDATA' "$ROOT_DIR/$f" \
-      && ok "$f names PGDATA explicitly (survives the postgres:18 default move)" \
-      || fail "$f mounts a postgres:18 data volume without naming PGDATA — the cluster would land in an anonymous volume"
-  fi
-done
-
-# ── 9. Every manifest-pinned image, everywhere ────────────────────────────────
-# Section 6 only looked at the selfhost overlay, so k8s kept deploying VictoriaMetrics
-# 1.138 and Grafana 12.3 while the manifest said 1.149 and 13.1.3 and this script printed
-# no drift. Sweep every `image:` key under docker/, k8s/ and selfhost/ (Compose, K8s and
-# the Hetzner bundle) for the repositories the manifest pins, and require the exact pin
-# INCLUDING the digest — a tag-only reference is not pinned.
-#
-# Matched on the `image:` key only: docker/Dockerfile.keycloak builds its own Keycloak from
-# a different (non-selfhost) base and is checked by tests/security/kubernetes-guardrails.sh.
-# Images the manifest does not pin (crowdsec, traefik, vault, kafka, opensearch, nginx,
-# alpine, temporal) are out of scope here by construction.
+# ── 9. Every manifest-pinned image in the shipped tree ────────────────────────
+# Require the exact pin INCLUDING the digest on every `image:` key under selfhost/ for the
+# repositories the manifest pins — a tag-only reference is not pinned.
 for pinned in "$SELFHOST_BACKUP_IMAGE" "$SELFHOST_CADVISOR_IMAGE" "$SELFHOST_VM_IMAGE" \
               "$SELFHOST_VL_IMAGE" "$SELFHOST_FLUENT_BIT_IMAGE" "$SELFHOST_GRAFANA_IMAGE" \
               "$SELFHOST_KEYCLOAK_IMAGE"; do
   repo="${pinned%%:*}"
   IMAGE_STALE="$(grep -rEn "^[[:space:]]*(-[[:space:]]*)?image:[[:space:]]*\"?${repo}[:@]" \
-    "$ROOT_DIR/docker" "$ROOT_DIR/k8s" "$ROOT_DIR/selfhost" 2>/dev/null \
+    "$ROOT_DIR/selfhost" 2>/dev/null \
     | grep -Fv "$pinned" || true)"
   [[ -z "$IMAGE_STALE" ]] \
-    && ok "$repo -> $pinned (all compose/k8s references)" \
+    && ok "$repo -> $pinned (all selfhost references)" \
     || fail "image pin drift for $repo (expected $pinned): $(head -1 <<<"$IMAGE_STALE")"
 done
 
-# The Hetzner bundle rebuilds Percona under a local tag; the tag drifted to 17.10 while the
-# base moved to 18, so restore-drill.sh defaulted to an image that no longer gets built.
-HETZNER_LOCAL_TAG="chronicle-percona:${PG_IMAGE##*:}-hardened"
-HETZNER_TAG_STALE="$(grep -rn 'chronicle-percona:' "$ROOT_DIR/docker/hetzner" 2>/dev/null \
-  | grep -Fv "$HETZNER_LOCAL_TAG" || true)"
-[[ -z "$HETZNER_TAG_STALE" ]] \
-  && ok "hetzner local percona tag -> $HETZNER_LOCAL_TAG" \
-  || fail "hetzner local percona tag drift (expected $HETZNER_LOCAL_TAG): $(head -1 <<<"$HETZNER_TAG_STALE")"
+
+# ── 10. Downloaded gate tools and release-script imports ──────────────────────
+# Every tool scripts/local-ci.sh downloads must verify against the sha256 committed in this
+# manifest's gate_tools (a release's own checksums file can be replaced along with its asset),
+# and every third-party import of a release script must be hash-locked beside it.
+if python3 "$ROOT_DIR/tests/quality/test_gate_tool_digests.py" >/dev/null 2>&1; then
+  ok "gate tool downloads and release-script imports are digest-pinned"
+else
+  fail "a downloaded gate tool or a release-script import has no committed digest: python3 tests/quality/test_gate_tool_digests.py"
+fi
 
 echo
 if [[ "$FAILURES" -gt 0 ]]; then

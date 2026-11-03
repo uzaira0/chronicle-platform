@@ -1,0 +1,289 @@
+{
+  "build.gradle.kts::org.jetbrains.kotlin:kotlin-stdlib-jdk8": {
+    "pin": "2.4.10",
+    "reason": "Align the empty Kotlin relocation stubs with the compiler/stdlib version; prevents old transitive stubs downgrading the classpath.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-stdlib-jdk8 2.4.10 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "552dc0b5368ed738d63173227c1ca8b28f653e04",
+    "recorded_advisories": []
+  },
+  "chronicle-server/build.gradle::org.jetbrains.kotlin:kotlin-reflect": {
+    "pin": "2.4.10",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-reflect 2.4.10 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "64fd8b0cd563f5707d9cdb212ceda301e1d56947",
+    "recorded_advisories": []
+  },
+  "chronicle-server/build.gradle::org.jetbrains.kotlin:kotlin-stdlib-jdk8": {
+    "pin": "2.4.10",
+    "reason": "Align the empty Kotlin relocation stubs with the compiler/stdlib version; prevents old transitive stubs downgrading the classpath.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-stdlib-jdk8 2.4.10 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "8a3c5a4ebf1ddc82a89bd51d78247b7bc2cda08f",
+    "recorded_advisories": []
+  },
+  "chronicle-web/package.json::fast-uri": {
+    "pin": "^4.2.3",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects fast-uri ^4.2.3 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "83592f967dd19c22a21a1029b4ab940b58efc9fd",
+    "recorded_advisories": []
+  },
+  "chronicle-web/package.json::qs": {
+    "pin": "~6.16.1",
+    "reason": "Retained compatibility/security floor; qs 6.16.1 (CVE-2026-110816).",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects qs ~6.16.1 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "18aaf0dfa316a87c356304f3e2536596fe27e6fe",
+    "recorded_advisories": [
+      "CVE-2026-110816"
+    ]
+  },
+  "gradles/chronicle.gradle::com.fasterxml.jackson.core:jackson-databind": {
+    "pin": "2.22.3",
+    "reason": "Retained compatibility/security floor; source update: deps: jackson 2.22.3 (CVE-2026-68497), bump submodules.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects com.fasterxml.jackson.core:jackson-databind 2.22.3 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "af0c9bd26741293a01b2ac61a870524833f6934b",
+    "recorded_advisories": [
+      "CVE-2026-68497"
+    ]
+  },
+  "gradles/chronicle.gradle::com.rabbitmq:amqp-client": {
+    "pin": "5.37.0",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects com.rabbitmq:amqp-client 5.37.0 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "080357d712d0e28260d72ae77ade4ba3a552c16e",
+    "recorded_advisories": [
+      "GHSA-h6w7-qmcm-q6xr",
+      "GHSA-7822-rcf6-97fx",
+      "GHSA-cqgh-8p3p-mx4m"
+    ]
+  },
+  "gradles/chronicle.gradle::commons-beanutils:commons-beanutils": {
+    "pin": "1.11.0",
+    "reason": "Retained compatibility/security floor; source update: feat(local): harden deployment and mobile handoff.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects commons-beanutils:commons-beanutils 1.11.0 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "e70c1dc16104d67f6c51409da72719fd20cc8807",
+    "recorded_advisories": []
+  },
+  "gradles/chronicle.gradle::io.netty:netty-codec-http": {
+    "pin": "4.2.18.Final",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects io.netty:netty-codec-http 4.2.18.Final or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "2b438ca2736b95a4c70ecd342c6e137cfe2b8523",
+    "recorded_advisories": [
+      "GHSA-8c42-7qj2-3j46",
+      "CVE-2026-89044"
+    ]
+  },
+  "gradles/chronicle.gradle::org.apache.commons:commons-compress": {
+    "pin": "1.26.0",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.apache.commons:commons-compress 1.26.0 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "0515a9ed553ae16bd837d9e7fe89bee49f00b6d2",
+    "recorded_advisories": [
+      "GHSA-4265-ccf5-phj5",
+      "GHSA-4g9r-vxhx-9pgx"
+    ]
+  },
+  "gradles/chronicle.gradle::org.apache.commons:commons-lang3": {
+    "pin": "3.19.0",
+    "reason": "Retained compatibility/security floor; source update: Harden shared dependency resolution.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.apache.commons:commons-lang3 3.19.0 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "706be09e28bbca3dd9de100a06f2cc0f10d5e5b3",
+    "recorded_advisories": [
+      "CVE-2025-48924"
+    ]
+  },
+  "gradles/chronicle.gradle::org.apache.httpcomponents.client5:httpclient5": {
+    "pin": "5.6.3",
+    "reason": "Retained compatibility/security floor; source update: Harden shared dependency resolution.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.apache.httpcomponents.client5:httpclient5 5.6.3 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "706be09e28bbca3dd9de100a06f2cc0f10d5e5b3",
+    "recorded_advisories": []
+  },
+  "gradles/chronicle.gradle::org.apache.logging.log4j:log4j-core": {
+    "pin": "2.25.5",
+    "reason": "Retained compatibility/security floor; source update: Harden shared dependency resolution.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.apache.logging.log4j:log4j-core 2.25.5 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "706be09e28bbca3dd9de100a06f2cc0f10d5e5b3",
+    "recorded_advisories": []
+  },
+  "gradles/chronicle.gradle::org.bouncycastle:bcpg-jdk18on": {
+    "pin": "1.85",
+    "reason": "Retained compatibility/security floor; source update: deps: bouncycastle 1.85.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.bouncycastle:bcpg-jdk18on 1.85 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "c3468b84e87365910d12edefc19280c5b977e7dd",
+    "recorded_advisories": [
+      "GHSA-wg6q-6289-32hp"
+    ]
+  },
+  "gradles/chronicle.gradle::org.bouncycastle:bcpkix-jdk18on": {
+    "pin": "1.85",
+    "reason": "Retained compatibility/security floor; source update: deps: bouncycastle 1.85.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.bouncycastle:bcpkix-jdk18on 1.85 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "c3468b84e87365910d12edefc19280c5b977e7dd",
+    "recorded_advisories": [
+      "GHSA-wg6q-6289-32hp"
+    ]
+  },
+  "gradles/chronicle.gradle::org.codehaus.plexus:plexus-utils": {
+    "pin": "3.6.1",
+    "reason": "Retained compatibility/security floor; source update: Harden shared dependency resolution.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.codehaus.plexus:plexus-utils 3.6.1 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "706be09e28bbca3dd9de100a06f2cc0f10d5e5b3",
+    "recorded_advisories": []
+  },
+  "gradles/chronicle.gradle::org.freemarker:freemarker": {
+    "pin": "2.3.35",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.freemarker:freemarker 2.3.35 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "080357d712d0e28260d72ae77ade4ba3a552c16e",
+    "recorded_advisories": []
+  },
+  "gradles/chronicle.gradle::org.jsoup:jsoup": {
+    "pin": "1.23.2",
+    "reason": "Retained compatibility/security floor.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jsoup:jsoup 1.23.2 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "080357d712d0e28260d72ae77ade4ba3a552c16e",
+    "recorded_advisories": []
+  },
+  "selfhost/Dockerfile.backup::python3.12-urllib3": {
+    "pin": "python3.12-urllib3-1.26.19-3.el9_8.2",
+    "reason": "The pinned Percona base predates the patched python3.12-urllib3 RPM.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python3.12-urllib3-1.26.19-3.el9_8.2 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "6c168665d6c77491a4aa14b77295c3a0b28bd123",
+    "recorded_advisories": []
+  },
+  "selfhost/Dockerfile.caddy::golang.org/x/net": {
+    "pin": "v0.60.0",
+    "reason": "The pinned Caddy go.mod predates x/net v0.60.0; preserve the security update until the natural module requirement reaches it.",
+    "remove_when": "Remove when the pinned Caddy go.mod requires golang.org/x/net v0.60.0 or newer; verify with go version -m on the unpatched binary.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "8e1ed2463a0b71556ba50ed0a7cfc921efcde2b4",
+    "recorded_advisories": []
+  },
+  "selfhost/backup-image::fork": {
+    "pin": "d00896ab15f6da29e0449390315a36c3bbda5082",
+    "reason": "MIT upstream d00896ab ported to Percona PostgreSQL with the Debian run-parts scheduler semantics preserved.",
+    "remove_when": "Review upstream Dockerfile/scripts against the maintained fork; retire the fork when upstream supports the pinned Percona PostgreSQL image and Chronicle restore contract.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "source_commit": "26afe6fc1ce57e805042ea003e0d2f11aa1143b1",
+    "recorded_advisories": []
+  },
+  "chronicle-web/package.json::minimatch": {
+    "pin": "11.0.1",
+    "reason": "GHSA-g3hv-75wg-m249 / CVE-2026-118764 affects all earlier minimatch releases. Current ESLint, TypeScript-ESLint, Stryker and Redocly select 10.x/5.x unforced. Redocly 1.34.22 needs the named-export Bun patch; latest openapi-typescript 7.13.0 cannot use Redocly 2 because it imports ref-utils.js.",
+    "remove_when": "Remove when unforced, unlocked resolution of every current consumer selects minimatch 11.0.1 or newer and resolver, generator, typed lint and configured Stryker checks pass. Remove the Redocly patch when its maintained compatible parent uses the named minimatch export or replaces that dependency; keep the resolver regression.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "recorded_advisories": [
+      "GHSA-g3hv-75wg-m249",
+      "CVE-2026-118764"
+    ]
+  },
+  "chronicle-web/package.json::patch:@redocly/openapi-core@1.34.22": {
+    "pin": "sha256:2ce4959e1555cddcaa3ace4fa90cf5c75c71412b92b632497c2344ea137ebef1",
+    "reason": "Adapt Redocly 1.34.22 callable minimatch import to the named export in the security-fixed minimatch 11.0.1; current openapi-typescript 7.13.0 requires the compatible Redocly 1.x API.",
+    "remove_when": "Remove when the maintained compatible Redocly parent uses the named minimatch export or replaces the dependency; require the resolver regression and byte-identical full V1 generation check to pass without this patch.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01",
+    "recorded_advisories": [
+      "GHSA-g3hv-75wg-m249",
+      "CVE-2026-118764"
+    ]
+  },
+  "chronicle-api/build.gradle::ch.qos.logback:logback-classic": {
+    "pin": "1.6.6",
+    "reason": "Codegen 3.0.82 selects classic/core 1.5.32; current primary CVEs require the maintained 1.6 line, including CVE-2026-104721 and the 1.6.6 serialized Throwable graph fix. One classic selection raises its matching core. The dependency-specific codegen Core exclusion avoids its losing 1.5.32 POM; the direct maintained Classic still supplies matching Core.",
+    "remove_when": "The maintained Codegen aggregate/generator parent naturally selects matching Logback classic/core 1.6.6 or newer in every supported API buildscript context after removing BOTH this direct Classic floor and its codegen-specific Core exclusion, with strict resolution/full hash-catalog scan and validator/default/model/both-generator controls passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "chronicle-api/build.gradle::com.github.jknack:handlebars": {
+    "pin": "4.5.8",
+    "reason": "Codegen 3.0.82 selects Handlebars 4.3.1 affected by CVE-2026-55760. The maintained 4.5.8 line also carries later bundled-JavaScript security fixes; native generator compatibility remains required.",
+    "remove_when": "The maintained Codegen aggregate/generator parent naturally selects Handlebars 4.5.8 or newer in every supported API buildscript context after removing this direct floor, and real validator/default/model/both-generator controls pass.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "chronicle-api/build.gradle::com.fasterxml.jackson.core:jackson-databind": {
+    "pin": "2.22.3",
+    "reason": "The current parser/codegen tool classpath selects Databind 2.22.1, within the published CVE-2026-68497 affected range. The already-qualified 2.22.3 selection also requests matching Core 2.22.3, repairing its independently reported CVE-2026-89407 and CVE-2026-89425 without a duplicate Core selector.",
+    "remove_when": "The maintained parser/codegen parent naturally selects Databind and Core 2.22.3 or newer in every supported API buildscript context after removing this floor, with the complete selected-inventory advisory scan and validator/default/model/both-generator controls passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "build.gradle.kts::com.fasterxml.jackson.core:jackson-databind": {
+    "pin": "2.22.3",
+    "reason": "Actual current buildscript resolution selects affected Databind/Core (root 2.21.3, server 2.18.3, standalone rhizome 2.15.3). Published CVE-2026-68497 targets Databind; independent CVE-2026-89407/89425 target Core. One Databind 2.22.3 selection requests matching Core through its published BOM.",
+    "remove_when": "Removing this local floor leaves no affected Jackson parser/DataBind in every supported owning buildscript context (if the 2.x modules remain, both select at least 2.22.3), with the full selected-inventory scan and real owning plugin consumers passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "chronicle-server/build.gradle::com.fasterxml.jackson.core:jackson-databind": {
+    "pin": "2.22.3",
+    "reason": "Actual current buildscript resolution selects affected Databind/Core (root 2.21.3, server 2.18.3, standalone rhizome 2.15.3). Published CVE-2026-68497 targets Databind; independent CVE-2026-89407/89425 target Core. One Databind 2.22.3 selection requests matching Core through its published BOM.",
+    "remove_when": "Removing this local floor leaves no affected Jackson parser/DataBind in every supported owning buildscript context (if the 2.x modules remain, both select at least 2.22.3), with the full selected-inventory scan and real owning plugin consumers passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "rhizome/build.gradle::com.fasterxml.jackson.core:jackson-databind": {
+    "pin": "2.22.3",
+    "reason": "Actual current buildscript resolution selects affected Databind/Core (root 2.21.3, server 2.18.3, standalone rhizome 2.15.3). Published CVE-2026-68497 targets Databind; independent CVE-2026-89407/89425 target Core. One Databind 2.22.3 selection requests matching Core through its published BOM.",
+    "remove_when": "Removing this local floor leaves no affected Jackson parser/DataBind in every supported owning buildscript context (if the 2.x modules remain, both select at least 2.22.3), with the full selected-inventory scan and real owning plugin consumers passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "build.gradle.kts::org.jsoup:jsoup": {
+    "pin": "1.23.2",
+    "reason": "The maintained Dependency-Check 13.0.0 parent still selects jsoup 1.23.1, affected by CVE-2026-75140. Published 1.23.2 fixes the namespace-map resource exhaustion defect; the current 12.2.2 parent also selects affected 1.22.2.",
+    "remove_when": "The maintained Dependency-Check parent naturally selects jsoup 1.23.2 or newer after removing this local floor, with strict current root/plugin graphs, the full selected-inventory scan and actual cache-only dependency analysis passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  },
+  "gradles/chronicle.gradle::com.fasterxml.jackson.core:jackson-core": {
+    "pin": "2.22.3",
+    "reason": "Dokka2.2.0 core/base request Jackson Kotlin/XML2.15.3. Without this Dokka-only early selector, strict resolution still requires losing Core2.15.3.module metadata before the retained Databind/BOM floor selects Core2.22.3. The actual retirement trial fails on that exact file; final selected runtime versions remain unchanged.",
+    "remove_when": "The maintained Dokka parents no longer cause Core2.15.3 or other affected Core metadata to be requested after removing this Dokka-only selector, and all supported owning configurations resolve with the full trusted-hash catalog advisory scan and documentation/runtime consumers passing.",
+    "reviewed_on": "2026-11-01",
+    "review_after": "2026-12-01"
+  }
+}

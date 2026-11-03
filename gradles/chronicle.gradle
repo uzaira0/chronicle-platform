@@ -15,9 +15,8 @@ if( localPublishGradle.exists() && localReposGradle.exists() ) {
     throw new GradleException("Missing local Chronicle Gradle scripts: gradles/publish.gradle and gradles/repos.gradle")
 }
 
-// Every Chronicle JVM repo locks all dependency configurations (Tranche 8
-// consolidation — this line previously lived, identically, in all five repo
-// build scripts). Lockfiles stay per-repo (<repo>/gradle.lockfile).
+// Every Chronicle JVM repo locks all dependency configurations.
+// Lockfiles stay per-repo (<repo>/gradle.lockfile).
 dependencyLocking {
     lockAllConfigurations()
 }
@@ -67,92 +66,35 @@ ext.bouncycastle_version='1.85'
 ext.spring_framework_version='7.0.9'
 
 configurations.all {
+  // Dokka's losing 2.15.3 Core metadata is otherwise read before Databind's BOM aligns the family.
+  if (name.startsWith('dokka')) {
+    resolutionStrategy.force 'com.fasterxml.jackson.core:jackson-core:2.22.3'
+  }
   // check for updates every build
   resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
 
-  // Force secure versions of transitive dependencies (CVE remediation)
+  // Retain only independently necessary security floors. Transitive family
+  // versions are selected by these dependencies rather than duplicate forces.
   resolutionStrategy {
-    force 'com.google.protobuf:protobuf-java:3.25.5'
-    // protobuf-java-util 3.22.0 lingers on the compile classpath (unforced transitive)
-    // and carries CVE-2024-7254 (StackOverflow DoS). Runtime already resolves 3.25.8;
-    // force the util artifact to the patched 3.25.5 line so the compile classpath matches.
-    force 'com.google.protobuf:protobuf-java-util:3.25.5'
-    // Align transitive spring-tx with the rest of Spring Framework.
-    force "org.springframework:spring-tx:${spring_framework_version}"
-    // org.eclipse.angus:jakarta.mail (the impl, distinct from angus-mail) lingers at 2.0.2 and
-    // carries CVE-2025-7962 (SMTP CRLF injection); lift to the patched 2.0.4 (sync w/ angus_mail_version).
-    force 'org.eclipse.angus:jakarta.mail:2.0.4'
-    // Keep the Jackson parser/dataformat family on the patched 2.22.3 release (CVE-2026-68497).
-    // jackson-annotations intentionally uses Jackson's MAJOR.MINOR versioning.
-    force 'com.fasterxml.jackson.core:jackson-core:2.22.3'
+    // Databind also raises its parser and annotation dependencies for build tools.
     force 'com.fasterxml.jackson.core:jackson-databind:2.22.3'
-    force 'com.fasterxml.jackson.core:jackson-annotations:2.22'
-    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.22.3'
-    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.22.3'
-    force 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.22.3'
-    force 'com.fasterxml.woodstox:woodstox-core:7.2.0'
     force 'org.jsoup:jsoup:1.23.2'
     force 'org.freemarker:freemarker:2.3.35'
     force 'commons-beanutils:commons-beanutils:1.11.0'
-    force 'io.grpc:grpc-netty-shaded:1.75.0'
-    // Align the whole gRPC family to 1.75.0 (matches grpc-netty-shaded). Fixes
-    // GHSA-cfgp-2977-2fmm + GHSA-9hxf-ppjv-w6rq in grpc-protobuf 1.54.1, pulled in
-    // transitively via io.temporal:temporal-sdk:1.27.0. 1.54.x has no compatible
-    // CVE-fixed micro release that keeps the family consistent, so we lift to 1.75.0.
-    force 'io.grpc:grpc-protobuf:1.75.0'
-    force 'io.grpc:grpc-protobuf-lite:1.75.0'
-    force 'io.grpc:grpc-services:1.75.0'
-    force 'io.grpc:grpc-stub:1.75.0'
-    // CVE-2025-48924 is fixed in Commons Lang 3.18+. Apply the maintained
-    // release to build-tool configurations too (notably PIT), not just runtime.
+    // CVE-2025-48924; includes analyzer and mutation-tool configurations.
     force 'org.apache.commons:commons-lang3:3.19.0'
-    // Keep build-tool configurations (including SpotBugs) off vulnerable
-    // Log4j releases as well as the shipped server runtime.
-    force 'org.apache.logging.log4j:log4j-api:2.25.5'
     force 'org.apache.logging.log4j:log4j-core:2.25.5'
-    force 'org.apache.logging.log4j:log4j-slf4j2-impl:2.25.5'
-    force 'org.apache.logging.log4j:log4j-web:2.25.5'
-    // Checkstyle's documentation helper stack otherwise imports vulnerable
-    // HTTP/Plexus versions even though the analyzer is build-time only.
+    // Checkstyle's documentation helpers otherwise select older HTTP/Plexus releases.
     force 'org.apache.httpcomponents.client5:httpclient5:5.6.3'
-    force 'org.apache.httpcomponents.core5:httpcore5:5.4.3'
-    force 'org.apache.httpcomponents.core5:httpcore5-h2:5.4.3'
     force 'org.codehaus.plexus:plexus-utils:3.6.1'
-    force 'org.springframework.retry:spring-retry:2.0.13'
-    // Temporal 1.x still imports Micrometer 1.9.9. The OSS fix for the remotely
-    // triggerable HTTP instrumentation/resource-exhaustion issues (CVE-2026-40983 and
-    // CVE-2026-40984) is available only on the maintained 1.15 line. Keep the family
-    // aligned; forcing core alone would mix incompatible commons/observation internals.
-    force 'io.micrometer:micrometer-core:1.15.12'
-    force 'io.micrometer:micrometer-commons:1.15.12'
-    force 'io.micrometer:micrometer-observation:1.15.12'
     force "org.bouncycastle:bcpg-jdk18on:${bouncycastle_version}"
-    force "org.bouncycastle:bcprov-jdk18on:${bouncycastle_version}"
-    // bcpkix pulled in (1.80) via the Kotlin compiler classpath; lift to 1.84 to
-    // clear GHSA-wg6q-6289-32hp and align with bcprov/bcpg.
     force "org.bouncycastle:bcpkix-jdk18on:${bouncycastle_version}"
-    // commons-compress: lift transitive 1.25.0/1.24.0 to 1.26.0
-    // (GHSA-4265-ccf5-phj5, GHSA-4g9r-vxhx-9pgx).
+    // GHSA-4265-ccf5-phj5 and GHSA-4g9r-vxhx-9pgx.
     force 'org.apache.commons:commons-compress:1.26.0'
-    // RabbitMQ Java client 5.37.0: July 2026 protocol/TLS/parsing hardening plus
-    // GHSA-h6w7-qmcm-q6xr, GHSA-7822-rcf6-97fx, GHSA-cqgh-8p3p-mx4m. The advisory
-    // names 5.36.1 as fixed, but Maven Central never published it.
+    // RabbitMQ's 5.36.1 advisory fix was not published to Maven Central.
     force 'com.rabbitmq:amqp-client:5.37.0'
-    // Keep the whole Netty family aligned on the release containing the
-    // netty-codec-http request-smuggling fix (GHSA-8c42-7qj2-3j46,
-    // CVE-2026-89044 Transfer-Encoding smuggling, fixed in 4.2.18).
-    force "io.netty:netty-codec-http2:4.2.18.Final"
-    force "io.netty:netty-codec-http:4.2.18.Final"
-    force "io.netty:netty-codec:4.2.18.Final"
-    force "io.netty:netty-codec-base:4.2.18.Final"
-    force "io.netty:netty-codec-compression:4.2.18.Final"
-    force "io.netty:netty-handler:4.2.18.Final"
-    force "io.netty:netty-buffer:4.2.18.Final"
-    force "io.netty:netty-common:4.2.18.Final"
-    force "io.netty:netty-transport:4.2.18.Final"
-    force "io.netty:netty-transport-classes-epoll:4.2.18.Final"
-    force "io.netty:netty-transport-native-unix-common:4.2.18.Final"
-    force "io.netty:netty-resolver:4.2.18.Final"
+    // GHSA-8c42-7qj2-3j46 / CVE-2026-89044; its dependencies align Netty.
+    force 'io.netty:netty-codec-http:4.2.18.Final'
   }
 
   resolutionStrategy.dependencySubstitution.all { DependencySubstitution dependency ->
@@ -208,18 +150,14 @@ ext.commonsvalidator_version='1.9.0'
 ext.commonsText_version = '1.12.0'
 ext.dokka_version='2.0.0'
 ext.dropwizard_metrics_version='4.2.33'
-ext.angus_mail_version='2.0.4'
 ext.elastic_version='7.2.0'
 ext.findbugs_jsr305_version='3.0.2'
 ext.findbugs_version='3.0.1'
 ext.findsecbugs_version='1.14.0'
 ext.flyway_version='11.20.3'
 ext.google_maps_services='0.11.0'
-ext.guava_version='33.6.0-jre'
-// Android-compatible guava variant used by the modules that ship into the
-// Android app (chronicle-models, chronicle-api). Deliberately different from
-// guava_version above: the -jre line is for server-side JVMs only.
-ext.guava_android_version='32.0.1-android'
+// guava_version / guava_android_version and the raise-only Guava pin live in guava.gradle.
+apply from: new File(buildscript.sourceFile.parentFile, 'guava.gradle')
 ext.flyway_version='11.20.3'
 ext.hazelcast_version='5.7.0'
 ext.hibernate_validator_version='9.1.4.Final'
@@ -228,15 +166,12 @@ ext.jackson_version='2.22.3'
 ext.jacoco_tool_version = '0.8.13'
 ext.jakarta_annotation_version='3.0.0'
 ext.jakarta_inject_version='2.0.1'
-ext.jakarta_mail_api='2.1.3'
 ext.jakarta_validation_api_version='3.1.1'
 ext.jakarta_el_api_version='6.0.1'
 ext.expressly_version='6.0.0'
 ext.jcip_version='1.0'
 ext.jdbi3_version='3.1.0'
 ext.jetty_version='12.1.14'
-ext.jmustache_version ='1.11'
-ext.jodd_mail_version='7.1.0'
 ext.kotlin_version='2.4.10'
 ext.kryo_serializers_version='0.42'
 ext.kryo_shaded_version='4.0.0'
@@ -247,7 +182,7 @@ ext.netty_epoll_version='4.2.18.Final'
 ext.netty_os_arch='linux-x86_64'
 ext.objenesis_version='2.4'
 ext.odata_version='5.0.0'
-ext.postgresql_version='42.7.12'
+ext.postgresql_version='42.7.14'
 ext.prometheus_jvm_client_version='0.16.0'
 ext.reflectasm_version='1.11.9'
 ext.retrofit2_version='3.0.0'
@@ -270,16 +205,12 @@ ext.jakarta_websocket='2.2.0'
 /**
  * Testing versions
  **/
-ext.greenmail_version='2.1.3'
 ext.junit_version='4.13.2'
 ext.mockito_version='5.20.0'   // >=5.18 required: ByteBuddy 1.17.x for JDK 25 class files
 
 /**
- * Shared build conventions (Tranche 8: Gradle and Dependency Consolidation).
- *
- * Everything below previously lived, byte-for-byte identical, in the individual
- * repo build scripts (chronicle-models, chronicle-api, chronicle-server,
- * rhizome, rhizome-client). It is applied here behind plugins.withId guards so
+ * Shared build conventions for the repo build scripts (chronicle-models,
+ * chronicle-api, chronicle-server, rhizome, rhizome-client). It is applied here behind plugins.withId guards so
  * repos that do not use a given plugin are untouched. Repo-specific divergences
  * (allWarningsAsErrors, explicitApi, spotbugs report/failure handling, the
  * server-only odata/chronicle_api_version overrides) stay in the repos.
@@ -313,6 +244,9 @@ plugins.withId('org.jetbrains.kotlin.jvm') { kotlinPlugin ->
         kotlinOptions {
             jvmTarget = "21"
             freeCompilerArgs += '-jvm-default=no-compatibility'
+            // Hibernate Validator reads element constraints such as List<@Size String> from JVM
+            // type annotations, which Kotlin emits only with this flag.
+            freeCompilerArgs += '-Xemit-jvm-type-annotations'
         }
     }
 }
@@ -326,6 +260,11 @@ plugins.withId('checkstyle') {
         // build; local-only keeps the build reproducible and offline-safe.
         config project.resources.text.fromFile(new File(buildscript.sourceFile.parentFile, 'checkstyle.xml'))
     }
+    // Checkstyle 10.26.1 pulls guava 33.4.8-jre; no Checkstyle release carries 33.7.2 yet
+    // (14.3.0 has 33.7.1).
+    configurations.named('checkstyle') {
+        resolutionStrategy.eachDependency(guavaPinResolveRule)
+    }
     tasks.withType(Checkstyle) {
         reports {
             xml.required = false
@@ -338,6 +277,8 @@ plugins.withId('jacoco') {
     jacoco {
         toolVersion = "${jacoco_tool_version}"
     }
+    // scripts/diff-coverage.py reads the XML; Gradle writes only HTML by default.
+    jacocoTestReport { reports { xml.required = true } }
 }
 
 plugins.withId('com.github.spotbugs') {

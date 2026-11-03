@@ -1,0 +1,77 @@
+/**
+ * Guava versions and the raise-only pin that every Chronicle build applies. Guava < 33.7.2 has
+ * GHSA-xxph-c9ww-hj94 (CompactHashMap/CompactHashSet/MapMakerInternalMap deserialization OOM).
+ *
+ * Side-effect free: it only defines ext properties and closures. Users:
+ *   gradles/chronicle.gradle          versions for the JVM repos; checkstyle configuration
+ *   build.gradle.kts (root)           root and subproject buildscript classpaths
+ *   chronicle-api/build.gradle        its buildscript classpath when built on its own or included
+ *   chronicle/build.gradle            Android buildscript classpath and every Android project
+ *   chronicle/app/build.gradle        release runtime classpaths ship the -android line
+ */
+
+// -jre: server-side JVMs, build tooling. -android: modules that ship into the Android app
+// (chronicle-models, chronicle-api, the app itself).
+ext.guava_version = '33.7.2-jre'
+ext.guava_android_version = '33.7.2-android'
+
+// The version to move a Guava request to, or null to leave it alone. Raise-only: a request at or
+// above the pin of its flavor (a future library that needs a newer Guava) is never pulled down.
+// androidLine: the target is always -android, so a -jre request at the pinned number moves too.
+ext.guavaPinnedVersion = { String requested, boolean androidLine = false ->
+    def numbers = { String version ->
+        def match = version =~ /^(\d+(?:\.\d+)*)/
+        match.find() ? match.group(1).tokenize('.').collect { it as int } : null
+    }
+    def requestedNumbers = requested ? numbers(requested) : null
+    if (requestedNumbers == null) {
+        return null // unversioned, a range, or a placeholder: not ours to rewrite
+    }
+    def target = (androidLine || requested.endsWith('-android')) ? guava_android_version : guava_version
+    def targetNumbers = numbers(target)
+    int order = 0
+    for (int i = 0; i < Math.max(requestedNumbers.size(), targetNumbers.size()) && order == 0; i++) {
+        order = (requestedNumbers[i] ?: 0) <=> (targetNumbers[i] ?: 0)
+    }
+    if (order < 0) {
+        return target
+    }
+    return order == 0 && androidLine && requested != target ? target : null
+}
+
+def guavaReason = 'GHSA-xxph-c9ww-hj94: Guava deserialization OOM, fixed in 33.7.2'
+def isGuava = { group, name -> group == 'com.google.guava' && name == 'guava' }
+
+// Component metadata rule: rewrites the Guava dependency each library declares. Use it for
+// toolchains, because AGP resolves lint, data binding and test tooling through detached
+// configurations that configurations.configureEach never sees.
+ext.guavaPinMetadataRule = { details ->
+    details.allVariants { variant ->
+        variant.withDependencies { deps ->
+            deps.findAll { isGuava(it.group, it.name) }.each { dep ->
+                def pinned = guavaPinnedVersion(dep.versionConstraint.requiredVersion)
+                if (pinned) {
+                    dep.version { require(pinned) }
+                    dep.because(guavaReason)
+                }
+            }
+        }
+    }
+}
+
+// eachDependency rules for named configurations: the flavor-preserving one, and the one that
+// holds a classpath on the -android line.
+ext.guavaPinResolveRule = { details ->
+    def pinned = isGuava(details.requested.group, details.requested.name) ? guavaPinnedVersion(details.requested.version) : null
+    if (pinned) {
+        details.useVersion(pinned)
+        details.because(guavaReason)
+    }
+}
+ext.guavaAndroidResolveRule = { details ->
+    def pinned = isGuava(details.requested.group, details.requested.name) ? guavaPinnedVersion(details.requested.version, true) : null
+    if (pinned) {
+        details.useVersion(pinned)
+        details.because(guavaReason)
+    }
+}

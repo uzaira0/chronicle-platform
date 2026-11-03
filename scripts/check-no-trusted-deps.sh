@@ -2,12 +2,10 @@
 #
 # Supply-chain guard: fail if any manifest re-enables dependency lifecycle scripts.
 #
-# Bun does NOT run install/postinstall/preinstall scripts for dependencies by
-# default — that default is the single most important reason a Shai-Hulud-class
-# npm worm's payload does not execute on `bun install`. The way to re-enable it
-# is to add a "trustedDependencies" allowlist to package.json (or an equivalent
-# script-enabling knob in bunfig.toml / .npmrc). This guard rejects that so the
-# safe-by-default posture cannot be silently weakened in a PR.
+# Bun restricts dependency lifecycle scripts to its built-in trust list, which
+# includes the Bun runtime package. It does not disable every dependency script.
+# This guard rejects project trust lists and script-enabling knobs so the existing
+# policy cannot be silently expanded. `--ignore-scripts` disables all scripts.
 #
 # If you have a legitimate need to trust a dependency's install script, that is a
 # human decision that must NOT pass CI silently — remove this guard deliberately
@@ -45,7 +43,7 @@ while IFS= read -r -d '' npmrc; do
 done < <(find . -name '.npmrc' -not -path '*/node_modules/*' -print0)
 
 if [ "$status" -eq 0 ]; then
-  echo "[ok] No manifest re-enables dependency lifecycle scripts (bun no-scripts default intact)."
+  echo "[ok] No manifest adds a dependency trust list or enables npm lifecycle scripts."
 fi
 
 exit "$status"

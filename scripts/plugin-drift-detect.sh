@@ -14,8 +14,8 @@ while IFS=':' read -r plugin version; do
     version=$(echo "$version" | tr -d ' ')
     [ -n "$plugin" ] && canonical["$plugin"]="$version"
 done < <(sed -E 's/kotlin\("([^"]+)"\)/id("org.jetbrains.kotlin.\1")/g' settings.gradle.kts \
-    | grep -oE 'id\("[^"]+"\)\s+version\s+"[^"]+"' \
-    | sed -E 's/id\("([^"]+)"\)\s+version\s+"([^"]+)"/\1:\2/')
+    | grep -oE 'id\("[^"]+"\)[[:space:]]+version[[:space:]]+"[^"]+"' \
+    | sed -E 's/id\("([^"]+)"\)[[:space:]]+version[[:space:]]+"([^"]+)"/\1:\2/')
 
 # Walk every build.gradle in submodules
 drift_lines=""
