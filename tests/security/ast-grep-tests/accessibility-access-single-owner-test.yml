@@ -1,0 +1,5 @@
+id: accessibility-access-single-owner
+valid:
+- "fun f() {\n  onboarding.enabledServices()\n}\n"
+invalid:
+- "fun f() {\n  manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)\n}\n"

@@ -1,6 +1,6 @@
-// Positive fixture for the collection-dto Semgrep rule (Phase 12, catalog #8).
+// Positive fixture for the collection-dto Semgrep rule.
 //
-// This DTO deliberately declares secret-bearing fields that design §1B.3 forbids
+// This DTO deliberately declares secret-bearing fields that the rule forbids
 // in shared collection DTOs. `semgrep --test` confirms the rule fires on each
 // annotated line. Not production code — never compiled, never scanned by the
 // `collection` layer's real-code target.

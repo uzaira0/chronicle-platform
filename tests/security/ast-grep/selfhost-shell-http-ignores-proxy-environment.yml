@@ -1,0 +1,29 @@
+id: selfhost-shell-http-ignores-proxy-environment
+language: Bash
+severity: error
+message: Host deployment HTTP must bypass inherited proxies with --noproxy '*'.
+note: |
+  Blind spots: Direct curl commands only; aliases, eval and computed command names are not resolved.
+  Container entrypoints and monitoring containers do not execute on the host.
+files:
+  - selfhost/**/*.sh
+  - selfhost/chronicle
+ignores:
+  - selfhost/*entrypoint.sh
+  - selfhost/monitoring/**
+rule:
+  all:
+    - kind: command
+    - has:
+        field: name
+        regex: '^(?:/usr/bin/)?curl$'
+    - not:
+        has:
+          kind: word
+          regex: '^--noproxy$'
+          precedes:
+            any:
+              - kind: raw_string
+                regex: "^'\\*'$"
+              - kind: string
+                regex: '^"\*"$'

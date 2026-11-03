@@ -1,0 +1,21 @@
+id: android-collection-subclass
+valid:
+- "// Composition needs no reflective superclass signature or keep-rule exception.\nclass CollectedUploadHeaders\
+  \ {\n    fun toMap(): Map<String, String> = emptyMap()\n    override fun toString(): String = \"CollectedUploadHeaders(redacted)\"\
+  \n}\nval rows = java.util.ArrayList<String>()\nval keys = HashMap<String, String>()\n"
+invalid:
+- 'class CollectedUploadHeaders : AbstractMap<String, String>()
+
+  class Rows : java.util.ArrayList<String>()
+
+  class Items : AbstractList<String>()
+
+  class Keys : AbstractSet<String>()
+
+  class Values : HashMap<String, String>()
+
+  class Ordered : LinkedHashMap<String, String>()
+
+  val anonymous = object : ArrayList<String>() {}
+
+  '

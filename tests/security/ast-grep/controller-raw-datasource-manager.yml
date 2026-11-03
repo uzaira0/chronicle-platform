@@ -1,0 +1,15 @@
+id: controller-raw-datasource-manager
+language: Kotlin
+note: |
+  Blind spots: Only a DataSourceManager user type in controller paths matches; type aliases and indirect privileged access are not resolved.
+severity: error
+message: Controllers resolve runtime storage through StorageResolver so the privileged bootstrap alias cannot be
+  selected.
+files:
+- '**/chronicle-server/src/main/**/controllers/**/*.kt'
+rule:
+  kind: user_type
+  regex: (?:^|\.)DataSourceManager$
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

@@ -1,0 +1,63 @@
+id: ambient-audit-in-connection-scope
+valid:
+- 'fun change(session: Connection) { manager.recordEvents(session, events) }
+
+  '
+- 'fun change(owner: java.sql.Connection) { manager.recordEvents(owner, listOf(event)) }
+
+  '
+- 'fun change() { pool.connection.use { unit -> manager.recordEvents(unit, events) } }
+
+  '
+- 'fun change(unit: Connection) { manager.recordEvents(unit, events) }
+
+  '
+- 'package example
+
+
+  fun update(db: Connection) { recordEvent(db, event) }
+
+  '
+- 'package example
+
+
+  fun update(db: Connection) { component.recordEvent(db, event) }
+
+  '
+- 'package example
+
+
+  fun disclose(db: Connection) { recordEvent(db, event) }
+
+  '
+invalid:
+- 'fun change(session: Connection) { manager.recordEvents(events) }
+
+  '
+- 'fun change(owner: java.sql.Connection) { recordEvent(event) }
+
+  '
+- 'fun change() { pool.connection.use { unit -> manager.recordEvents(events) } }
+
+  '
+- 'fun change(unit: Connection) { manager.recordObservations(observation) }
+
+  '
+- 'package example
+
+
+  fun update(db: Connection) { recordCommittedEvent(event) }
+
+  '
+- 'package example
+
+
+  fun update(db: Connection) { component.recordIntentEvent(event) }
+
+  '
+- 'package example
+
+
+  fun disclose(db: Connection) { recordReadEvent(event) }
+
+  '

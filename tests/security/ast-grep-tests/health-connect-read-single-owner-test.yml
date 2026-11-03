@@ -1,0 +1,5 @@
+id: health-connect-read-single-owner
+valid:
+- "fun f() {\n  reader.read(request)\n}\n"
+invalid:
+- "fun f() {\n  val records = client.readRecords(request)\n}\n"

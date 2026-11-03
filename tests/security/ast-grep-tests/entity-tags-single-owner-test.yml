@@ -1,0 +1,7 @@
+id: entity-tags-single-owner
+valid:
+- "fun f() {\n  val tag = \"\\\"abc\\\"\"\n}\n"
+- "fun f() {\n  val encoding = \"gzip\"\n}\n"
+invalid:
+- "fun f() {\n  val suffix = \"-gzip\"\n}\n"
+- "fun f() {\n  val pattern = \"--(?:gzip|br)\"\n}\n"

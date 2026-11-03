@@ -1,0 +1,7 @@
+id: collection-module-id-no-raw-string
+valid:
+- "fun f() {\n  val id = CollectionModuleId.USAGE_EVENTS.id\n}\n"
+- "fun f() {\n  schedule(label = \"usage_events\")\n}\n"
+invalid:
+- "fun f() {\n  val id = \"usage_events\"\n}\n"
+- "fun f() {\n  send(\"sensor_accelerometer\")\n}\n"

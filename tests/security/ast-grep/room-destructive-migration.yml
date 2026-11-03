@@ -1,0 +1,20 @@
+# Room's fallbackToDestructiveMigration* drops every local table on open,
+# including queued, not-yet-uploaded participant data and the enrollment. Automatic
+# deletion of participant data is forbidden; schema changes ship a real Migration with a
+# MigrationTestHelper test (ChronicleDbMigrationTest).
+id: room-destructive-migration
+language: Kotlin
+note: |
+  Blind spots: Only named fallbackToDestructiveMigration call syntax matches; reflection and wrapper implementations are not followed.
+severity: error
+message: >
+  fallbackToDestructiveMigration* silently drops local participant data. Add a Room
+  Migration and extend ChronicleDbMigrationTest instead.
+files:
+  - "chronicle/**/*.kt"
+rule:
+  kind: simple_identifier
+  regex: ^fallbackToDestructiveMigration
+  inside:
+    kind: call_expression
+    stopBy: end

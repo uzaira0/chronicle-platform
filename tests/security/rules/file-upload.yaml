@@ -104,10 +104,17 @@ rules:
               File($BASE + $USER_INPUT)
           - pattern: |
               File($BASE, $USER_INPUT)
+      # The child is the configuration file name the class declares in @ReloadableConfiguration.
+      - pattern-not-inside: |
+          $URI = getReloadableConfigurationUri(...);
+          ...
     paths:
       # Request input reaches file paths only on the server (/src/main relative to its submodule root); Android builds names from constants and hashes.
       include:
         - "/src/main/**"
+      exclude:
+        # chronicle-models' payload fixture registry resolves repository fixture paths, never request input.
+        - "/src/main/kotlin/com/openlattice/chronicle/fixtures/**"
     message: >
       File path constructed using string concatenation or user-supplied input.
       This may allow path traversal attacks (e.g., "../../etc/passwd") if the

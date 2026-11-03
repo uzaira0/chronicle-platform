@@ -1,0 +1,17 @@
+id: auth-rls-anonymous-fallback
+language: Kotlin
+note: |
+  Blind spots: Only the listed null-return forms match; helper calls and more complex control flow are not followed.
+severity: error
+message: Missing RLS context must borrow as anonymous; privileged work requires an explicit context.
+rule:
+  any:
+  - pattern: '$PROVIDER() ?: return $CONNECTION'
+  - pattern: if ($CONTEXT == null) return $CONNECTION
+  - pattern: if (null == $CONTEXT) return $CONNECTION
+  - pattern: if ($CONTEXT === null) { return $CONNECTION }
+files:
+- '**/chronicle-server/src/main/**/storage/rls/**/*.kt'
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

@@ -1,5 +1,7 @@
 id: entity-tags-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only literal compression suffix patterns match; computed regexes and normalization hidden in helpers are not followed.
 severity: error
 message: >
   Compression suffixes on ETag/If-Match belong only in

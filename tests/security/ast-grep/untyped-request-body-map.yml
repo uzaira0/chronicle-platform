@@ -1,0 +1,20 @@
+id: untyped-request-body-map
+language: Kotlin
+note: |
+  Blind spots: Only RequestBody Map<String, Any> parameter syntax matches; type aliases, wrapper types and manual request parsing are not resolved.
+severity: error
+message: Use a typed patch contract with explicit absent/null/value semantics and strict scalar decoding.
+rule:
+  kind: parameter
+  regex: :\s*(?:kotlin\.collections\.)?(?:Mutable)?Map\s*<\s*(?:kotlin\.)?String\s*,\s*(?:@JvmSuppressWildcards\s+)?(?:(?:kotlin\.)?Any\??|\*)\s*>
+  follows:
+    kind: parameter_modifiers
+    has:
+      kind: annotation
+      regex: ^@(?:org\.springframework\.web\.bind\.annotation\.)?RequestBody\b
+      stopBy: end
+files:
+- '**/chronicle-server/src/main/**/*.kt'
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

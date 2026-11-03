@@ -1,0 +1,13 @@
+id: no-rls-filter-storage-resolver
+valid:
+- 'class RLSContextFilter(private val manager: RLSContextManager, private val clock: Clock)
+
+  '
+invalid:
+- 'class RLSContextFilter(private val manager: RLSContextManager, private val storage: StorageResolver, private val clock:
+  Clock)
+
+  '
+- 'class RLSContextFilter(private val storage: StorageResolver)
+
+  '

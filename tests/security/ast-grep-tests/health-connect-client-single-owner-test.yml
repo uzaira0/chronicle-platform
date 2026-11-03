@@ -1,0 +1,6 @@
+id: health-connect-client-single-owner
+valid:
+- "fun f() {\n  val client = owner.client(context)\n}\n"
+invalid:
+- "fun f() {\n  val status = HealthConnectClient.getSdkStatus(context)\n}\n"
+- "fun f() {\n  val client = HealthConnectClient.getOrCreate(context)\n}\n"

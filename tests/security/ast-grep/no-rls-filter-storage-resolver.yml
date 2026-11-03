@@ -1,8 +1,21 @@
 id: no-rls-filter-storage-resolver
 language: Kotlin
+note: |
+  Blind spots: Only a StorageResolver constructor type on RLSContextFilter matches; type aliases and indirect dependency injection are not resolved.
 severity: error
 message: >
   RLSContextFilter must not accept StorageResolver. A filter-level DB dependency
   can set RLS on a temporary connection instead of the actual query connection.
+# A pattern with a metavariable list around one class parameter never matches; the
+# structural form finds a StorageResolver parameter in any position.
 rule:
-  pattern: "class RLSContextFilter($$$ARGS, private val $NAME: StorageResolver, $$$REST)"
+  kind: class_parameter
+  has:
+    kind: user_type
+    regex: ^StorageResolver$
+  inside:
+    kind: class_declaration
+    has:
+      kind: type_identifier
+      regex: ^RLSContextFilter$
+    stopBy: end

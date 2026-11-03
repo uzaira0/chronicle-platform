@@ -1,0 +1,6 @@
+id: collection-hardware-service-only-via-manager
+valid:
+- "fun f() {\n  manager.start(context)\n}\n"
+invalid:
+- "fun f() {\n  HardwareSensorService.startService(context)\n}\n"
+- "fun f() {\n  HardwareSensorService.stopService(context)\n}\n"

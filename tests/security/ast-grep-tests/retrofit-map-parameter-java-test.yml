@@ -1,0 +1,9 @@
+id: retrofit-map-parameter-java
+valid:
+- "interface Api {\n    void headermap(@retrofit2.http.HeaderMap Map<String, String> values);\n    void querymap(@retrofit2.http.QueryMap\
+  \ java.util.Map<String, String> values);\n    void fieldmap(@retrofit2.http.FieldMap Map<String, String> values);\n\
+  \    void partmap(@retrofit2.http.PartMap Map<String, RequestBody> values);\n}\n"
+invalid:
+- "interface Api {\n    void headermap(@retrofit2.http.HeaderMap Headers values);\n    void querymap(@retrofit2.http.QueryMap\
+  \ HashMap<String, String> values);\n    void fieldmap(@retrofit2.http.FieldMap Map values);\n    void partmap(@retrofit2.http.PartMap\
+  \ Parts values);\n}\n"

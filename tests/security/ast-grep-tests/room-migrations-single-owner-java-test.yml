@@ -1,0 +1,5 @@
+id: room-migrations-single-owner-java
+valid:
+- "class Migrations {\n  static final Migration MIGRATION_1_2 = new Migration(1, 2) {};\n}\n"
+invalid:
+- "class Db {\n  void build(Builder builder) { builder.addMigrations(MIGRATION_1_2); }\n}\n"

@@ -1,0 +1,42 @@
+id: selfhost-http-ignores-proxy-environment
+language: Python
+note: |
+  Blind spots: Checks direct urllib calls, forbidden opener aliases and literal curl argv; dynamically built argv, arbitrary HTTP libraries and interprocedural data flow are not resolved.
+severity: error
+message: Operator HTTP in selfhost/ reaches private local listeners, which an inherited HTTPS_PROXY cannot reach. Open requests through build_opener(ProxyHandler({}), HTTPSHandler(context=...)), never urlopen.
+files:
+  - "selfhost/**/*.py"
+rule:
+  any:
+    - all:
+        - kind: aliased_import
+        - regex: '^(urlopen|build_opener|ProxyHandler)\s+as\b'
+        - inside:
+            kind: import_from_statement
+            regex: '^from urllib\.request import\b'
+    - all:
+        - kind: call
+        - has:
+            kind: argument_list
+            has:
+              kind: list
+              regex: '^\[\s*["'']curl["'']\s*[,\]]'
+        - not:
+            has:
+              kind: argument_list
+              has:
+                kind: list
+                regex: '["'']--noproxy["'']\s*,\s*["'']\*["'']'
+    - pattern: urlopen($$$)
+    - pattern: $MODULE.urlopen($$$)
+    - all:
+        - any:
+            - pattern: build_opener($$$)
+            - pattern: $MODULE.build_opener($$$)
+        - not:
+            has:
+              kind: argument_list
+              has:
+                any:
+                  - pattern: ProxyHandler({})
+                  - pattern: $HANDLERS.ProxyHandler({})

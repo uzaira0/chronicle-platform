@@ -1,0 +1,21 @@
+id: android-collection-subclass
+language: Kotlin
+note: |
+  Blind spots: Only the listed collection base classes match; type aliases and indirect inheritance are not resolved.
+severity: error
+message: Own a collection as a value; R8 strips unkept class signatures used by reflection.
+files:
+- '**/chronicle/app/src/**/*.kt'
+- '**/chronicle/collection-*/src/**/*.kt'
+ignores:
+- '**/src/test*/**'
+- '**/src/androidTest*/**'
+- '**/tests/security/fixtures/**'
+- '**/lint/**'
+rule:
+  kind: delegation_specifier
+  has:
+    kind: constructor_invocation
+    has:
+      kind: user_type
+      regex: ^(?:(?:java\.util|kotlin\.collections)\.)?(?:AbstractMap|AbstractList|AbstractSet|HashMap|ArrayList|LinkedHashMap)\s*<

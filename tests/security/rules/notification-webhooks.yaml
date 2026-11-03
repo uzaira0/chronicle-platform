@@ -22,7 +22,8 @@ rules:
           }
     paths:
       include:
-        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/NotificationController.kt
+        # Semgrep paths are relative to each scanned submodule root.
+        - /src/main/kotlin/com/openlattice/chronicle/controllers/NotificationController.kt
 
   - id: chronicle-notification-principal-path-must-check-subject
     languages:
@@ -47,4 +48,5 @@ rules:
           }
     paths:
       include:
-        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/NotificationController.kt
+        # Semgrep paths are relative to each scanned submodule root.
+        - /src/main/kotlin/com/openlattice/chronicle/controllers/NotificationController.kt

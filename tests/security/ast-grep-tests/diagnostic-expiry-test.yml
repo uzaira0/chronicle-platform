@@ -1,0 +1,15 @@
+id: diagnostic-expiry
+valid:
+- "class LocalUploadDiagnosticsStore {\n fun erase() {\n database.delete(\"upload_diagnostics\", \"owner_id = ?\"\
+  , arrayOf(ownerId))\n}\n}\n"
+- "class LocalUploadDiagnosticsStore {\n val maxEntries = 30\n}\n"
+- 'fun recent() = dao.recent(cutoff, today)
+
+  '
+invalid:
+- "class LocalUploadDiagnosticsStore {\n fun prune() {\n database.delete(\"upload_diagnostics\", \"created_at <\
+  \ ?\", arrayOf(cutoff))\n}\n}\n"
+- "class LocalUploadDiagnosticsStore {\n val ttlDays = 30\n}\n"
+- 'fun prune() { dao.deleteOlderThan(cutoff) }
+
+  '

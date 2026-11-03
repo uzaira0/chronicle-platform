@@ -1,0 +1,7 @@
+id: container-startup-skip
+valid:
+- "fun startFixture() {\n    assumeTrue(\"explicit integration opt-in\", integrationEnabled)\n    container.start()\n\
+  \    try { configure(container) } catch (failure: Throwable) { container.stop(); throw failure }\n}\n"
+invalid:
+- "fun startFixture() {\n    try { container.start() } catch (failure: Throwable) { assumeNoException(\"unavailable\"\
+  , failure) }\n}\n"

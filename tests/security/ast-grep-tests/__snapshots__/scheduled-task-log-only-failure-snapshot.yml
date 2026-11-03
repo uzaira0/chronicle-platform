@@ -1,0 +1,83 @@
+id: scheduled-task-log-only-failure
+snapshots:
+  "@Scheduled(fixedRate = 10) fun refresh() { try { load() } catch (ex: Exception) { logger.error(\"Failed\", ex) } }":
+    labels:
+    - source: "catch (ex: Exception) { logger.error(\"Failed\", ex) }"
+      style: primary
+      start: 58
+      end: 110
+    - source: "@Scheduled(fixedRate = 10) fun refresh() { try { load() } catch (ex: Exception) { logger.error(\"Failed\", ex) } }"
+      style: secondary
+      start: 0
+      end: 112
+  "@Scheduled(fixedRate = SYSTEM_APPS_REFRESH_INTERVAL_MILLIS)\npublic fun refreshSystemApps(): Unit = RLSRequestContext.withSystemContext {\n    try {\n        val apps = BasePostgresIterable(\n            PreparedStatementHolderSupplier(\n                hds = storageResolver.getPlatformStorage(),\n                sql = \"SELECT ${APP_PACKAGE_NAME.name} from ${SYSTEM_APPS.name}\"\n            ){}\n        ){\n            ResultSetAdapters.systemApp(it)\n        }.toSet()\n        // Atomic swap — readers never see a partially-updated set\n        _systemAppPackageNames = apps\n        logger.info(\"loaded ${apps.size} system apps into cache\")\n    } catch (ex: Exception) {\n        logger.error(\"Failed to refresh system apps cache\", ex)\n    }\n}\n":
+    labels:
+    - source: |-
+        catch (ex: Exception) {
+                logger.error("Failed to refresh system apps cache", ex)
+            }
+      style: primary
+      start: 642
+      end: 735
+    - source: |-
+        @Scheduled(fixedRate = SYSTEM_APPS_REFRESH_INTERVAL_MILLIS)
+        public fun refreshSystemApps(): Unit = RLSRequestContext.withSystemContext {
+            try {
+                val apps = BasePostgresIterable(
+                    PreparedStatementHolderSupplier(
+                        hds = storageResolver.getPlatformStorage(),
+                        sql = "SELECT ${APP_PACKAGE_NAME.name} from ${SYSTEM_APPS.name}"
+                    ){}
+                ){
+                    ResultSetAdapters.systemApp(it)
+                }.toSet()
+                // Atomic swap — readers never see a partially-updated set
+                _systemAppPackageNames = apps
+                logger.info("loaded ${apps.size} system apps into cache")
+            } catch (ex: Exception) {
+                logger.error("Failed to refresh system apps cache", ex)
+            }
+        }
+      style: secondary
+      start: 0
+      end: 737
+  "override fun initialize(dependencies: Dependencies) { try { load() } catch (ex: Exception) { logger.error(\"Failed\", ex) } }":
+    labels:
+    - source: "catch (ex: Exception) { logger.error(\"Failed\", ex) }"
+      style: primary
+      start: 69
+      end: 121
+    - source: "override fun initialize(dependencies: Dependencies) { try { load() } catch (ex: Exception) { logger.error(\"Failed\", ex) } }"
+      style: secondary
+      start: 0
+      end: 123
+  "override fun runTask() { try { load() } catch (ex: Exception) { throw ex } }":
+    labels:
+    - source: "catch (ex: Exception) { throw ex }"
+      style: primary
+      start: 40
+      end: 74
+    - source: "override fun runTask() { try { load() } catch (ex: Exception) { throw ex } }"
+      style: secondary
+      start: 0
+      end: 76
+  "override fun runTask() { try { load() } catch (failure: Exception) { logger.error(\"Failed\", failure) } }":
+    labels:
+    - source: "catch (failure: Exception) { logger.error(\"Failed\", failure) }"
+      style: primary
+      start: 40
+      end: 102
+    - source: "override fun runTask() { try { load() } catch (failure: Exception) { logger.error(\"Failed\", failure) } }"
+      style: secondary
+      start: 0
+      end: 104
+  "private fun expireAbandonedJobs() { try { load() } catch (ex: Exception) { logger.error(\"Failed\", ex) } }":
+    labels:
+    - source: "catch (ex: Exception) { logger.error(\"Failed\", ex) }"
+      style: primary
+      start: 51
+      end: 103
+    - source: "private fun expireAbandonedJobs() { try { load() } catch (ex: Exception) { logger.error(\"Failed\", ex) } }"
+      style: secondary
+      start: 0
+      end: 105

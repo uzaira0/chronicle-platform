@@ -1,0 +1,8 @@
+id: room-destructive-migration
+valid:
+- "fun build(context: Context) = Room.databaseBuilder(context, ChronicleDb::class.java, NAME)\n  .addMigrations(*MIGRATIONS)\n  .build()\n"
+- "val migration = object : Migration(1, 2) { override fun migrate(db: SupportSQLiteDatabase) {} }\n"
+invalid:
+- "fun build(context: Context) = Room.databaseBuilder(context, ChronicleDb::class.java, NAME)\n  .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1)\n  .build()\n"
+- "fun build(context: Context) = Room.databaseBuilder(context, ChronicleDb::class.java, NAME)\n  .fallbackToDestructiveMigration(dropAllTables = true)\n  .build()\n"
+- "fun build(context: Context) = Room.databaseBuilder(context, ChronicleDb::class.java, NAME).apply {\n  fallbackToDestructiveMigrationOnDowngrade(true)\n}.build()\n"

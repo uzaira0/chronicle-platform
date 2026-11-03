@@ -1,0 +1,36 @@
+id: fgs-start-result-ignored
+language: Kotlin
+note: |
+  Blind spots: Only the listed start calls and surrounding statement shapes match; helper return handling and aliases require tests.
+severity: error
+message: Handle foreground-service refusal and preserve an exempt recovery path.
+files:
+- '**/chronicle/app/src/**/*.kt'
+rule:
+  all:
+  - kind: call_expression
+  - regex: ^(?:(?:[\w]+\.)*(?:DistributionRestrictedRuntime\.(?:try)?[sS]tartHardwareSensors|HardwareSensorService\.(?:try)?[sS]tartService)|startForegroundServiceIfPermitted|promoteForegroundServiceIfPermitted)\s*\(
+  - inside:
+      kind: statements
+      stopBy: neighbor
+  - not:
+      all:
+      - inside:
+          kind: statements
+          stopBy: neighbor
+          inside:
+            kind: try_expression
+            stopBy: neighbor
+            inside:
+              kind: property_declaration
+              stopBy: neighbor
+      - not:
+          precedes:
+            not:
+              any:
+              - kind: line_comment
+              - kind: multiline_comment
+            stopBy: end
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

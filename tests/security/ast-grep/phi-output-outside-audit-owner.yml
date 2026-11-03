@@ -1,0 +1,18 @@
+id: phi-output-outside-audit-owner
+language: Kotlin
+note: |
+  Blind spots: Only direct servlet output accessor spellings match; wrappers and output streams passed through helpers are not followed.
+severity: error
+message: Pass the response to PhiStreamAudit so the disclosure attempt precedes its first byte and every outcome
+  is audited.
+files:
+- '**/chronicle-server/src/main/**/controllers/**/*.kt'
+rule:
+  any:
+  - pattern: $RESPONSE.outputStream
+  - pattern: $RESPONSE.getOutputStream()
+  - pattern: $RESPONSE.writer
+  - pattern: $RESPONSE.getWriter()
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

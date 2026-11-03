@@ -1,0 +1,18 @@
+id: unbounded-outbound-http
+language: Kotlin
+note: |
+  Blind spots: Only listed constructor and literal-zero timeout forms match; nonzero-but-unbounded configurations, aliases and timeout values from variables require runtime tests.
+severity: error
+message: Outbound HTTP needs connect/read timeouts; use boundedRestTemplate() or SafeHttpClientFactory.createClientBuilder() (a bare RestTemplate(), a JWKS decoder without restOperations, or an OkHttp timeout of 0 waits forever).
+files:
+  - "**/chronicle-server/src/main/**/*.kt"
+rule:
+  any:
+    - pattern: RestTemplate()
+    - pattern: NimbusJwtDecoder.withJwkSetUri($URI).build()
+    - pattern: $B.connectTimeout(0, $UNIT)
+    - pattern: $B.readTimeout(0, $UNIT)
+    - pattern: $B.writeTimeout(0, $UNIT)
+    - pattern: $B.connectTimeout(Duration.ZERO)
+    - pattern: $B.readTimeout(Duration.ZERO)
+    - pattern: $B.writeTimeout(Duration.ZERO)

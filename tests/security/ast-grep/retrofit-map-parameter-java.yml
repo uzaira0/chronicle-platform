@@ -1,0 +1,26 @@
+id: retrofit-map-parameter-java
+language: Java
+note: |
+  Blind spots: Only annotated generic Map parameter syntax matches; imported type aliases and map subtypes are not resolved.
+severity: error
+message: Retrofit map annotations require Map<...> on the parameter; R8 can strip subclass generic signatures.
+files:
+- '**/chronicle/app/src/**/*.java'
+- '**/chronicle/collection-*/src/**/*.java'
+rule:
+  all:
+  - kind: formal_parameter
+  - has:
+      kind: modifiers
+      has:
+        any:
+        - kind: annotation
+        - kind: marker_annotation
+        regex: ^@(?:retrofit2\.http\.)?(?:HeaderMap|QueryMap|FieldMap|PartMap)(?:\s*\(|$)
+  - not:
+      has:
+        kind: generic_type
+        regex: ^(?:java\.util\.)?Map\s*<
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

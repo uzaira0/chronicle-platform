@@ -1,0 +1,26 @@
+id: cookie-policy-owner
+valid:
+  - 'policy.addCookie(response, request, CookiePurpose.AUTH_SESSION, "name", "value", 600)'
+  - 'val description = "Cookie(name, value)"'
+  - 'fun read(request: HttpServletRequest) = request.cookies'
+invalid:
+  - 'val cookie = Cookie("name", "value")'
+  - 'val cookie = jakarta.servlet.http.Cookie("name", "value")'
+  - 'val cookie = javax.servlet.http.Cookie("name", "value")'
+  - 'val cookie = ResponseCookie.from("name", "value").secure(true).build()'
+  - 'val cookie = org.springframework.http.ResponseCookie.from("name", "value").build()'
+  - "import jakarta.servlet.http.Cookie as SessionCookie\nfun write() = SessionCookie(\"name\", \"value\")"
+  - "import org.springframework.http.ResponseCookie as SessionCookie\nfun write() = SessionCookie.from(\"name\", \"value\").build()"
+  - "import org.springframework.http.ResponseCookie.from as sessionCookie\nfun write() = sessionCookie(\"name\", \"value\").build()"
+---
+id: cookie-policy-owner-java
+valid:
+  - 'class Reader { Object read(HttpServletRequest request) { return request.getCookies(); } }'
+  - 'class Writer { void write() { policy.addCookie(response, request, purpose, "name", "value", 600); } }'
+invalid:
+  - 'class Writer { Object write() { return new Cookie("name", "value"); } }'
+  - 'class Writer { Object write() { return new jakarta.servlet.http.Cookie("name", "value"); } }'
+  - 'class Writer { Object write() { return new javax.servlet.http.Cookie("name", "value"); } }'
+  - 'class Writer { Object write() { return ResponseCookie.from("name", "value").build(); } }'
+  - 'class Writer { Object write() { return org.springframework.http.ResponseCookie.from("name", "value").build(); } }'
+  - "import static org.springframework.http.ResponseCookie.from;\nclass Writer { Object write() { return from(\"name\", \"value\").build(); } }"

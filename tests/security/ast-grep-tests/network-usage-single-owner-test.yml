@@ -1,0 +1,5 @@
+id: network-usage-single-owner
+valid:
+- "fun f() {\n  val usage = owner.summary(start, end)\n}\n"
+invalid:
+- "fun f() {\n  val stats = manager.querySummary(type, null, start, end)\n}\n"

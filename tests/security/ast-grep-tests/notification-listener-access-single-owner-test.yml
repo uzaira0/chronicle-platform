@@ -1,0 +1,6 @@
+id: notification-listener-access-single-owner
+valid:
+- "fun f() {\n  val granted = owner.granted(context)\n}\n"
+invalid:
+- "fun f() {\n  val granted = manager.isNotificationListenerAccessGranted(component)\n}\n"
+- "fun f() {\n  val packages = NotificationManagerCompat.getEnabledListenerPackages(context)\n}\n"

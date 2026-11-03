@@ -1,0 +1,36 @@
+id: scheduled-task-log-only-failure
+valid:
+  - |
+    @Scheduled(fixedRate = 10)
+    fun refresh() { try { load() } catch (ex: Exception) {
+      ChronicleMetrics.recordBackgroundTaskFailure(ChronicleMetrics.BackgroundTask.SYSTEM_APPS)
+      logger.error("Failed", ex)
+    } }
+  - 'override fun initialize(dependencies: Dependencies) { try { load() } catch (ex: Exception) { throw ex } }'
+  - 'fun read() { try { load() } catch (ex: Exception) { logger.error("Failed", ex) } }'
+  - 'fun expireAbandonedJobs() { try { load() } catch (ex: SQLException) { throw ex } }'
+invalid:
+  - '@Scheduled(fixedRate = 10) fun refresh() { try { load() } catch (ex: Exception) { logger.error("Failed", ex) } }'
+  - 'override fun runTask() { try { load() } catch (failure: Exception) { logger.error("Failed", failure) } }'
+  - 'override fun runTask() { try { load() } catch (ex: Exception) { throw ex } }'
+  - 'private fun expireAbandonedJobs() { try { load() } catch (ex: Exception) { logger.error("Failed", ex) } }'
+  - 'override fun initialize(dependencies: Dependencies) { try { load() } catch (ex: Exception) { logger.error("Failed", ex) } }'
+  - |
+    @Scheduled(fixedRate = SYSTEM_APPS_REFRESH_INTERVAL_MILLIS)
+    public fun refreshSystemApps(): Unit = RLSRequestContext.withSystemContext {
+        try {
+            val apps = BasePostgresIterable(
+                PreparedStatementHolderSupplier(
+                    hds = storageResolver.getPlatformStorage(),
+                    sql = "SELECT ${APP_PACKAGE_NAME.name} from ${SYSTEM_APPS.name}"
+                ){}
+            ){
+                ResultSetAdapters.systemApp(it)
+            }.toSet()
+            // Atomic swap — readers never see a partially-updated set
+            _systemAppPackageNames = apps
+            logger.info("loaded ${apps.size} system apps into cache")
+        } catch (ex: Exception) {
+            logger.error("Failed to refresh system apps cache", ex)
+        }
+    }

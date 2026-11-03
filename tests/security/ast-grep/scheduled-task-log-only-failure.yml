@@ -1,0 +1,27 @@
+id: scheduled-task-log-only-failure
+language: Kotlin
+note: |
+  Blind spots: Only Exception catch blocks in listed scheduled function shapes match; other exception types and delegated error handlers are not followed.
+severity: error
+message: >
+  A swallowed scheduled-task failure must reach ChronicleMetrics.recordBackgroundTaskFailure;
+  logging alone never reaches the background-task alert. Propagate startup failures.
+files:
+  - "**/chronicle-server/src/main/**/*.kt"
+rule:
+  all:
+    - kind: catch_block
+    - regex: '\(\w+:\s*Exception\)'
+    - inside:
+        kind: function_declaration
+        regex: '@Scheduled\b|fun\s+(runTask|expireAbandonedJobs|initialize)\s*\('
+        stopBy: end
+    - not:
+        regex: 'recordBackgroundTaskFailure\s*\('
+    - not:
+        all:
+          - regex: '\bthrow\b'
+          - inside:
+              kind: function_declaration
+              regex: 'fun\s+initialize\s*\('
+              stopBy: end

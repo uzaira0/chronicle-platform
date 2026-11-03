@@ -1,0 +1,6 @@
+id: package-label-single-owner
+valid:
+- "fun f() {\n  val label = owner.label(packageName)\n}\n"
+invalid:
+- "fun f() {\n  val info = packageManager.getApplicationInfo(packageName, 0)\n}\n"
+- "fun f() {\n  val label = packageManager.getApplicationLabel(info)\n}\n"

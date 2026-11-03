@@ -1,0 +1,28 @@
+id: untyped-request-body-map
+valid:
+- 'fun update(@RequestBody patch: ParticipantAnnotationsUpdate) {}
+
+  fun internalValues(values: Map<String, Any?>) {}
+
+  '
+- 'fun revise(@org.springframework.web.bind.annotation.RequestBody body: ParticipantAnnotationsUpdate) {}
+
+  '
+- 'fun save(@org.springframework.web.bind.annotation.RequestBody data: ParticipantAnnotationsUpdate) {}
+
+  '
+invalid:
+- 'fun update(@RequestBody annotations: Map<String, @JvmSuppressWildcards Any?>) {}
+
+  '
+- "fun replace(@Valid @RequestBody(required = true)\n patch: kotlin.collections.Map<\n String, Any\n >) {}\n"
+- 'fun save(@RequestBody payload: MutableMap<String, *>) {}
+
+  '
+- 'fun revise(@org.springframework.web.bind.annotation.RequestBody body: Map<String, Any?>) {}
+
+  '
+- 'fun save(@org.springframework.web.bind.annotation.RequestBody data: kotlin.collections.Map<kotlin.String, kotlin.Any?>)
+  {}
+
+  '

@@ -1,0 +1,7 @@
+id: collection-settings-service-no-rls-context-call
+valid:
+- "fun f() {\n  storage.query(sql)\n}\n"
+invalid:
+- "fun f() {\n  manager.setCurrentUserContext(connection)\n}\n"
+- "fun f() {\n  RLSContextManager.setCurrentUserContext(connection)\n}\n"
+- "fun f() {\n  RLSContextManager.clearContext(connection)\n}\n"

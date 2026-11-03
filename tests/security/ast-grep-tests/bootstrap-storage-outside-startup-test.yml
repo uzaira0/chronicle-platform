@@ -1,0 +1,30 @@
+id: bootstrap-storage-outside-startup
+valid:
+- 'fun request() = renamedStore.getPlatformStorage()
+
+  '
+- 'fun request() = com.example.Storage.current().getPlatformStorage()
+
+  '
+- 'fun request() = getPlatformStorage()
+
+  '
+- 'fun request(pool: Pool) = RLSDataSources.wrapIfRequestScoped(pool)
+
+  '
+invalid:
+- 'fun request() = renamedStore.getBootstrapStorage()
+
+  '
+- 'fun request() = com.example.Storage.current().getBootstrapStorage()
+
+  '
+- 'fun request() = getBootstrapStorage()
+
+  '
+- 'fun request(pool: Pool) = RLSDataSources.bootstrapStorage(pool)
+
+  '
+- 'fun request() = store.getBootstrapStorage()
+
+  '

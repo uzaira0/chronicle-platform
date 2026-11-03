@@ -1,0 +1,10 @@
+id: filter-error-envelope
+valid:
+  - 'writeFilterError(response, 401, "Invalid request signature")'
+  - 'response.sendError(403)'
+  - 'response.writer.flush()'
+invalid:
+  - 'response.writer.write("""{"error": "$message", "status": 401}""")'
+  - 'response.writer.print("forbidden")'
+  - 'response.getWriter().write("rejected")'
+  - 'response.getWriter().print("rejected")'

@@ -1,0 +1,8 @@
+id: configuration-key-self-recursion
+valid:
+- "class Valid : Configuration { companion object { val key = ConfigKey() }\n override fun getKey(): ConfigurationKey\
+  \ = Companion.key }\n"
+invalid:
+- "class First : Configuration { companion object { val key = ConfigKey() }\n override fun getKey(): ConfigurationKey\
+  \ = key }\nclass Second : Configuration { companion object { val key = ConfigKey() }\n override fun getKey():\
+  \ ConfigurationKey { return this.key } }\n"

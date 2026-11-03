@@ -82,18 +82,44 @@ rules:
       confidence: MEDIUM
 
   - id: chronicle-statement-execute
+    # SQL text built from values at the call: concatenation, String.format or a Kotlin
+    # template, inline or through a local. Constant SQL, SQL a caller passes in, and
+    # DDL from code-defined table definitions are not built here.
     patterns:
+      - pattern: (java.sql.Statement $S).$M($ARG)
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(execute|executeQuery|executeUpdate)$
       - pattern-either:
-          - pattern: |
-              (java.sql.Statement $S).execute($ARG)
-          - pattern: |
-              (java.sql.Statement $S).executeQuery($ARG)
-          - pattern: |
-              (java.sql.Statement $S).executeUpdate($ARG)
+          - pattern: $S.$M($A + $B)
+          - pattern: $S.$M(String.format(...))
+          - patterns:
+              - pattern: $S.$M($ARG)
+              - metavariable-regex:
+                  metavariable: $ARG
+                  regex: '^"(?:[^"\\]|\\.)*\$[{A-Za-z_]'
+          - patterns:
+              - pattern-inside: |
+                  $Q = $A + $B;
+                  ...
+              - pattern: $S.$M($Q)
+          - patterns:
+              - pattern-inside: |
+                  $Q = String.format(...);
+                  ...
+              - pattern: $S.$M($Q)
+          - patterns:
+              - pattern-inside: |
+                  $Q = $T;
+                  ...
+              - metavariable-regex:
+                  metavariable: $T
+                  regex: '^"(?:[^"\\]|\\.)*\$[{A-Za-z_]'
+              - pattern: $S.$M($Q)
     message: >
-      Direct Statement.execute() with a string variable detected. This may be
-      vulnerable to SQL injection if the argument includes user-controlled
-      input. Use PreparedStatement with bind parameters instead.
+      Statement.execute() runs SQL text built from values. This is vulnerable
+      to SQL injection if any value is user-controlled. Use PreparedStatement
+      with bind parameters instead.
     languages: [java, kotlin]
     severity: WARNING
     metadata:

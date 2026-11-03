@@ -1,9 +1,8 @@
-# Chronicle data collection modularization guardrails (refactor Phase 12, subphase 12A).
+# Chronicle data collection modularization guardrails.
 #
-# Implements the Semgrep half of the design §4 static guardrail catalog
-# (docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md §4) that applies to the Android
-# `collection/` package: rules #1 (privacy invariant), #9 (no sensitive default),
-# #12 (no Firebase / dangerous permission). The diagnostics/settings DTO rule #8 is
+# The Semgrep half of the static collection guardrails that applies to the Android
+# `collection/` package: privacy invariant, no sensitive default,
+# no Firebase / dangerous permission. The diagnostics/settings DTO rule is
 # in the sibling file collection-dto.yaml because it scans a different directory
 # (chronicle-models).
 #
@@ -17,9 +16,9 @@
 # These rules guard against NEW violations; legacy app code (services/, receivers/)
 # is outside the scanned scope. Positive fixtures: tests/security/fixtures/collection/.
 rules:
-  # --- Catalog #1: every DataCollectionModule impl asserts the id/privacyClass invariant.
+  # --- Every DataCollectionModule impl asserts the id/privacyClass invariant.
   # The abstract `val id` / `val privacyClass` overrides are compiler-enforced; what the
-  # compiler does NOT enforce is the design §1A.6 invariant that a module asserts
+  # compiler does NOT enforce is the invariant that a module asserts
   # `require(privacyClass == id.privacyClass)` in its `init` block. This rule flags a
   # module impl missing that guard.
   #
@@ -32,8 +31,7 @@ rules:
     severity: ERROR
     message: >
       A DataCollectionModule implementation must assert its identity invariant in an
-      `init` block: `require(privacyClass == id.privacyClass) { ... }` (design §1A.6,
-      guardrail #1). The compiler enforces the `id`/`privacyClass` overrides but not
+      `init` block: `require(privacyClass == id.privacyClass) { ... }`. The compiler enforces the `id`/`privacyClass` overrides but not
       that they agree. Add the init-block require().
     patterns:
       - pattern: |
@@ -82,12 +80,10 @@ rules:
       cwe: CWE-1059
       category: security
       confidence: HIGH
-      references:
-        - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#1A.6
 
-  # --- Catalog #9: resolver defaults never implicitly enable a privacy-sensitive module.
-  # Design §1A.4 / decisions #15-17: PHYSICAL_TELEMETRY and LOCAL_PARTICIPANT_LABEL
-  # (modules HARDWARE_SENSORS / USER_IDENTIFICATION) are never enabled implicitly. A
+  # --- Resolver defaults never implicitly enable a privacy-sensitive module.
+  # PHYSICAL_TELEMETRY and LOCAL_PARTICIPANT_LABEL
+  # (per-sensor modules / USER_IDENTIFICATION) are never enabled implicitly. A
   # `CollectionDefaults.moduleSetting(..., enabled = true)` or `CollectionModuleSetting(
   # enabled = true, ...)` literal in default/safe-default code is a violation — only an
   # explicit server setting or user preference may flip them, never a coded default.
@@ -98,7 +94,7 @@ rules:
       A coded default must not enable a privacy-sensitive module. Resolver/defaults
       code must derive `enabled` from the privacy class (false for PHYSICAL_TELEMETRY
       / LOCAL_PARTICIPANT_LABEL) — only an explicit server setting / preference flips
-      it (design §1A.4, decisions #15-17, guardrail #9).
+      it.
     patterns:
       - pattern-either:
           - pattern: CollectionDefaults.moduleSetting($ANY, enabled = true)
@@ -108,18 +104,16 @@ rules:
       cwe: CWE-1188
       category: security
       confidence: MEDIUM
-      references:
-        - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#1A.4
 
-  # --- Catalog #12: collection modules add no Firebase events.
-  # Decisions #6-7 / Non-Goals: Firebase is archived/disconnected for this deployment.
+  # --- Collection modules add no Firebase events.
+  # Firebase is archived/disconnected for this deployment.
   # A collection-module file must not call FirebaseAnalytics / logEvent / recordException.
   - id: chronicle-collection-no-new-firebase-events
     languages: [kotlin]
     severity: ERROR
     message: >
       Collection modules must not introduce Firebase analytics / Crashlytics calls.
-      Firebase is archived/disconnected (decisions #6-7, Non-Goals, guardrail #12).
+      Firebase is archived/disconnected.
       Use the local CollectionLog / module diagnostics instead.
     patterns:
       - pattern-either:
@@ -130,20 +124,16 @@ rules:
       cwe: CWE-359
       category: security
       confidence: HIGH
-      references:
-        - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#4
 
-  # --- Catalog #12 (cont.): collection modules add no dangerous permission references.
-  # Design §1A.5 / decision #16: no location, microphone, contacts, SMS, call-log or
-  # camera source. No new Android permission is added by this refactor. The `collection`
+  # --- Collection modules add no dangerous permission references:
+  # no location, microphone, contacts, SMS, call-log or camera source. The `collection`
   # layer scans only the `collection/` package.
   - id: chronicle-collection-no-dangerous-permission-request
     languages: [generic]
     severity: ERROR
     message: >
       Collection modules must not reference location, microphone, contacts, SMS,
-      call-log or camera permissions (design §1A.5, decision #16, guardrail #12). No
-      new Android permission is added by this refactor.
+      call-log or camera permissions.
     patterns:
       - pattern-regex: '(ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|ACCESS_BACKGROUND_LOCATION|RECORD_AUDIO|READ_CONTACTS|READ_SMS|RECEIVE_SMS|READ_CALL_LOG|android\.permission\.CAMERA)'
     paths:
@@ -153,10 +143,8 @@ rules:
       cwe: CWE-250
       category: security
       confidence: HIGH
-      references:
-        - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#1A.5
 
-  # --- Per-sensor consent redesign: settings resolution funnels through the coordinator.
+  # --- Settings resolution funnels through the coordinator.
   # CollectionSettingsResolver is constructed in exactly one place —
   # CollectionLoopCoordinator.resolveCollectableSettings() — which (a) applies the per-device
   # HARDWARE GATE (drops sensor modules whose hardware is absent: the "Samsung sensor on a
@@ -184,5 +172,3 @@ rules:
       cwe: CWE-1188
       category: security
       confidence: HIGH
-      references:
-        - per-sensor collection modules design, 2026-06-11

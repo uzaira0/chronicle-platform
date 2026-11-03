@@ -1,0 +1,16 @@
+services:
+  renamed:
+    volumes:
+      # ruleid: generated-certificate-file-bind
+      - ${CHRONICLE_STATE_DIR:-.}/tls/renamed.crt:/certificate:ro
+
+# ok: generated-certificate-file-bind
+services:
+  renamed:
+    volumes:
+      - ${CHRONICLE_STATE_DIR:-.}/tls:/certificates:ro
+      - generated_tls:/etc/service/tls:ro
+      - type: bind
+        source: ./service-tls
+        target: /certificates
+

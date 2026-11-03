@@ -1,0 +1,42 @@
+id: ignored-write-failure-shell
+valid:
+- 'cp "$source" "$target" || exit 1
+
+  '
+- '#!/usr/bin/env bash
+
+  case "$1" in (-|-c) ;; (*) true ;; esac
+
+  probe() { python3 - <<''PY_CODE''
+
+  print(1)
+
+  PY_CODE
+
+  }
+
+  cp "$source" "$target" || exit 1
+
+  '
+invalid:
+- 'cp "$source" "$target" || true
+
+  '
+- 'cp "$source" "$target" || :
+
+  '
+- '#!/usr/bin/env bash
+
+  case "$1" in (-|-c) ;; (*) true ;; esac
+
+  probe() { python3 - <<''PY_CODE''
+
+  print(1)
+
+  PY_CODE
+
+  }
+
+  cp "$source" "$target" || true
+
+  '

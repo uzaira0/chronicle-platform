@@ -1,0 +1,19 @@
+id: controller-raw-datasource-manager
+valid:
+- 'class Example(val storage: com.openlattice.chronicle.storage.StorageResolver)
+
+  '
+- 'import com.openlattice.chronicle.storage.StorageResolver
+
+  class Example(val storage: StorageResolver)
+
+  '
+invalid:
+- 'class Example(val manager: com.geekbeast.jdbc.DataSourceManager)
+
+  '
+- 'import com.geekbeast.jdbc.DataSourceManager
+
+  class Example(val manager: DataSourceManager)
+
+  '

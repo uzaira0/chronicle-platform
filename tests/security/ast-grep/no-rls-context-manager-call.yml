@@ -1,5 +1,7 @@
 id: no-rls-context-manager-call
 language: Kotlin
+note: |
+  Blind spots: Only one-argument setCurrentUserContext calls match; aliases and context mutation behind helpers are not resolved.
 severity: error
 message: >
   Do not call setCurrentUserContext directly from request or service code.

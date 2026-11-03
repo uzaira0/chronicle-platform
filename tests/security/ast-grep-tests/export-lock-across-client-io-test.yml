@@ -1,0 +1,17 @@
+id: export-lock-across-client-io
+valid:
+- 'fun copy(sink: OutputStream) { checkRevocation(); sink.write(bytes) }
+
+  '
+- 'fun copy(reply: HttpServletResponse) { audit.stream(scope, reply.outputStream) { sink -> sink.write(bytes) }
+  }
+
+  '
+invalid:
+- 'fun copy(sink: OutputStream) { acquireExportStudyTransactionLock(connection, study); sink.write(bytes) }
+
+  '
+- 'fun copy(reply: HttpServletResponse) { DeletionStudyFence.exportShared(connection, study); reply.outputStream.write(bytes)
+  }
+
+  '

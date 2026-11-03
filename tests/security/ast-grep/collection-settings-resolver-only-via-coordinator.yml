@@ -18,6 +18,8 @@
 #   - test / androidTest            : tests construct it directly with a fake source.
 id: collection-settings-resolver-only-via-coordinator
 language: Kotlin
+note: |
+  Blind spots: Only the listed API spellings and configured paths match; type aliases, reflection and calls hidden behind wrappers are not resolved.
 severity: error
 message: >
   CollectionSettingsResolver may only be constructed in CollectionLoopCoordinator

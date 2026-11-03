@@ -1,0 +1,5 @@
+id: collection-sensor-insert-only-in-sink
+valid:
+- "fun f() {\n  db.sensorSampleDao().count()\n}\n"
+invalid:
+- "fun f() {\n  db.sensorSampleDao().insertAll(samples)\n}\n"

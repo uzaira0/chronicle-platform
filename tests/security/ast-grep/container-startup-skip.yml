@@ -1,0 +1,13 @@
+id: container-startup-skip
+language: Kotlin
+note: |
+  Blind spots: Only assumeNoException calls match; other assumption APIs and dynamically chosen skip conditions need suite-level skip enforcement.
+severity: error
+message: Container startup failures must fail the test; optional integration suites require an explicit preflight
+  assumption.
+rule:
+  kind: call_expression
+  regex: \bassumeNoException\s*\(
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

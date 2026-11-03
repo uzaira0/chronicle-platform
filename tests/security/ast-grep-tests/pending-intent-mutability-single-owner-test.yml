@@ -1,0 +1,5 @@
+id: pending-intent-mutability-single-owner
+valid:
+- "fun f() {\n  val flags = PendingIntent.FLAG_IMMUTABLE\n}\n"
+invalid:
+- "fun f() {\n  val flags = PendingIntent.FLAG_MUTABLE\n}\n"

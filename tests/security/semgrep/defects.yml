@@ -1,0 +1,276 @@
+rules:
+- id: shell-text-command
+  languages:
+  - python
+  severity: ERROR
+  message: Use an argv list and checked subprocess result; never pass shell command text.
+  pattern-either:
+  - pattern: subprocess.$METHOD(..., shell=True, ...)
+  - pattern: os.system(...)
+  - pattern: os.popen(...)
+- id: shell-text-command-argv
+  languages:
+  - python
+  severity: ERROR
+  message: Pass values to a shell as positional arguments ("$1") or on stdin; never splice them into -c command text.
+  paths:
+    exclude:
+    - /tests/**
+    - '**/test-*.py'
+    - '**/test_*.py'
+  patterns:
+  - pattern-either:
+    - pattern: '[..., $SHELL, ..., $FLAG, $A + $B, ...]'
+    - pattern: '[..., $SHELL, ..., $FLAG, f"...", ...]'
+    - pattern: '[..., $SHELL, ..., $FLAG, $TEXT % $VALUES, ...]'
+    - pattern: '[..., $SHELL, ..., $FLAG, $TEXT.format(...), ...]'
+  - metavariable-regex:
+      metavariable: $SHELL
+      regex: ^["'](?:/usr)?(?:/bin/)?(?:ba|da|z|k)?sh["']$
+  - metavariable-regex:
+      metavariable: $FLAG
+      regex: ^["']-[a-z]*c[a-z]*["']$
+- id: host-system-bash-argv
+  languages:
+  - python
+  severity: ERROR
+  message: /bin/bash is bash 3.2 on macOS. Host fixtures requiring bash 4.4 must use host_tools.modern_bash.
+  pattern: '["/bin/bash", ...]'
+- id: sql-interpolation-python
+  languages:
+  - python
+  severity: ERROR
+  message: Bind SQL values; keep query construction inside the repository.
+  patterns:
+  - pattern-either:
+    - pattern: $DB.$METHOD(f"...", ...)
+    - pattern: $DB.$METHOD($A + $B, ...)
+    - pattern: $DB.$METHOD($SQL % $ARGS, ...)
+    - pattern: $DB.$METHOD($SQL.format(...), ...)
+  - metavariable-regex:
+      metavariable: $METHOD
+      regex: ^(?:execute|executemany|executescript)$
+- id: tautological-assertion
+  languages:
+  - kotlin
+  - python
+  - typescript
+  - javascript
+  severity: ERROR
+  message: A regression assertion must distinguish broken behavior from working behavior.
+  pattern-either:
+  - patterns:
+    - pattern: assertEquals($X, $X)
+    - metavariable-regex:
+        metavariable: $X
+        regex: ^(?:[A-Za-z_][A-Za-z_0-9]*|[0-9][0-9_]*(?:\.[0-9]+)?|"[^"]*")$
+  - patterns:
+    - pattern-either:
+      - pattern: $ASSERT.assertEquals($X, $X)
+      - pattern: assertEquals($MESSAGE, $X, $X)
+      - pattern: $ASSERT.assertEquals($MESSAGE, $X, $X)
+    - metavariable-regex:
+        metavariable: $X
+        regex: ^(?:[A-Za-z_][A-Za-z_0-9]*|[0-9][0-9_]*(?:\.[0-9]+)?|"[^"]*")$
+  - pattern: assertTrue(true)
+  - patterns:
+    - pattern: self.assertEqual($X, $X)
+    - metavariable-regex:
+        metavariable: $X
+        regex: ^[A-Za-z_][A-Za-z_0-9]*$
+  - pattern: self.assertTrue(True)
+  - patterns:
+    - pattern: expect($X).toBe($X)
+    - metavariable-regex:
+        metavariable: $X
+        regex: ^[A-Za-z_][A-Za-z_0-9]*$
+  - patterns:
+    - pattern: expect($X).toEqual($X)
+    - metavariable-regex:
+        metavariable: $X
+        regex: ^[A-Za-z_][A-Za-z_0-9]*$
+  options:
+    constant_propagation: false
+- id: dashboard-polling-activity
+  languages:
+  - typescript
+  - javascript
+  severity: ERROR
+  message: Background polling must not supply the session activity header; passive refetches do not renew an idle
+    session.
+  patterns:
+  - pattern-either:
+    - pattern: '({... , pollingInterval: $INTERVAL, ..., headers: {..., [USER_ACTIVITY_HEADER]: $SIGNAL, ...}, ...})'
+    - pattern: '({... , pollingInterval: $INTERVAL, ..., headers: {..., "X-Chronicle-User-Activity": $SIGNAL, ...},
+        ...})'
+  - pattern-not: '({... , pollingInterval: 0, ...})'
+- id: test-array-self-membership
+  languages:
+  - typescript
+  - javascript
+  severity: ERROR
+  message: Enumerated assertions must exercise production behavior, not membership in their own input array.
+  paths:
+    include:
+    - '**/*.test.ts'
+    - '**/*.test.tsx'
+  patterns:
+  - pattern: expect($VALUES).toContain($VALUE)
+  - pattern-inside: "for (const $VALUE of $VALUES) {\n  ...\n}\n"
+- id: unbounded-response-buffer
+  languages:
+  - typescript
+  severity: ERROR
+  message: Use native browser downloads instead of buffering a complete file response.
+  paths:
+    include:
+    - src/modern/**
+    exclude:
+    - '**/*.test.ts'
+    - '**/*.test.tsx'
+  pattern-either:
+  - pattern: $RESPONSE.blob()
+  - pattern: $RESPONSE.arrayBuffer()
+  - pattern: $RESPONSE['blob']()
+  - pattern: $RESPONSE['arrayBuffer']()
+- id: live-response-in-transaction
+  languages:
+  - kotlin
+  severity: ERROR
+  message: Buffer servlet output until the transaction commits, including aliases and explicit flushes.
+  mode: taint
+  pattern-sources:
+  - patterns:
+    - pattern-inside: 'fun $METHOD(..., $RESPONSE: $TYPE, ...) { ... }
+
+        '
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?:jakarta\.servlet\.http\.)?HttpServletResponse$
+    - pattern: $RESPONSE
+  pattern-sanitizers:
+  - pattern: ContentCachingResponseWrapper(...)
+  pattern-sinks:
+  - patterns:
+    - pattern-inside: 'PinnedPlatformConnection.committing(...) { ... }
+
+        '
+    - pattern: $CHAIN.doFilter($REQUEST, $RESPONSE)
+    - focus-metavariable: $RESPONSE
+- id: unkeyed-identifier-hash-sql
+  languages:
+  - generic
+  severity: ERROR
+  message: Persisted participant or device tokens must use the keyed SQL owner.
+  paths:
+    include:
+    - '**/db/migration/*.sql'
+  # A hash call whose arguments, up to the end of the statement, name a participant, device, subject or study
+  # identifier. Hashes of non-identifier values (e.g. the Screen Time label key) are not tokens.
+  pattern-regex: (?i)\b(?:md5|sha(?:224|256|384|512)?|digest)"?(?:\s|(?s:/\*.*?\*/)|--[^\r\n]*(?:\r?\n|$))*\((?:(?!;)[\s\S])*?\b\w*(?:participant|device|subject|study)\w*\b
+- id: raw-identifier-webhook-egress
+  languages:
+  - kotlin
+  severity: ERROR
+  message: External webhook payloads carry a keyed ParticipantRef, never a raw label.
+  mode: taint
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: $ID
+      - pattern: $OBJ.$ID
+    - metavariable-regex:
+        metavariable: $ID
+        regex: (?i)^(?:participant_?id|device_?id|sourceRandomDeviceId)$
+  pattern-sanitizers:
+  - pattern: ParticipantRef.fromParticipantId(...)
+  - pattern: LogSanitizer.stableFingerprint(...)
+  pattern-sinks:
+  - pattern: $WEBHOOK.enqueueEvent(...)
+  - pattern: $WEBHOOK.fireEvent(...)
+- id: sql-exception-as-cause
+  languages:
+  - kotlin
+  severity: ERROR
+  message: Drop SQL exception messages and causes at the storage boundary with SqlFailures.sanitize.
+  mode: taint
+  pattern-sources:
+  - patterns:
+    - pattern-inside: 'try { ... } catch ($FAILURE: $TYPE) { ... }'
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?:SQLException|BatchUpdateException|PSQLException)$
+    - pattern: $FAILURE
+  pattern-sanitizers:
+  - pattern: SqlFailures.sanitize(...)
+  pattern-sinks:
+  - pattern: throw $RESULT
+- id: sql-exception-as-cause-java
+  languages:
+  - java
+  severity: ERROR
+  message: Drop SQL exception messages and causes at the storage boundary with SqlFailures.sanitize.
+  mode: taint
+  pattern-sources:
+  - patterns:
+    - pattern-inside: try { ... } catch ($TYPE $FAILURE) { ... }
+    - metavariable-regex:
+        metavariable: $TYPE
+        regex: ^(?:SQLException|BatchUpdateException|PSQLException)$
+    - pattern: $FAILURE
+  pattern-sanitizers:
+  - pattern: SqlFailures.sanitize(...)
+  pattern-sinks:
+  - pattern: throw $RESULT;
+- id: generated-certificate-file-bind
+  languages:
+  - generic
+  severity: ERROR
+  message: Mount the certificate directory or named volume; Compose creates absent file bind sources as directories.
+  paths:
+    include:
+    - selfhost/**/*.yml
+    - selfhost/**/*.yaml
+  pattern-regex: (?m)^\s*(?:-\s*["\x27]?[^\r\n]+\.(?:crt|key|pem|p12):|source:\s*["\x27]?[^\r\n]+\.(?:crt|key|pem|p12)["\x27]?\s*$)
+- id: frontend-consent-history-membership
+  languages:
+  - typescript
+  severity: ERROR
+  message: Render current consent supplied by the server; acknowledgment history does not decide current policy.
+  paths:
+    include:
+    - '**/src/modern/routes/**'
+    - src/modern/routes/**
+  pattern-either:
+  - pattern: $ENTRY.acknowledgedModules.includes(...)
+  - pattern: $ENTRY.acknowledgedModules.some(...)
+  - pattern: $ENTRY.acknowledgedModules.indexOf(...)
+  - pattern: $ENTRY.acknowledgedModules.find(...)
+- id: receiver-throwing-helper
+  languages:
+  - kotlin
+  severity: ERROR
+  message: Receivers must handle throwing helpers outside delivery.
+  paths:
+    include:
+    - chronicle/**/src/**/*.kt
+    - '**/src/**/*.kt'
+  patterns:
+  - pattern-inside: "class $C : BroadcastReceiver() {\n  ...\n  @Throws(...)\n  fun $HELPER(...) { ... }\n  ...\n\
+      }\n"
+  - pattern-inside: 'fun onReceive(...) { ... }
+
+      '
+  - pattern: $HELPER(...)
+- id: create-route-without-idempotency-key
+  languages:
+  - generic
+  severity: ERROR
+  message: Researcher create routes answer 428 without Idempotency-Key (chronicle-api/chronicle.yaml); send a fresh key
+    per create intent with tests/security/lib/api-client.sh idempotency_key_header, or the selfhost-client.py request() helper.
+  paths:
+    include:
+    - '*.sh'
+    - '*.js'
+  patterns:
+  - pattern-regex: (?:\b(?:auth_)?http_status\b|\bcurl\b)(?!(?:[^\n\\]|\\[^\n]|\\\n)*?[Ii]dempotency)(?=(?:[^\n\\]|\\[^\n]|\\\n)*?(?:\bPOST\b|--data|\s-d\s))(?=(?:[^\n\\]|\\[^\n]|\\\n)*?/(?:v3|api/web)/(?:study|organization|candidate)(?:/[^/\s"'`]+/(?:api-keys|webhooks|clone))?["'`\s])|\bhttp\.post\((?![^;]*?[Ii]dempotency)(?=[^,;]*?/(?:v3|api/web)/(?:study|organization|candidate)(?:/[^/\s"'`]+/(?:api-keys|webhooks|clone))?["'`])

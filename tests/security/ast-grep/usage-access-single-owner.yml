@@ -1,5 +1,7 @@
 id: usage-access-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only the listed API spellings and configured paths match; type aliases, reflection and calls hidden behind wrappers are not resolved.
 severity: error
 message: Use UsageAccess so a denied or locked poll cannot advance a usage cursor.
 files:

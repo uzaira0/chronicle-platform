@@ -1,0 +1,9 @@
+id: retrofit-map-parameter
+valid:
+- "interface Api {\n    fun header(@HeaderMap headers: Map<String, String>): Int\n    fun query(@QueryMap(encoded\
+  \ = true) query: kotlin.collections.Map<String, String>): Int\n    fun field(@FieldMap fields: java.util.Map<String,\
+  \ String>): Int\n    fun part(@retrofit2.http.PartMap parts: Map<String, RequestBody>): Int\n}\n"
+invalid:
+- "interface Api {\n    fun header(@HeaderMap headers: CollectedUploadHeaders): Int\n    fun query(@QueryMap(encoded\
+  \ = true) query: HashMap<String, String>): Int\n    fun field(@FieldMap fields: MutableMap<String, String>): Int\n\
+  \    fun part(@retrofit2.http.PartMap parts: Parts): Int\n}\n"

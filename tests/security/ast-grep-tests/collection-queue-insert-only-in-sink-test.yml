@@ -1,0 +1,6 @@
+id: collection-queue-insert-only-in-sink
+valid:
+- "fun f() {\n  sink.write(entries)\n}\n"
+invalid:
+- "fun f() {\n  db.queueEntryData().insertEntry(entry)\n}\n"
+- "fun f() {\n  storageQueue.insertEntries(entries)\n}\n"

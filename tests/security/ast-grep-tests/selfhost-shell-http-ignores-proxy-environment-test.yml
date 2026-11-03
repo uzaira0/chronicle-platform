@@ -1,0 +1,10 @@
+id: selfhost-shell-http-ignores-proxy-environment
+valid:
+- "curl --noproxy '*' -fsS --max-time 10 \"$url\""
+- "code=$(curl --max-time 10 --noproxy \"*\" \"$url\")"
+- "command -v curl >/dev/null"
+invalid:
+- "curl -fsS --max-time 10 \"$url\""
+- "code=$(curl --max-time 10 \"$url\")"
+- "curl --noproxy localhost \"$url\""
+- "curl --noproxy \"$NO_PROXY\" \"$url\""

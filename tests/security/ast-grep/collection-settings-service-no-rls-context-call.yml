@@ -1,7 +1,6 @@
-# Catalog #12 (design §4) / §1D.2 — the settings service makes no direct RLS
-# context-manager call.
+# The settings service makes no direct RLS context-manager call.
 #
-# Design §1D.2 / refactor plan §12.1 guardrail 3: a generalized DataCollection
+# A generalized DataCollection
 # settings read stays study-scoped and RLS-enforced, but RLS context must be
 # published by RLSContextFilter and applied by the request-scoped datasource wrapper
 # — never set directly inside a settings service. A `RLSContextManager.
@@ -14,10 +13,11 @@
 # never make this call.
 id: collection-settings-service-no-rls-context-call
 language: Kotlin
+note: |
+  Blind spots: Only the listed API spellings and configured paths match; type aliases, reflection and calls hidden behind wrappers are not resolved.
 severity: error
 message: >
-  Settings services must not call RLSContextManager directly (design §1D.2,
-  guardrail #12). RLS context is published by RLSContextFilter and applied by the
+  Settings services must not call RLSContextManager directly. RLS context is published by RLSContextFilter and applied by the
   request-scoped datasource wrapper; a settings service managing RLS itself can set
   context on the wrong connection.
 files:

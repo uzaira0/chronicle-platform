@@ -1,0 +1,60 @@
+id: cookie-policy-owner
+language: Kotlin
+severity: error
+message: Construct response cookies only in configuration/CookiePolicy.kt so Secure and purpose attributes have one owner.
+note: |
+  Blind spots: This syntax rule follows direct Cookie/ResponseCookie names, fully qualified calls and explicit import aliases. It does not resolve type aliases, callable references, reflection or factories passed through variables; shadowed imported names can match. Other cookie factories require review.
+files:
+  - '**/chronicle-server/src/main/**/*.kt'
+ignores:
+  - '**/chronicle-server/src/main/kotlin/com/openlattice/chronicle/configuration/CookiePolicy.kt'
+rule:
+  any:
+    - pattern: Cookie($$$)
+    - pattern: jakarta.servlet.http.Cookie($$$)
+    - pattern: javax.servlet.http.Cookie($$$)
+    - pattern: ResponseCookie.from($$$)
+    - pattern: org.springframework.http.ResponseCookie.from($$$)
+    - all:
+        - pattern: $ALIAS($$$)
+        - inside:
+            kind: source_file
+            has:
+              any:
+                - pattern: import jakarta.servlet.http.Cookie as $ALIAS
+                - pattern: import javax.servlet.http.Cookie as $ALIAS
+                - pattern: import org.springframework.http.ResponseCookie.from as $ALIAS
+              stopBy: end
+            stopBy: end
+    - all:
+        - pattern: $ALIAS.from($$$)
+        - inside:
+            kind: source_file
+            has:
+              pattern: import org.springframework.http.ResponseCookie as $ALIAS
+              stopBy: end
+            stopBy: end
+---
+id: cookie-policy-owner-java
+language: Java
+severity: error
+message: Construct response cookies only in configuration/CookiePolicy.kt; Java callers use that same policy.
+note: |
+  Blind spots: This syntax rule covers Cookie constructors, fully qualified forms and ResponseCookie.from, including explicit static imports. It does not follow reflection, wildcard static imports or factories passed through variables; simple-name shadowing is not resolved. Other cookie factories require review.
+files:
+  - '**/chronicle-server/src/main/**/*.java'
+rule:
+  any:
+    - pattern: new Cookie($$$)
+    - pattern: new jakarta.servlet.http.Cookie($$$)
+    - pattern: new javax.servlet.http.Cookie($$$)
+    - pattern: ResponseCookie.from($$$)
+    - pattern: org.springframework.http.ResponseCookie.from($$$)
+    - all:
+        - pattern: from($$$)
+        - inside:
+            kind: program
+            has:
+              pattern: import static org.springframework.http.ResponseCookie.from;
+              stopBy: end
+            stopBy: end

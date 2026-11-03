@@ -1,0 +1,22 @@
+id: fgs-start-result-ignored
+valid:
+- "fun recover(context: Context) {\n    check(HardwareSensorService.tryStartService(context)) { \"Foreground start\
+  \ refused; durable boot snapshot remains\" }\n}\n"
+- "fun recover(context: Context) {\n    check(com.openlattice.chronicle.collection.DistributionRestrictedRuntime.tryStartHardwareSensors(context))\
+  \ { \"Foreground start refused; durable boot snapshot remains\" }\n}\n"
+- "fun recover(context: Context) {\n    check(startForegroundServiceIfPermitted(context, intent)) { \"Foreground\
+  \ start refused; durable boot snapshot remains\" }\n}\n"
+- "fun recover(context: Context) {\n    check(promoteForegroundServiceIfPermitted(service, id, notification)) {\
+  \ \"Foreground start refused; durable boot snapshot remains\" }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n    override fun onReceive(context: Context, intent: Intent) {\n    \
+  \    val started = try {\n            HardwareSensorService.tryStartService(context)\n        } catch (_: Exception)\
+  \ { false }\n        if (!started) return\n    }\n}\n"
+invalid:
+- "fun recover(context: Context) {\n    HardwareSensorService.tryStartService(context)\n}\n"
+- "fun recover(context: Context) {\n    com.openlattice.chronicle.collection.DistributionRestrictedRuntime.tryStartHardwareSensors(context)\n\
+  }\n"
+- "fun recover(context: Context) {\n    startForegroundServiceIfPermitted(context, intent)\n}\n"
+- "fun recover(context: Context) {\n    promoteForegroundServiceIfPermitted(service, id, notification)\n}\n"
+- "class Receiver : BroadcastReceiver() {\n    override fun onReceive(context: Context, intent: Intent) {\n    \
+  \    val started = try {\n            HardwareSensorService.tryStartService(context)\n            true\n     \
+  \   } catch (_: Exception) { false }\n        if (!started) return\n    }\n}\n"

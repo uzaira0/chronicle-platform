@@ -1,0 +1,7 @@
+languageGlobs:
+  Bash:
+    - chronicle
+ruleDirs:
+  - tests/security/ast-grep
+testConfigs:
+  - testDir: tests/security/ast-grep-tests

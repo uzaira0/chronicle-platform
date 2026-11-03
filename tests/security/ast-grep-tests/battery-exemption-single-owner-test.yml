@@ -1,0 +1,5 @@
+id: battery-exemption-single-owner
+valid:
+- "fun f() {\n  val action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS\n}\n"
+invalid:
+- "fun f() {\n  val action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS\n}\n"

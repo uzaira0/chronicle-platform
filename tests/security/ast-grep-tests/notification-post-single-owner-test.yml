@@ -1,0 +1,6 @@
+id: notification-post-single-owner
+valid:
+- "fun f() {\n  owner.post(notification)\n}\n"
+invalid:
+- "fun f() {\n  manager.notify(ID, notification)\n}\n"
+- "fun f() {\n  manager.notify(TAG, ID, notification)\n}\n"

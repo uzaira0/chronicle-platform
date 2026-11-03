@@ -1,0 +1,12 @@
+id: unbounded-outbound-http
+valid:
+- "fun f() = boundedRestTemplate().postForEntity(url, body, String::class.java)\n"
+- "fun f() = NimbusJwtDecoder.withJwkSetUri(uri).restOperations(boundedRestTemplate()).build()\n"
+- "fun f() = RestTemplate(SimpleClientHttpRequestFactory().apply { setConnectTimeout(5000) })\n"
+- "fun f() = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)\n"
+invalid:
+- "fun f() = RestTemplate()\n"
+- "fun f() = NimbusJwtDecoder.withJwkSetUri(uri).build()\n"
+- "fun f() = createClientBuilder(config).connectTimeout(0, TimeUnit.MILLISECONDS)\n"
+- "fun f() = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS)\n"
+- "fun f() = builder.writeTimeout(Duration.ZERO)\n"

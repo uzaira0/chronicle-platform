@@ -1,0 +1,5 @@
+id: collection-lifecycle-record-only-via-module
+valid:
+- "fun f() {\n  module.record(event)\n}\n"
+invalid:
+- "fun f() {\n  DeviceLifecycleEventRecorder.recordAsync(context, event)\n}\n"

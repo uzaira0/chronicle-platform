@@ -1,0 +1,24 @@
+id: diagnostic-expiry
+language: Kotlin
+note: |
+  Blind spots: Uses diagnostic filenames and listed age/deletion spellings; indirect scheduled calls and dynamically assembled SQL are not followed.
+severity: error
+message: Diagnostics persist until explicit erasure; do not add age pruning or TTL.
+files:
+- '**/*Diagnostic*.kt'
+- '**/*diagnostic*.kt'
+rule:
+  any:
+  - all:
+    - kind: property_declaration
+    - regex: (?i)\b(?:ttl\w*|\w*(?:retentionDays|maxAgeDays|expiresAt))\b
+  - all:
+    - kind: call_expression
+    - regex: (?is)(?:delete|prune|expire|remove|execute|prepareStatement).*\b(?:created_at|timestamp|recorded_at|olderThan|before|cutoff|ttl)\b
+    - regex: (?is)(?:<|\bolderThan\b|\bbefore\b|\bttl\b)
+  - all:
+    - kind: call_expression
+    - regex: (?i)\b(?:deleteOlderThan|pruneBefore|deleteExpired|expireBefore)\s*\(
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

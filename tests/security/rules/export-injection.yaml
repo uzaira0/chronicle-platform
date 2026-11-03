@@ -12,7 +12,8 @@ rules:
           cell.setCellValue(spreadsheetSafeString($VALUE.toString()))
     paths:
       include:
-        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/**/*.kt
+        # Semgrep paths are relative to each scanned submodule root; the CSV writers live in converters/.
+        - /src/main/kotlin/com/openlattice/chronicle/converters/*.kt
 
   - id: chronicle-csv-export-must-sanitize-data
     languages:
@@ -27,4 +28,5 @@ rules:
           csvMapper.writer($SCHEMA).writeValues($OUT).writeAll(safeData)
     paths:
       include:
-        - chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/export/**/*.kt
+        # Semgrep paths are relative to each scanned submodule root; the CSV writers live in converters/.
+        - /src/main/kotlin/com/openlattice/chronicle/converters/*.kt

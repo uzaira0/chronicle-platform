@@ -1,0 +1,28 @@
+id: self-reschedule-in-finally
+valid:
+- 'package example
+
+
+  fun dispatch() { executor.execute { val result = try { flush() } finally { scheduled = false }; if (result.succeeded)
+  dispatch() } }
+
+  '
+- 'package example
+
+
+  fun dispatch() { executor.execute { try { flush() } finally { cleanup() } } }
+
+  '
+invalid:
+- 'package example
+
+
+  fun dispatch() { executor.execute { try { flush() } finally { dispatch() } } }
+
+  '
+- 'package example
+
+
+  fun dispatch() { executor.execute { try { flush() } finally { this.dispatch() } } }
+
+  '

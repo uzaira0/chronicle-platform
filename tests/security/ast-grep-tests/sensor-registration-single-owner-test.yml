@@ -1,0 +1,6 @@
+id: sensor-registration-single-owner
+valid:
+- "fun f() {\n  owner.start(sensor)\n}\n"
+invalid:
+- "fun f() {\n  sensorManager.registerListener(listener, sensor, delay)\n}\n"
+- "fun f() {\n  sensorManager.requestTriggerSensor(listener, sensor)\n}\n"

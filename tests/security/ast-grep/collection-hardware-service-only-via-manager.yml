@@ -1,35 +1,37 @@
-# Catalog #9 (design §4) / §1C.3-1C.4 — HardwareSensorService.startService/stopService
-# only via the collection module manager (HardwareSensorsCollectionModule).
+# HardwareSensorService.startService/stopService only via the collection module manager
+# (HardwareSensorsCollectionModule).
 #
-# Design §1C.4: direct foreground-service starts become forbidden outside the module
+# Direct foreground-service starts are forbidden outside the module
 # manager. HardwareSensorsCollectionModule.start()/stop() is the single sanctioned
-# caller; every other callsite is legacy and must be exception-listed until Phase 6
-# routes it through the manager.
+# caller; every other callsite is legacy and must be exception-listed until it is
+# routed through the manager.
 #
-# LEGACY EXCEPTIONS (migration switch OFF — Phase 6 not flipped, these still run):
-#   - PowerSaveModeReceiver.kt      : legacy power-save start/stop (retires at Phase 5B).
-#   - StartOnBoot.kt                : legacy boot-time start (retires at Phase 5B/6).
-#   - SensorSettingsRefreshWorker.kt: legacy settings-driven start/stop (retires Phase 6B,
-#                                     gated by SensorSettingsMigration).
-#   - Enrollment.kt                 : legacy enrollment-time start (retires at Phase 6).
-#   - MainActivity.kt               : legacy UI-driven start (retires at Phase 6).
-# Sanctioned caller (the boundary itself): after Phase 10's dependency inversion the
+# LEGACY EXCEPTIONS (migration switch OFF, these still run):
+#   - PowerSaveModeReceiver.kt      : legacy power-save start/stop.
+#   - StartOnBoot.kt                : legacy boot-time start.
+#   - SensorSettingsRefreshWorker.kt: legacy settings-driven start/stop (gated by
+#                                     SensorSettingsMigration).
+#   - Enrollment.kt                 : legacy enrollment-time start.
+#   - MainActivity.kt               : legacy UI-driven start.
+# Sanctioned caller (the boundary itself): the
 # :collection-sensors module talks to the HardwareSensorServiceController interface;
 # HardwareSensorServiceControllerImpl.kt is the :app-side adapter that owns the real
 # HardwareSensorService start/stop, so it is the sanctioned boundary and is exempt.
 #
-# Sanctioned lifecycle owner (per-sensor consent redesign, 2026-06-11): the grouped
+# Sanctioned lifecycle owner: the grouped
 # HardwareSensorsCollectionModule is retired; CollectionLoopCoordinator.updateSensorService()
-# is now THE place that starts/stops the one shared sensor foreground service, driven by the
-# freshly-reconciled per-sensor gate state (anySensorCollects). It is the redesign's sensor
+# is THE place that starts/stops the one shared sensor foreground service, driven by the
+# freshly-reconciled per-sensor gate state (anySensorCollects). It is the sensor
 # service-lifecycle owner and is therefore exempt — the rule still catches any OTHER (e.g. a
 # new worker/receiver) direct start/stop that bypasses the coordinator.
 id: collection-hardware-service-only-via-manager
 language: Kotlin
+note: |
+  Blind spots: Only the listed API spellings and configured paths match; type aliases, reflection and calls hidden behind wrappers are not resolved.
 severity: error
 message: >
   HardwareSensorService.startService/stopService must be called only through
-  HardwareSensorsCollectionModule (design §1C.3-1C.4, guardrail #9). A new direct
+  HardwareSensorsCollectionModule. A new direct
   service start/stop bypasses module lifecycle ownership.
 ignores:
   - "**/collection/sensors/HardwareSensorsCollectionModule.kt"

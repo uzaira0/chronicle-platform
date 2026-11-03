@@ -1,0 +1,24 @@
+id: retrofit-map-parameter
+language: Kotlin
+note: |
+  Blind spots: Only annotated Map parameter syntax matches; type aliases and map subtypes are not resolved.
+severity: error
+message: Retrofit map annotations require Map<...> on the parameter; R8 can strip subclass generic signatures.
+files:
+- '**/chronicle/app/src/**/*.kt'
+- '**/chronicle/collection-*/src/**/*.kt'
+rule:
+  all:
+  - kind: parameter
+  - follows:
+      kind: parameter_modifiers
+      has:
+        kind: annotation
+        regex: ^@(?:retrofit2\.http\.)?(?:HeaderMap|QueryMap|FieldMap|PartMap)(?:\s*\(|$)
+  - not:
+      has:
+        kind: user_type
+        regex: ^(?:(?:kotlin\.collections|java\.util)\.)?Map\s*<
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

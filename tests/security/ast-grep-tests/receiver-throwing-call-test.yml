@@ -1,0 +1,23 @@
+id: receiver-throwing-call
+valid:
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  if (!start(context))\
+  \ return\n }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  report(start(context))\n\
+  \ }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  helper.open(context)\n\
+  \ }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  return\n\
+  \ }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  report(handleFailure(start(context)))\n\
+  \ }\n fun elsewhere(context: Context) { throwOnFailure(start(context)) }\n}\n"
+invalid:
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  check(start(context))\n\
+  \ }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  report(requireNotNull(start(context)))\n\
+  \ }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  helper.openOrThrow(context)\n\
+  \ }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  throw\
+  \ IllegalStateException()\n }\n fun elsewhere() { require(true) }\n}\n"
+- "class Receiver : BroadcastReceiver() {\n override fun onReceive(context: Context, intent: Intent) {\n  report(throwOnFailure(start(context)))\n\
+  \ }\n}\n"

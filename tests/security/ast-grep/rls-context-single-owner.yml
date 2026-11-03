@@ -1,5 +1,7 @@
 id: rls-context-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only literal set_config app calls and named SQL constants match; concatenated SQL and indirect writers are not resolved.
 severity: error
 message: >
   app.* RLS settings belong to RLSContextManager.setContext/clearContext,

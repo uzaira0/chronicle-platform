@@ -1,0 +1,6 @@
+id: media-session-single-owner
+valid:
+- "fun f() {\n  val sessions = owner.sessions()\n}\n"
+invalid:
+- "fun f() {\n  val sessions = manager.getActiveSessions(component)\n}\n"
+- "fun f() {\n  manager.addOnActiveSessionsChangedListener(listener, component)\n}\n"

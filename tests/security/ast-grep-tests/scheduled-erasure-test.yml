@@ -1,0 +1,15 @@
+id: scheduled-erasure
+valid:
+- "class Sweep {\n fun confirm(claim: ClaimedDeletion) {\n deletion.eraseAndVerify(claim)\n}\n}\n"
+- "class Scheduler {\n @Scheduled(fixedDelay = 1000)\n fun tick() { deletion.processDueOperations() }\n}\n"
+- 'fun confirm() { deletion.executePurge(studyId, request) }
+
+  '
+invalid:
+- "class Scheduler {\n @Scheduled(cron = \"@daily\")\n fun tick() { deletion.eraseNow(operationId, studyId, \"scheduler\") }\n}\n"
+- "class Sweep {\n @Scheduled(fixedDelay = 1000) fun tick() {\n deletion.eraseAndVerify(claim)\n}\n}\n"
+- "class Scheduler {\n @Suppress(\"TooGenericExceptionCaught\")\n @Scheduled(fixedDelay = 1000)\n fun tick() { deletion.quarantineParticipant(studyId,\
+  \ participantId, mode, actor, key) }\n}\n"
+- 'fun start() { executor.scheduleAtFixedRate({ deletion.executePurge(studyId, request) }, 0, 1000, unit) }
+
+  '

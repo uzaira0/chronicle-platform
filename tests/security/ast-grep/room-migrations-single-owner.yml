@@ -1,5 +1,7 @@
 id: room-migrations-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only MIGRATION_n_m identifiers match; aliases, reflection and migration arrays built indirectly are not resolved.
 severity: error
 message: >
   Reference Room migrations through ChronicleDb.ALL_MIGRATIONS. MIGRATION_n_m
@@ -69,6 +71,8 @@ rule:
 ---
 id: room-migrations-single-owner-java
 language: Java
+note: |
+  Blind spots: Only MIGRATION_n_m identifiers match; aliases, reflection and migration arrays built indirectly are not resolved.
 severity: error
 message: >
   Reference Room migrations through ChronicleDb.ALL_MIGRATIONS. MIGRATION_n_m

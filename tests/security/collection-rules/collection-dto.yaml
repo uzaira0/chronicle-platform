@@ -1,8 +1,8 @@
-# Chronicle collection DTO secret-redaction guardrail (refactor Phase 12, subphase 12A).
+# Chronicle collection DTO secret-redaction guardrail.
 #
-# Implements design §4 catalog rule #8: the shared collection DTOs in chronicle-models
-# (CollectionModuleDiagnostics, AndroidDataCollectionSetting, CollectionModuleSetting,
-# and the policy/cadence DTOs) hold NO secret material. Per design §1B.3 a diagnostics
+# The shared collection DTOs in chronicle-models
+# (AndroidDataCollectionSetting, CollectionModuleSetting,
+# and the policy/cadence DTOs) hold NO secret material. A diagnostics
 # DTO must contain no `apiKey`, `MOBILE_SIGNING_SECRET`, raw `participantId`, or raw
 # request bodies — participant references are redacted into `redactedParticipantRef`.
 #
@@ -24,8 +24,7 @@ rules:
       Shared collection DTOs (chronicle-models) must not declare a secret-bearing
       field (apiKey / signingSecret / mobileSigningSecret / MOBILE_SIGNING_SECRET /
       raw participantId). Diagnostics are operational telemetry only; participant
-      references must be redacted via `redactedParticipantRef` (design §1B.3,
-      guardrail #8).
+      references must be redacted via `redactedParticipantRef`.
     patterns:
       - pattern-regex: '\b(val|var)\s+(apiKey|signingSecret|mobileSigningSecret|MOBILE_SIGNING_SECRET|participantId)\b\s*:'
     paths:
@@ -37,7 +36,7 @@ rules:
         # what, when" anchor (the DB participant_collection_acknowledgment.participant_id), so it
         # MUST carry the real participantId — a redacted ref would defeat the consent audit. It
         # lives in chronicle-models only because the web/researcher view reads it. Out of the
-        # §1B.3 diagnostics-redaction scope; the device-POSTed CollectionAcknowledgment payload
+        # diagnostics-redaction scope; the device-POSTed CollectionAcknowledgment payload
         # (no participantId — it's in the request path) is still covered.
         - "CollectionAcknowledgmentEntry.kt"
     metadata:
@@ -45,5 +44,3 @@ rules:
       owasp: "A01:2021"
       category: security
       confidence: HIGH
-      references:
-        - docs/DATA-COLLECTION-MODULARIZATION-DESIGN.md#1B.3

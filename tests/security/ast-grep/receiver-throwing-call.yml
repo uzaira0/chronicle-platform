@@ -1,0 +1,24 @@
+id: receiver-throwing-call
+language: Kotlin
+note: |
+  Blind spots: Only explicit throws and listed throwing-name calls inside onReceive match; exceptions from other methods require runtime tests.
+severity: error
+message: Broadcast receivers must handle refusal without throwing, including throwing helper calls.
+files:
+- '**/chronicle/**/src/**/*.kt'
+rule:
+  all:
+  - any:
+    - all:
+      - kind: jump_expression
+      - regex: ^throw\b
+    - all:
+      - kind: call_expression
+      - regex: ^(?:[\w.]+\.)?(?:check(?:NotNull)?|require(?:NotNull)?|error|throwIf\w*|\w*(?:[Oo]rThrow|[Oo]rFail|[Tt]hrowOnFailure))\s*\(
+  - inside:
+      kind: function_declaration
+      regex: \bfun\s+onReceive\s*\(
+      stopBy: end
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

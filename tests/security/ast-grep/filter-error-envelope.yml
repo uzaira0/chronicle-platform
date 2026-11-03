@@ -1,0 +1,14 @@
+id: filter-error-envelope
+language: Kotlin
+severity: error
+message: Serialize filter errors through writeFilterError; servlet sendError is normalized by ServletErrorHardeningInitializer.
+note: "Blind spots: writer aliases, anonymous filters in other configuration files and output-stream data flow need behavioral review. This rule covers direct writer writes in filter classes; the servlet error handler owns sendError responses."
+files:
+  - "chronicle-server/src/main/kotlin/**/configuration/*Filter.kt"
+  - "chronicle-server/src/main/kotlin/**/filters/*Filter.kt"
+rule:
+  any:
+    - pattern: $RESPONSE.writer.write($$$)
+    - pattern: $RESPONSE.writer.print($$$)
+    - pattern: $RESPONSE.getWriter().write($$$)
+    - pattern: $RESPONSE.getWriter().print($$$)

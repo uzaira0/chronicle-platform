@@ -1,8 +1,0 @@
-id: no-direct-admin-rls-bypass
-language: Kotlin
-severity: error
-message: >
-  Do not set app.is_admin directly. Use RLSConnectionCustomizer.withAdminContext
-  so privileged RLS bypasses are scoped and cleared before connection reuse.
-rule:
-  pattern: $STMT.execute("SELECT set_config('app.is_admin', 'true', $$$ARGS)")

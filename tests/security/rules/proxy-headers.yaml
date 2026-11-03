@@ -16,6 +16,7 @@ rules:
           }
     paths:
       include:
-        - chronicle-server/src/main/kotlin/**/*.kt
+        # Semgrep paths are relative to each scanned submodule root.
+        - /src/main/kotlin/**/*.kt
       exclude:
-        - chronicle-server/src/test/**
+        - /src/test/**

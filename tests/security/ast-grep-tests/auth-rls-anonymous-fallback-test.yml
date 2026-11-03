@@ -1,0 +1,13 @@
+id: auth-rls-anonymous-fallback
+valid:
+- "fun borrow(): Connection {\n    val context = contextProvider() ?: anonymousContext\n    return applyContext(connection,\
+  \ context)\n}\n"
+invalid:
+- "fun borrow(): Connection {\n    val context = contextProvider() ?: return connection\n    return applyContext(connection,\
+  \ context)\n}\n"
+- "fun alternate(): Connection {\n    val current = contextProvider()\n    if (current == null) return borrowed\n\
+  \    return applyContext(borrowed, current)\n}\n"
+- "fun reverse(): Connection {\n    val current = contextProvider()\n    if (null == current) return borrowed\n\
+  \    return applyContext(borrowed, current)\n}\n"
+- "fun block(): Connection {\n    val current = contextProvider()\n    if (current === null) { return borrowed }\n\
+  \    return applyContext(borrowed, current)\n}\n"

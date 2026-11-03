@@ -1,0 +1,5 @@
+id: collection-worker-no-direct-sensor-instantiation
+valid:
+- "fun f() {\n  val sensor = registry.usageEvents()\n}\n"
+invalid:
+- "fun f() {\n  val sensor = UsageEventsChronicleSensor(context)\n}\n"

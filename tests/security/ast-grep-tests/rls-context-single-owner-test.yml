@@ -1,0 +1,10 @@
+id: rls-context-single-owner
+valid:
+- "package com.openlattice.chronicle.storage.rls\n\nclass RLSContextManager {\n  private val SET_RLS_CONTEXT_SQL = \"SELECT\
+  \ set_config('app.user_id', ?, true)\"\n}\n"
+- "fun f() {\n  val sql = \"SELECT current_setting('app.user_id')\"\n}\n"
+invalid:
+- "fun f() {\n  val sql = \"SELECT set_config('app.user_id', ?, true)\"\n}\n"
+- "package com.openlattice.chronicle.services\n\nclass Elsewhere {\n  private val SET_RLS_CONTEXT_SQL = \"SELECT set_config('app.user_id',\
+  \ ?, true)\"\n}\n"
+- "fun f() {\n  statement.execute(\"SELECT set_config('app.is_admin', 'true', false)\")\n}\n"

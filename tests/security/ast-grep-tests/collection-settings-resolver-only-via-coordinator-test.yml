@@ -1,0 +1,5 @@
+id: collection-settings-resolver-only-via-coordinator
+valid:
+- "fun f() {\n  coordinator.resolve(settings)\n}\n"
+invalid:
+- "fun f() {\n  val resolver = CollectionSettingsResolver(settings, clock)\n}\n"

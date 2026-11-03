@@ -1,13 +1,13 @@
-# Catalog #10 (design §4) / §1C.4 — DeviceLifecycleEventRecorder.recordAsync only via
-# the lifecycle module / its compatibility shim.
+# DeviceLifecycleEventRecorder.recordAsync only via the lifecycle module / its
+# compatibility shim.
 #
-# Design §1C.4: each module keeps a compatibility shim (DeviceLifecycleEventRecorder.
+# Each module keeps a compatibility shim (DeviceLifecycleEventRecorder.
 # recordAsync delegating to DeviceLifecycleCollectionModule) until parity tests pass.
 # `recordAsync` itself is the sanctioned shim; broadcast receivers / services that
-# call it directly are legacy callsites that Phase 5B routes through the module
+# call it directly are legacy callsites to be routed through the module
 # manager. New code must go through the lifecycle module, not call recordAsync.
 #
-# LEGACY EXCEPTIONS (migration switch OFF — Phase 5B not flipped, these still run):
+# LEGACY EXCEPTIONS (migration switch OFF, these still run):
 #   - DeviceLifecycleEvents.kt        : DEFINES recordAsync — it is the shim itself,
 #                                       gated by LifecycleWorkerMigration.
 #   - PowerSaveModeReceiver.kt        : legacy power-save lifecycle events.
@@ -16,10 +16,12 @@
 #   - HardwareSensorService.kt        : legacy low-memory lifecycle event.
 id: collection-lifecycle-record-only-via-module
 language: Kotlin
+note: |
+  Blind spots: Only the listed API spellings and configured paths match; type aliases, reflection and calls hidden behind wrappers are not resolved.
 severity: error
 message: >
   DeviceLifecycleEventRecorder.recordAsync must be reached only through the
-  lifecycle module / its compatibility shim (design §1C.4, guardrail #10). New code
+  lifecycle module / its compatibility shim. New code
   must record lifecycle events via DeviceLifecycleCollectionModule.
 ignores:
   - "**/services/lifecycle/DeviceLifecycleEvents.kt"

@@ -1,0 +1,5 @@
+id: no-rls-context-manager-call
+valid:
+- "fun f() {\n  storage.query(sql)\n}\n"
+invalid:
+- "fun f() {\n  manager.setCurrentUserContext(connection)\n}\n"

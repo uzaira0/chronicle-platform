@@ -1,0 +1,6 @@
+id: work-stop-reason-single-owner
+valid:
+- "fun f() {\n  val reason = owner.reason(worker)\n}\n"
+invalid:
+- "fun f() {\n  val reason = worker.getStopReason()\n}\n"
+- "fun f() {\n  val reason = stopReason\n}\n"

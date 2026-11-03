@@ -1,0 +1,7 @@
+id: room-migrations-single-owner
+valid:
+- 'val MIGRATION_1_2 = object : Migration(1, 2) {}
+
+  '
+invalid:
+- "fun f() {\n  builder.addMigrations(MIGRATION_1_2)\n}\n"

@@ -1,0 +1,22 @@
+id: export-lock-across-client-io
+language: Kotlin
+note: |
+  Blind spots: Requires a named output parameter and lock call in one function; locks passed across helper boundaries are not resolved.
+severity: error
+message: Client-paced output must not hold a database or study artifact lock; check durable revocation between chunks.
+files:
+- '**/chronicle-server/src/main/**/*.kt'
+rule:
+  all:
+  - kind: function_declaration
+  - has:
+      kind: parameter
+      regex: :\s*(?:OutputStream|HttpServletResponse|Writer)\b
+      stopBy: end
+  - has:
+      kind: call_expression
+      regex: (?:DeletionStudyFence\.(?:exportShared|exclusive)|acquireExportStudy(?:Transaction)?Lock|acquireStudyExportLock)\(
+      stopBy: end
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

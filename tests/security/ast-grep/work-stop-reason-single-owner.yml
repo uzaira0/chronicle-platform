@@ -1,5 +1,7 @@
 id: work-stop-reason-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only getStopReason calls and stopReason identifiers match; reflection and indirect access through wrappers are not followed.
 severity: error
 message: Read WorkManager stop reasons through LeaseBoundWorker with the API 31 guard.
 files:

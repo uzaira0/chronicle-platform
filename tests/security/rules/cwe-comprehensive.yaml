@@ -151,12 +151,9 @@ rules:
     patterns:
       - pattern: |
           DocumentBuilderFactory.newInstance()
-      - pattern-not-inside: |
-          public object SecureXmlFactory { ... }
     message: >
       DocumentBuilderFactory.newInstance() detected. Ensure XXE protection
-      is enabled via setFeature(disallow-doctype-decl, true) or use
-      Chronicle SecureXmlFactory instead.
+      is enabled via setFeature(disallow-doctype-decl, true).
     languages: [java, kotlin]
     severity: WARNING
     metadata:
@@ -169,11 +166,9 @@ rules:
     patterns:
       - pattern: |
           SAXParserFactory.newInstance()
-      - pattern-not-inside: |
-          public object SecureXmlFactory { ... }
     message: >
       SAXParserFactory.newInstance() detected. Ensure XXE protection
-      is enabled or use Chronicle SecureXmlFactory instead.
+      is enabled.
     languages: [java, kotlin]
     severity: WARNING
     metadata:
@@ -186,8 +181,6 @@ rules:
     patterns:
       - pattern: |
           XMLInputFactory.newInstance()
-      - pattern-not-inside: |
-          public object SecureXmlFactory { ... }
     message: >
       XMLInputFactory.newInstance() detected. Disable DTD support with
       setProperty(SUPPORT_DTD, false) and
@@ -294,12 +287,18 @@ rules:
   - id: chronicle-hardcoded-password-java
     patterns:
       - pattern: |
-          $X = "..."
+          $X = "$V"
       - metavariable-regex:
           metavariable: $X
           regex: "(?i).*(password|passwd|secret|api_key|apikey|api_secret|private_key|access_key).*"
       - pattern-not: |
           $X = ""
+      # A JSON/YAML key that names the credential ("password", "clientSecret",
+      # "keymanager-password") is not a credential: identifier-shaped, with the
+      # keyword as a whole word. "hunter2", "password123", "secretpassword" still match.
+      - metavariable-regex:
+          metavariable: $V
+          regex: '^(?!(?=[a-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)*$).*?(?:(?:^|[-_.])(?:password|passwd|secret|api[-_.]?key|api[-_.]?secret|private[-_.]?key|access[-_.]?key)|[a-z0-9](?:Password|Passwd|Secret|ApiKey|ApiSecret|PrivateKey|AccessKey))(?:$|[-_.A-Z]))'
     message: >
       Possible hard-coded credential. Passwords, API keys, and secrets
       should be loaded from environment variables, Vault, or encrypted
@@ -467,8 +466,8 @@ rules:
       - pattern-not: |
           super.sendRedirect($URL)
     message: >
-      Redirect with variable URL. Ensure RedirectValidator.validate()
-      is called to prevent open redirect attacks.
+      Redirect with variable URL. Check the target against an allowlist of
+      same-origin paths to prevent open redirect attacks.
     languages: [java, kotlin]
     severity: WARNING
     metadata:
@@ -541,11 +540,17 @@ rules:
   # CWE-200: Exposure of Sensitive Information (Stack Traces)
   # ===========================================================================
   - id: chronicle-stacktrace-in-response
-    pattern-either:
-      - pattern: |
-          $E.printStackTrace($WRITER)
-      - pattern: |
-          $E.getStackTrace()
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $E.printStackTrace($WRITER)
+          - pattern: |
+              $E.getStackTrace()
+      # Moving frames onto a sanitized exception keeps them in the server log.
+      - pattern-not-inside: $COPY.setStackTrace($E.getStackTrace())
+      # A Log4j pattern converter writes only into the server log, never a response.
+      - pattern-not-inside: |
+          class $C extends LogEventPatternConverter { ... }
     message: >
       Stack trace potentially exposed in HTTP response. Stack traces reveal
       internal code structure and library versions. Use error IDs for
@@ -705,6 +710,10 @@ rules:
     patterns:
       - pattern: |
           $LOGGER.$METHOD("..." + $INPUT)
+      # Logging calls only; SQL text such as db.execSQL("..." + "...") is not a log line.
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: "^(trace|debug|info|warn|warning|error|fatal|v|d|i|w|e|wtf)$"
       - metavariable-regex:
           metavariable: $INPUT
           regex: ".*(?:request|param|header|body|input|user|query|path|uri|url|cookie).*"
@@ -769,12 +778,9 @@ rules:
     patterns:
       - pattern: |
           $DBF = DocumentBuilderFactory.newInstance()
-      - pattern-not-inside: |
-          public object SecureXmlFactory { ... }
     message: >
       XML parser created. Ensure FEATURE_SECURE_PROCESSING is enabled
-      to prevent billion laughs / XML bomb attacks. Or use Chronicle
-      SecureXmlFactory.
+      to prevent billion laughs / XML bomb attacks.
     languages: [java, kotlin]
     severity: WARNING
     metadata:
@@ -835,7 +841,7 @@ rules:
       - pattern: |
           UUID.nameUUIDFromBytes(...)
       - pattern-not-inside: |
-          public object DeviceIdUtils { ... }
+          public object RandomDeviceIdUtils { ... }
     message: >
       UUID.nameUUIDFromBytes() generates deterministic UUIDs (v3/MD5).
       For security-sensitive identifiers, use UUID.randomUUID() which
@@ -889,8 +895,8 @@ rules:
           fun $F(...): Int {
             ...
           }
-      # ... that does not call require(...) anywhere in its body (the size guard) ...
-      - pattern-not-regex: "require\\("
+      # ... that does not call require(...), requireUploadRow(...) or requireUploadBatchSize(...) anywhere in its body (the size guard) ...
+      - pattern-not-regex: "require(UploadRow|UploadBatchSize)?\\("
       # ... excluding private helpers (the guard lives in the public entrypoint).
       - pattern-not: |
           private fun $F(...): Int {
@@ -901,9 +907,9 @@ rules:
       include:
         - "/src/main/**/services/upload/*"
     message: >
-      Upload service entrypoint writes a batch without a size guard. Add
-      require(<collection>.size <= 10_000) before touching storage so a single
-      request cannot persist an unbounded batch. See BatteryTelemetryUploadService.
+      Upload service entrypoint writes a batch without a size guard. Call
+      requireUploadBatchSize(<collection>.size) (MAX_UPLOAD_ROWS) before touching storage so a
+      single request cannot persist an unbounded batch. See BatteryTelemetryUploadService.
     languages: [kotlin]
     severity: ERROR
     metadata:
@@ -925,8 +931,9 @@ rules:
       - pattern-not: |
           fun $F(..., @Valid @RequestBody $P: List<$T>, ...): $R { ... }
     paths:
+      # Includes are relative to each submodule root; Android flavors are under /app/src/.
       include:
-        - "*/controllers/*"
+        - "/src/**/controllers/*"
     message: >
       Controller accepts a List request body without @Valid. Annotate the body
       @Valid so bean-validation (and any size/element constraints) run at the edge.

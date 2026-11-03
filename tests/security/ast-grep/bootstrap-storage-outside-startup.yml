@@ -1,0 +1,18 @@
+id: bootstrap-storage-outside-startup
+language: Kotlin
+note: |
+  Blind spots: Matches named bootstrap calls only; aliases, reflection and wrapper implementations are not followed.
+severity: error
+message: Only the explicit Flyway and restore startup owners may borrow privileged bootstrap storage.
+files:
+- '**/chronicle-server/src/main/**/*.kt'
+ignores:
+- '**/upgrades/FlywayMigrationService.kt'
+- '**/services/delete/RestoreContinuityReconciler.kt'
+- '**/services/delete/RestoreCheckpointRepository.kt'
+- '**/tests/security/fixtures/**'
+- '**/lint/**'
+rule:
+  all:
+  - kind: call_expression
+  - regex: (?:^|\.)(?:getBootstrapStorage|bootstrapStorage)\s*\(

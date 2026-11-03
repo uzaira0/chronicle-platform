@@ -1,0 +1,11 @@
+id: trusted-proxy-cidr-single-owner
+valid:
+- "class C(val trustedProxyCidrs: List<String> = ClientIpResolver.LOOPBACK_PROXY_CIDRS)\n"
+- "val ranges = ClientIpResolver.deploymentTrustedProxyCidrs(config.trustedProxyCidrs)\n"
+- "class C(val whitelistedIps: List<String> = listOf(\"127.0.0.1\"))\n"
+- "private val PRIVATE_IP_RANGES = listOf(\"10.0.0.0/8\", \"172.16.0.0/12\")\n"
+invalid:
+- "private val defaultTrustedProxyCidrs = deploymentTrustedProxyCidrs(listOf(\"172.16.0.0/12\", \"127.0.0.0/8\"))\n"
+- "class C(val trustedProxyCidrs: List<String> = listOf(\"172.16.0.0/12\"))\n"
+- "fun resolve(trustedProxyCidrs: List<String> = listOf(\"::1/128\")) = 1\n"
+- "private val trustedProxies = listOf(\"10.0.0.1\")\n"

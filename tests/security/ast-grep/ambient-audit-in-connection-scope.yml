@@ -1,0 +1,41 @@
+id: ambient-audit-in-connection-scope
+language: Kotlin
+note: |
+  Blind spots: Only the listed audit calls inside a Connection parameter or connection.use block match; connection aliases and interprocedural transaction flow are not resolved.
+severity: error
+message: Pass the existing Connection explicitly so success audits cannot commit outside the caller's transaction.
+files:
+- '**/chronicle-server/src/main/**/*.kt'
+rule:
+  all:
+  - any:
+    - pattern: recordEvents($EVENTS)
+    - pattern: $OWNER.recordEvents($EVENTS)
+    - pattern: recordEvent($EVENT)
+    - pattern: $OWNER.recordEvent($EVENT)
+    - pattern: $OWNER.recordObservations($EVENTS)
+    - pattern: recordReadEvent($EVENT)
+    - pattern: $OWNER.recordReadEvent($EVENT)
+    - pattern: recordReadEvents($EVENTS)
+    - pattern: $OWNER.recordReadEvents($EVENTS)
+    - pattern: recordCommittedEvent($EVENT)
+    - pattern: $OWNER.recordCommittedEvent($EVENT)
+    - pattern: recordCommittedEvents($EVENTS)
+    - pattern: $OWNER.recordCommittedEvents($EVENTS)
+    - pattern: recordIntentEvent($EVENT)
+    - pattern: $OWNER.recordIntentEvent($EVENT)
+  - inside:
+      any:
+      - all:
+        - kind: function_declaration
+        - has:
+            kind: parameter
+            regex: :\s*(?:java\.sql\.)?Connection\b
+            stopBy: end
+      - all:
+        - kind: call_expression
+        - regex: \.connection\.use\s*\{
+      stopBy: end
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

@@ -1,0 +1,22 @@
+id: self-reschedule-in-finally
+language: Kotlin
+note: |
+  Blind spots: Only direct self-calls in a finally block match; dispatch through method references or helper executors is not followed.
+severity: error
+message: A retry owner must return an outcome; immediate self-dispatch from finally bypasses failure pacing.
+files:
+- '**/chronicle-server/src/main/**/*.kt'
+rule:
+  all:
+  - pattern: fun $F($$$PARAMETERS) { $$$BODY }
+  - has:
+      kind: finally_block
+      has:
+        any:
+        - pattern: $F($$$ARGUMENTS)
+        - pattern: this.$F($$$ARGUMENTS)
+        stopBy: end
+      stopBy: end
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

@@ -1,0 +1,8 @@
+id: activity-recognition-single-owner
+valid:
+- "fun f() {\n  client.requestLocationUpdates(request, intent)\n}\n"
+invalid:
+- "fun f() {\n  client.requestActivityTransitionUpdates(request, intent)\n}\n"
+- "fun f() {\n  client.requestSleepSegmentUpdates(intent, request)\n}\n"
+- "fun f() {\n  client.removeActivityTransitionUpdates(intent)\n}\n"
+- "fun f() {\n  client.removeSleepSegmentUpdates(intent)\n}\n"

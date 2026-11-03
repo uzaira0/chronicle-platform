@@ -1,5 +1,7 @@
 id: pending-intent-mutability-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only FLAG_MUTABLE references match; integer flags, aliases and reflection are not resolved.
 severity: error
 message: Mutable PendingIntents belong to SleepActivityCaptureController and its explicit callback receiver.
 files:

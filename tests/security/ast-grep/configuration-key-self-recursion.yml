@@ -1,0 +1,13 @@
+id: configuration-key-self-recursion
+language: Kotlin
+note: |
+  Blind spots: Only direct key-returning getKey bodies match; indirect recursion through helpers is not followed.
+severity: error
+message: Qualify the companion key; a bare key resolves to this Java getter and recurses.
+rule:
+  all:
+  - kind: function_declaration
+  - regex: (?s)\bfun\s+getKey\s*\(\s*\)(?:\s*:\s*[^={]+)?\s*(?:=\s*(?:this\.)?key\s*;?\s*$|\{\s*return\s+(?:this\.)?key\s*;?\s*\})
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

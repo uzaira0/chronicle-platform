@@ -1,0 +1,12 @@
+id: phi-output-outside-audit-owner
+valid:
+- 'fun download(reply: HttpServletResponse) { audit.stream(scope, reply) { sink -> copy(sink) } }
+
+  '
+invalid:
+- 'fun download(reply: HttpServletResponse) { reply.outputStream.write(bytes) }
+
+  '
+- 'fun download(reply: HttpServletResponse) { response.getOutputStream().write(bytes) }
+
+  '

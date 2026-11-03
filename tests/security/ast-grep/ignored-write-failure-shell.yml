@@ -1,0 +1,16 @@
+id: ignored-write-failure-shell
+language: Bash
+note: |
+  Blind spots: Only listed direct commands followed by || true or || : match; aliases, eval and other shell failure-masking forms are not interpreted.
+severity: error
+message: A failed write must fail the operation or enter an explicit recovery branch.
+rule:
+  any:
+  - pattern: $CMD $$$ARGS || true
+  - pattern: '$CMD $$$ARGS || :'
+constraints:
+  CMD:
+    regex: ^(?:cp|mv|install|psql|pg_restore|pg_dump|tee|chmod|chown)$
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'

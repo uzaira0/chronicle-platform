@@ -1,5 +1,7 @@
 id: sensor-registration-single-owner
 language: Kotlin
+note: |
+  Blind spots: Only the listed API spellings and configured paths match; type aliases, reflection and calls hidden behind wrappers are not resolved.
 severity: error
 message: Register hardware sensors through SensorGateway and its permission guards.
 files:

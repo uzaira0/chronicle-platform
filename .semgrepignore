@@ -1,0 +1,4 @@
+# Scan source and tests. Native scanner fixtures are excluded by the engineering job.
+**/.git/**
+**/.venv/**
+**/dist/**

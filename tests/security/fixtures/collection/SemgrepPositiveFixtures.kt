@@ -1,6 +1,6 @@
-// Positive fixtures for the collection-modularization Semgrep rules (Phase 12).
+// Positive fixtures for the collection-modularization Semgrep rules.
 //
-// Each block below is a deliberate VIOLATION of one design §4 catalog rule. The
+// Each block below is a deliberate VIOLATION of one rule. The
 // Semgrep rule-id annotation comment preceding each block is the test convention:
 // `semgrep --test` (and the `collection` security layer's fixture self-check)
 // confirms the rule fires here. This file is NOT production code — it lives under
@@ -15,7 +15,7 @@ package tests.security.fixtures.collection
 import android.content.Context
 
 // ---------------------------------------------------------------------------
-// Catalog #1: a DataCollectionModule impl with NO init-block privacy invariant.
+// A DataCollectionModule impl with NO init-block privacy invariant.
 // A conforming module asserts `require(privacyClass == id.privacyClass) { ... }`.
 // This one omits it entirely → rule must fire.
 // ruleid: chronicle-collection-module-must-assert-privacy-invariant
@@ -43,7 +43,7 @@ abstract class SafePullModule(final override val id: CollectionModuleId) : DataC
 }
 
 // ---------------------------------------------------------------------------
-// Catalog #9: a coded default that enables a privacy-sensitive module.
+// A coded default that enables a privacy-sensitive module.
 // PHYSICAL_TELEMETRY / LOCAL_PARTICIPANT_LABEL must never be enabled by a default.
 fun badDefaults(): CollectionModuleSetting {
     // ruleid: chronicle-collection-no-sensitive-default-enabled
@@ -56,7 +56,7 @@ fun badDefaultLiteral(): CollectionModuleSetting {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog #12: a collection module emitting a new Firebase analytics event.
+// A collection module emitting a new Firebase analytics event.
 fun badFirebaseEvent(analytics: FirebaseAnalytics) {
     // ruleid: chronicle-collection-no-new-firebase-events
     analytics.logEvent("collection_module_started", null)
@@ -68,7 +68,7 @@ fun badCrashlytics(crashlytics: Crashlytics, e: Exception) {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog #12 (cont.): a collection module referencing a dangerous permission.
+// A collection module referencing a dangerous permission.
 fun badPermission(): String {
     // ruleid: chronicle-collection-no-dangerous-permission-request
     return "android.permission.ACCESS_FINE_LOCATION"

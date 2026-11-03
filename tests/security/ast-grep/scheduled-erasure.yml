@@ -1,0 +1,29 @@
+id: scheduled-erasure
+language: Kotlin
+note: |
+  Blind spots: Only listed scheduled owners and destructive call names match; timer registration or deletion hidden behind helpers is not followed.
+severity: error
+message: Destructive entry points require explicit authority; periodic owners cannot invoke them.
+rule:
+  any:
+  - all:
+    - kind: function_declaration
+    - any:
+      - has:
+          kind: annotation
+          regex: ^@(?:[\w.]+\.)?(?:Scheduled|Periodic)\b
+          stopBy: end
+      - has:
+          kind: simple_identifier
+          regex: ^(?:tick|runPeriodic|doWork|onStartJob)$
+    - has: &id001
+        kind: call_expression
+        regex: (?:^|\.)(?:eraseNow|eraseAndVerify|eraseStudy|eraseAsset|executePurge|purgeParticipant|purgeStudy|deleteParticipantData|requestErasure|requestParticipantDeletion|quarantineParticipant(?:Atomically)?|quarantineStudy(?:Atomically)?)\s*\(
+        stopBy: end
+  - all:
+    - kind: call_expression
+    - regex: \.(?:scheduleAtFixedRate|scheduleWithFixedDelay)\s*\(
+    - has: *id001
+ignores:
+- '**/tests/security/fixtures/**'
+- '**/lint/**'
