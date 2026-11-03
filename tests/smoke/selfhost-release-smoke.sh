@@ -25,7 +25,9 @@ RELEASE_SIGNATURE_FILE="${SELFHOST_SMOKE_RELEASE_SIGNATURE_FILE:-${RELEASE_SHA25
 RELEASE_ARCHIVE_SHA256=""
 MONITORING="${SELFHOST_SMOKE_MONITORING:-true}"
 SMOKE_PASSWORD='chronicle-smoke-only-password'
-DISK_SMOKE_VOLUME_BYTES=268435456
+# The k6 benchmark writes ~70k rows into this volume after the disk drill; 256 MiB hit ENOSPC (SQLSTATE 53100).
+# The drill fills the whole tmpfs inside the postgres container, so it must stay well under POSTGRES_MEM_LIMIT (2g).
+DISK_SMOKE_VOLUME_BYTES=805306368
 DISK_SMOKE_VOLUME_INODES=65536
 DISK_DRILL_MAX_SECONDS=60
 
