@@ -5,7 +5,9 @@ set -Eeuo pipefail
 umask 077
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
 SOURCE=${1:-$ROOT/selfhost}
-RUN=$(mktemp -d "$ROOT/build/selfhost-topology.XXXXXX")
+RUN_PARENT=${TMPDIR:-$ROOT/build}
+mkdir -p "$RUN_PARENT"
+RUN=$(mktemp -d "$RUN_PARENT/selfhost-topology.XXXXXX")
 STACK="$RUN/selfhost"
 TOPOLOGY_FIXTURE="$RUN/fixture"
 PROJECT="chronicle-topology-$$"
@@ -15,7 +17,7 @@ CHRONICLE_HOST_UID=$(id -u)
 CHRONICLE_HOST_GID=$(id -g)
 export CHRONICLE_RECONCILE_ENABLED=false CHRONICLE_HOST_UID CHRONICLE_HOST_GID
 mkdir -p "$STACK" "$TOPOLOGY_FIXTURE/lb" "$TOPOLOGY_FIXTURE/client" "$RUN/pki"
-tar -C "$SOURCE" --exclude=.env --exclude='.env.*' --exclude=tls --exclude=backups --exclude=operator-receipts --exclude=upgrade-receipts --exclude='*.lock' --exclude=__pycache__ -cf - . | tar -C "$STACK" -xpf -
+tar -C "$SOURCE" --exclude=.env --exclude='.env.*' --exclude='.chronicle-*' --exclude=reconcile.sh --exclude=tls --exclude=backups --exclude=operator-receipts --exclude=upgrade-receipts --exclude='*.lock' --exclude=__pycache__ -cf - . | tar -C "$STACK" -xpf -
 cp "$SOURCE/.env.example" "$STACK/.env.example"
 # Compose bind-mounts the database role script from the bundle's sibling docker/ directory.
 mkdir -p "$RUN/docker"
@@ -42,6 +44,11 @@ cleanup() {
       printf '%s' '$rpf_pool' >/host-ipv4-conf/$TOPOLOGY_POOL_BRIDGE/rp_filter || failed=1;
       exit \"\$failed\"" || status=1
   fi
+  if (( status != 0 )); then
+    # The stack is removed below; keep the reason a one-shot service refused.
+    (cd "$STACK" && docker compose -p "$PROJECT" logs --no-color --tail 80 config-guard migrate backend postgres) >&2 2>&1 || true
+    clients logs --no-color --tail 40 lb >&2 2>&1 || true
+  fi
   clients down -v --remove-orphans >/dev/null 2>&1 || true
   (cd "$STACK" && docker compose -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1) || true
   printf 'status=%s\n' "$status" >"$RUN/result.txt"
@@ -55,6 +62,9 @@ TOPOLOGY_LB_IMAGE=$(sed -n '/image: tecnativa\/docker-socket-proxy/s/^    image:
 [[ "$TOPOLOGY_LB_IMAGE" == *@sha256:* ]]
 export TOPOLOGY_CLIENT_IMAGE TOPOLOGY_LB_IMAGE
 export TOPOLOGY_PUBLIC_PREFIX=${TOPOLOGY_PUBLIC_PREFIX:-10.240.0}
+# The ingress admits exactly the product's request ceiling (generated/upload-limits.json).
+TOPOLOGY_BODY_LIMIT=${TOPOLOGY_BODY_LIMIT:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["MAX_REQUEST_SIZE_BYTES"])' "$ROOT/generated/upload-limits.json")}
+export TOPOLOGY_BODY_LIMIT
 export TOPOLOGY_POOL_PREFIX=${TOPOLOGY_POOL_PREFIX:-10.241.0}
 export TOPOLOGY_VPN_PREFIX=${TOPOLOGY_VPN_PREFIX:-10.242.0}
 export TOPOLOGY_PEER_PREFIX=${TOPOLOGY_PEER_PREFIX:-10.243.0}
@@ -82,7 +92,7 @@ POOL_BIND=$TOPOLOGY_POOL_PREFIX.1
 MANAGEMENT_BIND=$TOPOLOGY_VPN_PREFIX.1
 export TOPOLOGY_POOL_ENDPOINT="$POOL_BIND:$TOPOLOGY_POOL_PORT"
 export TOPOLOGY_MANAGEMENT_ENDPOINT="$MANAGEMENT_BIND:$TOPOLOGY_INTERNAL_PORT"
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -keyout "$RUN/pki/ca.key" -out "$RUN/pki/ca.crt" -subj /CN=topology-test-CA -addext basicConstraints=critical,CA:TRUE >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -keyout "$RUN/pki/ca.key" -out "$RUN/pki/ca.crt" -subj /CN=topology-test-CA -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -keyout "$RUN/pki/lb.key" -out "$RUN/pki/lb.csr" -subj "/CN=$TOPOLOGY_PUBLIC_HOST" >/dev/null 2>&1
 printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\n' "$TOPOLOGY_PUBLIC_HOST" >"$RUN/pki/lb.ext"
 openssl x509 -req -in "$RUN/pki/lb.csr" -CA "$RUN/pki/ca.crt" -CAkey "$RUN/pki/ca.key" -CAcreateserial -days 2 -extfile "$RUN/pki/lb.ext" -out "$RUN/pki/lb.crt" >/dev/null 2>&1
@@ -93,12 +103,16 @@ chmod 755 "$TOPOLOGY_FIXTURE" "$STACK"
 # The transparent variant runs HAProxy as root without DAC capabilities; it reads through the group.
 chmod 750 "$TOPOLOGY_FIXTURE/lb"
 chmod 644 "$TOPOLOGY_FIXTURE/lb/lb.cfg" "$TOPOLOGY_FIXTURE/lb/start.sh" "$RUN/pki/ca.crt"
-clients up -d lb phone-a phone-b forbidden
+# The load balancer trusts the pool listener's CA, which the stack creates on first start;
+# create it now (its networks carry HTTP_BIND) and start it once the CA exists.
+clients up --no-start lb
+clients up -d phone-a phone-b forbidden
 cd "$STACK"
 TOPOLOGY_STACK="$STACK" TOPOLOGY_PROJECT_NAME="$PROJECT" POOL_BIND="$POOL_BIND" MANAGEMENT_BIND="$MANAGEMENT_BIND" PYTHONPATH="$STACK" python3 - <<'PY'
 import os, secrets
 from pathlib import Path
-from chronicle_ops.release import read_env, value, quote_env
+from chronicle_ops.envfile import read_env, value, quote_env
+from chronicle_ops.credentials import SETUP_SECRETS
 raw=read_env('.env.example')
 values={key:value(raw,key) for key in raw}
 pins={'BACKEND_IMAGE':'SELFHOST_SMOKE_BACKEND_IMAGE','SELFHOST_FRONTEND_IMAGE':'SELFHOST_SMOKE_FRONTEND_IMAGE','CADDY_IMAGE':'SELFHOST_SMOKE_CADDY_IMAGE'}
@@ -112,25 +126,27 @@ values.update(COMPOSE_PROJECT_NAME=os.environ['TOPOLOGY_PROJECT_NAME'], CHRONICL
     INTERNAL_BIND=os.environ['MANAGEMENT_BIND'], INTERNAL_PORT=os.environ['TOPOLOGY_INTERNAL_PORT'], INTERNAL_CERT_SANS='DNS:'+os.environ['TOPOLOGY_MANAGEMENT_HOST'],
     DASHBOARD_BASE_URL='https://'+os.environ['TOPOLOGY_MANAGEMENT_HOST']+':'+os.environ['TOPOLOGY_MANAGEMENT_PORT'], DASHBOARD_ORIGINS='https://'+os.environ['TOPOLOGY_MANAGEMENT_HOST']+':'+os.environ['TOPOLOGY_MANAGEMENT_PORT'],
     DASHBOARD_ALLOWED_IPS=os.environ['TOPOLOGY_VPN_PREFIX']+'.0/24', CADDY_TRUSTED_PROXIES=os.environ['TOPOLOGY_POOL_PREFIX']+'.2/32', POOL_ALLOWED_IPS=os.environ['TOPOLOGY_POOL_PREFIX']+'.2/32',
-    REQUIRE_MFA='false', TESTING_LOGIN_ENABLED='false', CHRONICLE_RECONCILE_ENABLED='false', PUBLIC_HTTP_ENABLED='false',
-    BACKUP_STORAGE_ENCRYPTION_WAIVER='isolated synthetic Docker fixture')
+    POOL_LISTENER_TLS='true', REQUIRE_MFA='false', TESTING_LOGIN_ENABLED='false', CHRONICLE_RECONCILE_ENABLED='false', PUBLIC_HTTP_ENABLED='false',
+    BACKUP_STORAGE_ENCRYPTION_WAIVER='isolated synthetic Docker fixture',
+    # Retention is the operator's choice; the fixture keeps everything rather than choose a number.
+    BACKUP_KEEP_DAYS='all', BACKUP_KEEP_WEEKS='all', BACKUP_KEEP_MONTHS='all', PRE_OP_BACKUP_KEEP_DAYS='all')
 if os.environ.get('TOPOLOGY_SOURCE_PRESERVING') == 'true':
     sources=' '+os.environ['TOPOLOGY_PUBLIC_PREFIX']+'.0/24'
     for key in ('CADDY_TRUSTED_PROXIES','POOL_ALLOWED_IPS'): values[key]+=sources
-for key in ('POSTGRES_PASSWORD','JWT_SECRET','METRICS_PASSWORD','CHRONICLE_INTERNAL_WEB_SECRET','GRAFANA_ADMIN_PASSWORD'):
-    values[key]=secrets.token_urlsafe(32)
+for secret in SETUP_SECRETS:
+    values[secret.env_key]=secrets.token_urlsafe(32)
 Path('.env').write_text('\n'.join(k+'='+quote_env(v) for k,v in values.items())+'\n')
 os.chmod('.env',0o600)
 PY
 # Fixed synthetic password over stdin; credentials never enter process arguments.
-caddy_image=$(PYTHONPATH="$STACK" python3 -c 'from chronicle_ops.release import read_env,value;print(value(read_env(".env"),"CADDY_IMAGE"))')
+caddy_image=$(PYTHONPATH="$STACK" python3 -c 'from chronicle_ops.envfile import read_env, value;print(value(read_env(".env"),"CADDY_IMAGE"))')
 if [[ ${TOPOLOGY_SOURCE_PRESERVING:-false} == true ]]; then
   # The original client source needs a return path through HAProxy. Incoming packets
   # from the public client bridge cannot reach the server bridge directly.
   route_priority=$((20000 + $$ % 10000))
   # The helper image's busybox ip accepts table ids up to 255 only; 253-255 are the kernel's.
   route_table=$((100 + $$ % 150))
-  stack_subnet=$(PYTHONPATH="$STACK" python3 -c 'from chronicle_ops.release import read_env,value;print(value(read_env(".env"),"CHRONICLE_SUBNET"))')
+  stack_subnet=$(PYTHONPATH="$STACK" python3 -c 'from chronicle_ops.envfile import read_env, value;print(value(read_env(".env"),"CHRONICLE_SUBNET"))')
   host_routes "command -v ip; ! ip -4 rule list | grep -E '^($route_priority|$((route_priority+1))):';
     test -z \"\$(ip -4 route show table $route_table 2>/dev/null)\";
     test -z \"\$(ip -4 route show table $((route_table+1)) 2>/dev/null)\""
@@ -154,31 +170,17 @@ lines=Path('.env').read_text().splitlines(); hashes=[x for x in lines if x.start
 Path('.env').write_text('\n'.join(x for x in lines if not x.startswith('DASHBOARD_PASSWORD_HASH='))+'\n'+hashes[-1]+'\n')
 PY
 docker compose up -d --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}"
+install -m 644 tls/internal-ca.crt "$TOPOLOGY_FIXTURE/lb/pool-ca.crt"
+clients up -d lb
+sleep 3
 cp tls/internal-ca.crt "$TOPOLOGY_FIXTURE/client/dashboard-ca.crt"
 cat "$RUN/pki/ca.crt" "$TOPOLOGY_FIXTURE/client/dashboard-ca.crt" >"$TOPOLOGY_FIXTURE/client/client-ca.crt"
 chmod 644 "$TOPOLOGY_FIXTURE/client/client-ca.crt"
 public=https://$TOPOLOGY_PUBLIC_HOST:$TOPOLOGY_PUBLIC_PORT
 management=https://$TOPOLOGY_MANAGEMENT_HOST:$TOPOLOGY_MANAGEMENT_PORT
 client_pids=()
-# An anonymous endpoint's backend bucket exposes identity without logging client addresses.
-settings_path=/chronicle/v3/study/00000000-0000-0000-0000-000000000000/settings/type/DataCollection
-for phone in phone-a phone-a phone-b; do
-  remote_curl "$phone" -sS --noproxy '*' --cacert /fixture/client-ca.crt --max-time 10 \
-    -H 'X-Forwarded-For: 198.51.100.66' -D "/fixture/$phone-identity.headers" -o /dev/null "$public$settings_path"
-done
-python3 - "$TOPOLOGY_FIXTURE/client" "${TOPOLOGY_FORWARD_CLIENT:-true}" "${TOPOLOGY_SOURCE_PRESERVING:-false}" <<'PY_IDENTITY'
-from pathlib import Path
-import sys
-remaining = []
-for phone in ('phone-a', 'phone-b'):
-    lines = (Path(sys.argv[1]) / (phone+'-identity.headers')).read_text().splitlines()
-    values = [int(line.split(':',1)[1].strip()) for line in lines if line.lower().startswith('x-ratelimit-remaining:')]
-    if not values: raise SystemExit('backend rate-limit identity evidence is missing')
-    remaining.append(values[-1])
-assert (remaining[1] > remaining[0]) if 'true' in sys.argv[2:] else (remaining[1] < remaining[0]), 'backend resolved the wrong client bucket'
-PY_IDENTITY
 for phone in phone-a phone-b; do
-  printf '%s\n' 'chronicle-smoke-only-password' | clients exec -T "$phone" python3 /selfhost-client.py "${transport_options[@]}" --public "$public" --management "$management" --ca /fixture/client-ca.crt --records "/fixture/$phone.json" --transport-recipe "/fixture/$phone-private.json" &
+  printf '%s\n' 'chronicle-smoke-only-password' | clients exec -T "$phone" python3 /repo/tests/deployment/selfhost-client.py "${transport_options[@]}" --public "$public" --management "$management" --ca /fixture/client-ca.crt --records "/fixture/$phone.json" --transport-recipe "/fixture/$phone-private.json" &
   client_pids+=("$!")
 done
 for pid in "${client_pids[@]}"; do wait "$pid"; done
@@ -186,7 +188,7 @@ for phone in phone-a phone-b; do
   python3 "$ROOT/tests/deployment/selfhost-client.py" --assert-db --project "$PROJECT" --records "$TOPOLOGY_FIXTURE/client/$phone.json"
 done
 transfer_client() {
-  clients exec -T "$1" python3 /selfhost-client.py "${transport_options[@]}" --ca /fixture/client-ca.crt \
+  clients exec -T "$1" python3 /repo/tests/deployment/selfhost-client.py "${transport_options[@]}" --ca /fixture/client-ca.crt \
     --records "/fixture/$1.json" --transport-recipe "/fixture/$1-private.json" --transport-replay "${@:2}"
 }
 browser_pids=()
@@ -197,7 +199,7 @@ body_deadline_test_seconds=1
 original_read_deadline=$(sed -n 's/^[[:space:]]*read_body //p' "$STACK/caddy/snippets.caddy")
 sed -i "s/read_body ${original_read_deadline}/read_body ${body_deadline_test_seconds}s/" "$STACK/caddy/snippets.caddy"
 docker compose up -d --force-recreate --wait web
-clients exec -T phone-a python3 /selfhost-client.py "${transport_options[@]}" --public "$public" --management "$management" \
+clients exec -T phone-a python3 /repo/tests/deployment/selfhost-client.py "${transport_options[@]}" --public "$public" --management "$management" \
   --ca /fixture/client-ca.crt --records /fixture/phone-a.json --body-deadline-test-seconds "$body_deadline_test_seconds"
 sed -i "s/read_body ${body_deadline_test_seconds}s/read_body ${original_read_deadline}/" "$STACK/caddy/snippets.caddy"
 docker compose up -d --force-recreate --wait web
@@ -209,10 +211,10 @@ sleep 3
 transfer_client phone-a
 python3 "$ROOT/tests/deployment/selfhost-client.py" --assert-db --project "$PROJECT" --records "$TOPOLOGY_FIXTURE/client/phone-a.json"
 rm "$TOPOLOGY_FIXTURE/client/phone-a-private.json" "$TOPOLOGY_FIXTURE/client/phone-b-private.json"
-bypass_code=$(remote_curl phone-a -s --max-time 5 -o /dev/null -w '%{http_code}' "http://$TOPOLOGY_POOL_ENDPOINT/health" || true)
+# Direct pool access is refused by address; -k because only the load balancer trusts the pool CA.
+bypass_code=$(remote_curl phone-a -sk --max-time 5 -o /dev/null -w '%{http_code}' "https://$TOPOLOGY_POOL_ENDPOINT/health" || true)
 [[ "$bypass_code" == 403 || "$bypass_code" == 000 ]]
-[[ $(remote_curl forbidden -s --max-time 10 -H 'X-Forwarded-Proto: https' -D /fixture/forbidden.headers -o /dev/null -w '%{http_code}' "http://$TOPOLOGY_POOL_ENDPOINT/health") == 403 ]]
-! grep -qi '^strict-transport-security:' "$TOPOLOGY_FIXTURE/client/forbidden.headers"
+[[ $(remote_curl forbidden -sk --max-time 10 -o /dev/null -w '%{http_code}' "https://$TOPOLOGY_POOL_ENDPOINT/health") == 403 ]]
 [[ $(remote_curl forbidden -s --max-time 10 --cacert /fixture/client-ca.crt -o /dev/null -w '%{http_code}' "https://$TOPOLOGY_MANAGEMENT_ENDPOINT/chronicle/") == 403 ]]
 remote_curl phone-a --fail --cacert /fixture/client-ca.crt --max-time 10 -D /fixture/headers -o /dev/null -H 'X-Forwarded-For: 198.51.100.66' -H 'X-Forwarded-For: 198.51.100.67' -H 'X-Forwarded-Proto: http, https' "$public/health"
 grep -qi '^strict-transport-security:' "$TOPOLOGY_FIXTURE/client/headers"
@@ -228,8 +230,36 @@ remote_curl phone-a -sS --noproxy '*' --cacert /fixture/client-ca.crt --max-time
 wrong_san_status=$?
 set -e
 [[ "$unknown_ca_status" == 60 && "$wrong_san_status" == 60 ]]
-# A smaller upstream body contract must reject before the application sees a valid batch.
-clients exec -T phone-a python3 -c 'open("/fixture/oversized.json","w").write("["+" "*(11*1024*1024)+"]")'
+# Forwarded identity, host, scheme and internal credentials are client-controlled text. None of
+# them may open the researcher surface, the pool, or metrics to a client outside the allowlists.
+vpn_client=$TOPOLOGY_VPN_PREFIX.10
+forged_headers=(-H "X-Forwarded-For: $vpn_client" -H "X-Real-IP: $vpn_client" -H "X-Forwarded-Proto: https"
+  -H "Forwarded: for=$vpn_client;host=$TOPOLOGY_MANAGEMENT_HOST;proto=https"
+  -H "X-Forwarded-Host: $TOPOLOGY_MANAGEMENT_HOST" -H "X-Original-Forwarded-For: $vpn_client"
+  -H "X-Chronicle-Internal-Web: forged-internal-web" -H "Authorization: ChronicleUpdate forged-verifier")
+forged_status() { remote_curl "$1" -s --noproxy '*' --max-time 10 -o /dev/null -w '%{http_code}' "${forged_headers[@]}" "${@:2}" || true; }
+for path in /chronicle/api/web/study /chronicle/api/web/studies/settings /chronicle/limits/study /prometheus/ /chronicle/datastore/x; do
+  for host in "$TOPOLOGY_PUBLIC_HOST" "$TOPOLOGY_MANAGEMENT_HOST"; do
+    [[ $(forged_status phone-a --cacert /fixture/client-ca.crt -H "Host: $host" "$public$path") == 404 ]]
+  done
+done
+[[ $(forged_status phone-a --cacert /fixture/client-ca.crt -H 'Content-Type: application/json' -d '{"password":"chronicle-smoke-only-password"}' \
+  "$public/chronicle/v3/auth/dashboard-login") == 404 ]]
+for path in /chronicle/ /chronicle/api/web/study /chronicle/v3/auth/dashboard-login; do
+  [[ $(forged_status forbidden --cacert /fixture/client-ca.crt "https://$TOPOLOGY_MANAGEMENT_ENDPOINT$path") == 403 ]]
+done
+# The pool admits only the load balancer's socket address, whatever the request claims.
+pool_forged=(-H "X-Forwarded-For: $TOPOLOGY_POOL_PREFIX.2" -H "X-Real-IP: $TOPOLOGY_POOL_PREFIX.2")
+for path in /health /chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/forged/android; do
+  [[ $(forged_status forbidden -k "${pool_forged[@]}" "https://$TOPOLOGY_POOL_ENDPOINT$path") == 403 ]]
+  forged_pool=$(forged_status phone-a -k "${pool_forged[@]}" "https://$TOPOLOGY_POOL_ENDPOINT$path")
+  [[ "$forged_pool" == 403 || "$forged_pool" == 000 ]]
+done
+# Positive control: an allowlisted researcher still reaches the dashboard while naming a forbidden address.
+[[ $(remote_curl phone-a -s --noproxy '*' --cacert /fixture/client-ca.crt --max-time 10 -o /dev/null -w '%{http_code}' \
+  -H "X-Forwarded-For: $TOPOLOGY_PEER_PREFIX.10" -H "X-Real-IP: $TOPOLOGY_PEER_PREFIX.10" "$management/chronicle/") == 200 ]]
+# A body over the ingress limit is rejected before the application sees a valid batch.
+clients exec -T phone-a python3 -c 'import sys; open("/fixture/oversized.json","w").write("["+" "*(int(sys.argv[1])-1)+"]")' "$TOPOLOGY_BODY_LIMIT"
 [[ $(remote_curl phone-a -s --cacert /fixture/client-ca.crt --max-time 30 -o /dev/null -w '%{http_code}' \
   -H 'Content-Type: application/json' --data-binary @/fixture/oversized.json "$public/chronicle/v4/study/x/upload") == 413 ]]
 rm "$TOPOLOGY_FIXTURE/client/oversized.json"
@@ -277,6 +307,37 @@ cp "$RUN/pki/valid-lb.pem" "$TOPOLOGY_FIXTURE/lb/lb.pem"
 clients restart lb
 sleep 3
 
+# Failed authentication exhausts the backend IP bucket; a distinct client retains its own quota.
+# Read the shipped policy rather than inventing a separate probe limit.
+identity_attempts=$(python3 - "$ROOT/chronicle-server/src/main/resources/rate-limit.yaml" <<'PY_LIMIT'
+import sys, yaml
+policy = yaml.safe_load(open(sys.argv[1]))
+print(int(policy['auth-requests-per-minute'] * policy['burst-capacity-multiplier']) + 1)
+PY_LIMIT
+)
+identity_path=/chronicle/v4/study/00000000-0000-0000-0000-000000000000/participant/identity-probe/android
+identity_options=(-sS --noproxy '*' --cacert /fixture/client-ca.crt --max-time 10
+  -H 'X-Forwarded-For: 198.51.100.66' -H 'X-Api-Key: topology-invalid-credential'
+  -H 'Content-Type: application/json' -d '[]' -o /dev/null -w '%{http_code}')
+# Execute the burst inside one client so Docker exec startup does not refill the bucket between requests.
+identity_a=$(clients exec -T phone-a bash -ceu '
+  attempts=$1; shift
+  for ((attempt=0; attempt<attempts; attempt++)); do
+    status=$(curl "$@")
+    [[ "$status" != 429 ]] || break
+    [[ "$status" == 401 ]]
+  done
+  printf %s "$status"
+' identity-probe "$identity_attempts" "${transport_options[@]}" "${identity_options[@]}" "$public$identity_path")
+[[ "$identity_a" == 429 ]]
+identity_b=$(remote_curl phone-b "${identity_options[@]}" "$public$identity_path")
+if [[ "${TOPOLOGY_FORWARD_CLIENT:-true}" == true || "${TOPOLOGY_SOURCE_PRESERVING:-false}" == true ]]; then
+  [[ "$identity_b" == 401 ]]
+else
+  [[ "$identity_b" == 429 ]]
+fi
+printf 'exhausted_client=%s peer=%s\n' "$identity_a" "$identity_b" >"$TOPOLOGY_FIXTURE/client/backend-identity.txt"
+
 # Exact readiness removes a pool even while the SPA still has healthy static assets.
 docker compose stop postgres
 sleep 8
@@ -284,7 +345,9 @@ sleep 8
 docker compose up -d --wait --wait-timeout 300 postgres
 sleep 8
 remote_curl phone-a --fail --cacert /fixture/client-ca.crt --max-time 10 "$public/health"
-# A rollback refusal must leave post-backup writes and ACLs in the live database.
+# An operator restore of an older backup carries post-backup protections forward in the continuity
+# checkpoint the server consumes at startup, and keeps narrowed ACLs. The rollback-only refusal of such
+# a backup runs against real Postgres in tests/selfhost-py/test_restore_schemas.py.
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$STACK" python3 - "$PROJECT" "$STACK" <<'PY_RESTORE'
 import os, subprocess, sys
 from pathlib import Path
@@ -302,22 +365,25 @@ digest = rollback_dump([*command, 'exec', '-T', 'postgres', '/bin/bash', '-ceu',
 postgres_sql(container, "UPDATE public.selfhost_restore_probe SET value = 'after-backup'; UPDATE public.participant_form_access_codes SET revoked_at = now() WHERE form_kind = 'ENROLLMENT' AND revoked_at IS NULL")
 result = subprocess.run(['./chronicle', 'restore', '--yes', '--no-start', '--trusted-sha256=' + digest,
                          '/backups/' + backup.name], text=True, capture_output=True)
-assert result.returncode == 1, result.stdout + result.stderr
-assert 'selected rollback backup predates' in result.stderr, result.stdout + result.stderr
-assert postgres_sql(container, 'SELECT value FROM public.selfhost_restore_probe') == 'after-backup'
+assert result.returncode == 0, result.stdout + result.stderr
+assert 'withdrawal and erasure continuity checkpoint captured' in result.stdout + result.stderr, result.stdout + result.stderr
+assert 'Startup remains blocked until the server consumes the continuity checkpoint' in result.stdout + result.stderr
+assert postgres_sql(container, 'SELECT value FROM public.selfhost_restore_probe') == 'before-backup'
 assert not (stack / '.chronicle-restore.lock').exists()
 assert digest == file_sha256(backup)
 os.environ['CHRONICLE_OPS_PROJECT'] = project
-verify_database_privileges()
-print('PASS rollback continuity refusal preserves live writes and database ACLs')
+privileges_status, privileges_message = verify_database_privileges()
+assert privileges_status == 0, privileges_message
+print('PASS older-backup restore captures continuity for startup and keeps database ACLs')
 subprocess.run([*command, 'stop', 'backend', 'web', 'db-init', 'db-backup'], check=True)
 fresh = backup.with_name('restore-acl-fixture.sql.gz')
 fresh_digest = rollback_dump([*command, 'exec', '-T', 'postgres', '/bin/bash', '-ceu', ROLLBACK_DUMP], fresh)
 result = subprocess.run(['./chronicle', 'restore', '--yes', '--no-start', '--trusted-sha256=' + fresh_digest,
                          '/backups/' + fresh.name], text=True, capture_output=True)
 assert result.returncode == 0, result.stdout + result.stderr
-assert postgres_sql(container, 'SELECT value FROM public.selfhost_restore_probe') == 'after-backup'
-verify_database_privileges()
+assert postgres_sql(container, 'SELECT value FROM public.selfhost_restore_probe') == 'before-backup'
+privileges_status, privileges_message = verify_database_privileges()
+assert privileges_status == 0, privileges_message
 print('PASS successful restore retains narrowed ACLs despite broad creation defaults')
 PY_RESTORE
 printf 'PASS off-host strict TLS, sessions, enrollment, uploads, ACLs, forged headers, concurrent readiness and pool removal; evidence %s\n' "$RUN"

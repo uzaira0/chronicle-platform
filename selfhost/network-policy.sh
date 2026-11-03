@@ -105,3 +105,19 @@ loopback_networks() {
     fi
   done
 }
+
+# Direct listeners have no proxy asserting identity. A remote LB must be named explicitly;
+# the loopback listener alone can safely use Docker's host gateway as its proxy source.
+trusted_proxy_sources() {
+  local mode="$1" bind="$2" gateway="$3" configured="$4"
+  if [[ "$mode" != behind-proxy ]]; then
+    printf '%s\n' '127.0.0.1/32'
+  elif [[ "$bind" == 127.* || "$bind" == ::1 ]]; then
+    printf '%s\n' "${configured:-$gateway/32}"
+  elif [[ -n "$configured" && "$configured" != "$gateway/32" ]] &&
+      ! loopback_networks "$configured" && validate_dashboard_networks "$configured"; then
+    printf '%s\n' "$configured"
+  else
+    return 1
+  fi
+}

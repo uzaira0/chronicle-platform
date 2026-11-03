@@ -13,9 +13,22 @@
 # What makes this mode different from own-tls: nobody issues the certificate. Caddy runs a
 # small CA inside this container, mints a certificate for {$DOMAIN} -- which here is this
 # machine's LAN address, e.g. 192.168.1.50 -- and signs it with a root that lives in the
-# caddy_data volume. Devices reject it until that root is installed on them, which is what
-# the /local-ca.crt route below is for.
+# caddy_data volume. Browsers reject it until that root is installed on the device, which is
+# what the /local-ca.crt route below is for. The apps instead receive the root in the
+# invitation link (see the :8081 block) and trust it for this server only.
 import snippets.caddy
+
+# The path is Caddy's own PKI storage inside the caddy_data volume, so it is always the root
+# currently in use rather than a copy that can go stale.
+(local_ca_download) {
+	handle /local-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition "attachment; filename=chronicle-local-ca.crt"
+		file_server
+	}
+}
 
 {
 	import chronicle_default_log
@@ -84,16 +97,7 @@ http://{$DOMAIN} {
 	# instead would be circular -- the device cannot trust that listener until it has this
 	# file. Anyone on the LAN who could tamper with this response could equally serve their
 	# own CA from their own machine, so it grants them nothing new.
-	#
-	# The path is Caddy's own PKI storage inside the caddy_data volume, so it is always the
-	# root currently in use rather than a copy that can go stale.
-	handle /local-ca.crt {
-		root * /data/caddy/pki/authorities/local
-		rewrite * /root.crt
-		header Content-Type application/x-x509-ca-cert
-		header Content-Disposition "attachment; filename=chronicle-local-ca.crt"
-		file_server
-	}
+	import local_ca_download
 
 	handle {
 		redir {$CHRONICLE_PUBLIC_BASE_URL}{uri} permanent
@@ -110,6 +114,9 @@ http://{$DOMAIN} {
 	tls /etc/caddy/certs/internal-cert.pem /etc/caddy/certs/internal-key.pem
 
 	import chronicle_common
+	# The dashboard reads the root here (same origin) and puts it in each invitation link;
+	# the apps then trust this server's certificate without a CA profile on the phone.
+	import local_ca_download
 
 	route {
 		import chronicle_health

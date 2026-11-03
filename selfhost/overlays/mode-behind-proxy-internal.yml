@@ -20,7 +20,7 @@ services:
 
   web:
     ports:
-      - target: 80
+      - target: 8080
         published: "${HTTP_PORT:-8080}"
         host_ip: "${HTTP_BIND:-127.0.0.1}"
         protocol: tcp
@@ -29,5 +29,5 @@ services:
         host_ip: "${INTERNAL_BIND:-127.0.0.1}"
         protocol: tcp
     volumes:
-      - ./Caddyfile.split:/etc/caddy/Caddyfile:ro
-      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro"
+      - ./Caddyfile.split:/etc/caddy/Caddyfile:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"

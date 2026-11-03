@@ -3,14 +3,15 @@
 #
 # This is the mode for finding out whether Chronicle suits you before anyone buys a
 # hostname. It is a TRIAL mode, not a deployment mode: the certificate is signed by a CA
-# that exists only inside this stack, so every device that talks to it has to install that
-# CA first. That is fine for your own test phones and wrong for participants.
+# that exists only inside this stack. The apps receive that CA in the invitation link and
+# trust it for this server only; a browser warns until the CA is installed on the device.
+# That is fine for your own test phones and wrong for participants.
 #
 # Set DOMAIN to this machine's address on the wifi, e.g. DOMAIN=192.168.1.50. Not
 # `localhost` — a phone cannot reach that. `./chronicle setup` also chooses free host
 # ports and writes the exact participant-facing HTTPS origin. Then:
 #
-#   ./chronicle up                   # scan the QR code printed after services are healthy
+#   ./chronicle up                   # optional CA-install QR is printed once services are healthy
 #
 # For a real deployment, rerun `./chronicle setup`, choose option 1 or 2, and enter the
 # public hostname and TLS choice. Setup replaces this LAN DOMAIN and COMPOSE_FILE, clears
@@ -30,11 +31,12 @@ services:
 
   web:
     environment:
-      # This listener accepts direct clients, including connections relayed by Docker.
-      CADDY_TRUSTED_PROXIES: "127.0.0.1/32"
       # Production modes reject private participant origins. This trial-only flag lets the
       # dashboard issue links for the operator-owned LAN devices this overlay is designed for.
       CHRONICLE_ALLOW_PRIVATE_ENROLLMENT_ORIGIN: "true"
+      # The dashboard adds this stack's CA root to each invitation link, so the apps trust
+      # the trial certificate for this server only, without a CA profile on the phone.
+      CHRONICLE_LOCAL_CA: "true"
     # Prefer 443/80, but setup can select other free host ports when a VPN or management
     # service already owns them. Caddy still listens on its standard container ports.
     ports:
@@ -45,8 +47,8 @@ services:
         host_ip: "${INTERNAL_BIND:-127.0.0.1}"
         protocol: tcp
     volumes:
-      - ./Caddyfile.split.local:/etc/caddy/Caddyfile:ro
-      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro"
+      - ./Caddyfile.split.local:/etc/caddy/Caddyfile:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"
 
   # Prints the CA-install QR code, and drops a copy of the CA next to the compose file for
   # the researcher's own laptop. Only exists in this mode; every other mode uses a
@@ -66,8 +68,8 @@ services:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env to this machine's LAN address}
       LOCAL_HTTP_PORT: ${LOCAL_HTTP_PORT:-80}
     volumes:
-      - .:/selfhost:ro
-      - "${CHRONICLE_STATE_DIR:-.}/tls:/out"
+      - .:/selfhost:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/out:z"
       - caddy_data:/data:ro
     security_opt:
       - no-new-privileges:true

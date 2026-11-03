@@ -8,7 +8,7 @@ services:
       TOPOLOGY_POOL_ADDRESS: ${TOPOLOGY_POOL_PREFIX:?}.2
       TOPOLOGY_POOL_ENDPOINT: ${TOPOLOGY_POOL_ENDPOINT:?}
       TOPOLOGY_MANAGEMENT_ENDPOINT: ${TOPOLOGY_MANAGEMENT_ENDPOINT:?}
-      TOPOLOGY_BODY_LIMIT: ${TOPOLOGY_BODY_LIMIT:-10485760}
+      TOPOLOGY_BODY_LIMIT: ${TOPOLOGY_BODY_LIMIT:-67108864}
       TOPOLOGY_IDLE_TIMEOUT: ${TOPOLOGY_IDLE_TIMEOUT:-300s}
       TOPOLOGY_FORWARD_CLIENT: ${TOPOLOGY_FORWARD_CLIENT:-true}
       TOPOLOGY_REWRITE_HOST: ${TOPOLOGY_REWRITE_HOST:-${TOPOLOGY_PUBLIC_HOST:?}}
@@ -42,7 +42,10 @@ services:
       vpn: {ipv4_address: "${TOPOLOGY_VPN_PREFIX:?}.10"}
     volumes:
       - ${TOPOLOGY_FIXTURE:?}/client:/fixture
-      - ./selfhost-client.py:/selfhost-client.py:ro
+      # Repo layout: the client reads generated/upload-limits.json and imports selfhost/chronicle_ops.
+      - ./selfhost-client.py:/repo/tests/deployment/selfhost-client.py:ro
+      - ../../generated/upload-limits.json:/repo/generated/upload-limits.json:ro
+      - ../../selfhost/chronicle_ops:/repo/selfhost/chronicle_ops:ro
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

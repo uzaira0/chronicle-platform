@@ -9,6 +9,9 @@ fileExistenceTests:
   - name: source attribution
     path: /usr/share/doc/chronicle/SOURCE-CODE
     shouldExist: true
+  - name: web asset license
+    path: /usr/share/doc/chronicle/LICENSE-chronicle-web
+    shouldExist: true
 commandTests:
   - name: required rate limiter was compiled
     command: caddy

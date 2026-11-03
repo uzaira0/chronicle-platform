@@ -4,7 +4,7 @@
 # reachable from inside your network while participant phones keep uploading from the
 # public internet.
 #
-#   :80   PUBLIC   — mobile ingest, participant forms, static SPA.
+#   :8080 PUBLIC   — mobile ingest, participant forms, static SPA (the load balancer pool).
 #   :8081 INTERNAL — the above PLUS the researcher dashboard API.
 #
 # The boundary is which port the request arrived on, not the client IP, so it keeps working
@@ -13,11 +13,12 @@
 # The static SPA is public on purpose: participants open /chronicle/survey,
 # /chronicle/questionnaire and /chronicle/time-use-diary on their own phones, and those ship
 # in the SAME bundle as the researcher screens (src/modern/app/router.tsx). With the
-# dashboard API absent from :80 the researcher screens load and can fetch nothing. The
+# dashboard API absent from :8080 the researcher screens load and can fetch nothing. The
 # boundary is the API, not the assets.
 #
-# To also terminate TLS on the public listener, add `import chronicle_tls` to the :80 block
-# and change its address to https://{$DOMAIN} (see Caddyfile.tls).
+# POOL_LISTENER_TLS=true serves :8080 with the internal certificate, so the hop from the load
+# balancer is encrypted too; the load balancer trusts ./tls/internal-ca.crt. Not :80: Caddy
+# refuses TLS on its HTTP port.
 import snippets.caddy
 
 {
@@ -39,7 +40,8 @@ import snippets.caddy
 # ---------------------------------------------------------------------------
 # PUBLIC — reachable from the internet through your proxy.
 # ---------------------------------------------------------------------------
-:80 {
+:8080 {
+	import chronicle_pool_tls_{$POOL_LISTENER_TLS:false}
 	import chronicle_common
 
 	route {

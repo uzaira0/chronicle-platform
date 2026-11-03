@@ -7,13 +7,33 @@
 #
 # Pinned by digest and version so a rebuild cannot silently pull a different plugin.
 
-FROM caddy:2.11.7-builder-alpine@sha256:aa705b1e8e4bce41a7a30de934c1e00f6821667c1d1206424465065c92cb7674 AS builder
+# The serving tree comes from the frontend image this release just built. Every builder binds it:
+# --build-context chronicle-selfhost-frontend:release=docker-image://<frontend tag or digest>.
+# Unbound, the build fails: no such image exists in a registry.
+FROM chronicle-selfhost-frontend:release AS frontend
+
+FROM caddy:2.11.7-builder-alpine@sha256:bb53bc0dd94d5e93eca88bac50e435fd5f9dc6cc828fc6140086f282fb329e92 AS builder
 
 # golang.org/x/net raised past Caddy 2.11.7's v0.59.0 for a fixed HIGH advisory
 # (trivy gate in scripts/publish-images.sh). Drop the replace once Caddy's go.mod reaches it.
 RUN xcaddy build v2.11.7 \
     --with github.com/mholt/caddy-ratelimit@v0.1.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.60.0
+
+# The binary links BSD- and MIT-licensed Go modules whose notices must ship with it. Copy the
+# license files of every module the binary records (after replacements) from the module cache;
+# a module without one fails the build. Cache paths escape capitals as "!" plus lowercase.
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+RUN cache="$(go env GOMODCACHE)" && \
+    go version -m /usr/bin/caddy | \
+    awk '$1 == "dep" { module[++n] = $2 "@" $3 } $1 == "=>" { module[n] = $2 "@" $3 } END { for (i = 1; i <= n; i++) print module[i] }' | \
+    while IFS= read -r module; do \
+      escaped="$(printf '%s' "$module" | awk '{ for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); printf "%s", (c ~ /[A-Z]/ ? "!" tolower(c) : c) } }')"; \
+      mkdir -p "/licenses/$module"; \
+      find "$cache/$escaped" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' -o -iname 'patents*' \) \
+        -exec cp {} "/licenses/$module/" \; ; \
+      [ -n "$(ls -A "/licenses/$module")" ] || { echo "FATAL: no license file for $module" >&2; exit 1; }; \
+    done
 
 FROM caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
 
@@ -22,6 +42,7 @@ ARG SOURCE_REF=unknown
 USER root
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+COPY --from=builder /licenses /usr/share/licenses/caddy-modules
 COPY LICENSE /usr/share/doc/chronicle/LICENSE
 
 # qrencode is for the local-https mode only: the participant's phone has to install this
@@ -43,6 +64,8 @@ RUN caddy list-modules | grep -q '^http.handlers.rate_limit$' \
 # The long-lived edge process is not the container's init user. Named volumes inherit this
 # ownership on first creation; caddy-storage-init repairs existing volumes during upgrades.
 RUN mkdir -p /data /config && chown -R 10001:0 /data /config
+COPY --from=frontend /dist /srv
+COPY --from=frontend /usr/share/doc/chronicle/LICENSE-chronicle-web /usr/share/doc/chronicle/LICENSE-chronicle-web
 USER 10001:0
 
 # Compose overrides this with readiness checks for each listener configuration.

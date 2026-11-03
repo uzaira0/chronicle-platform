@@ -1,14 +1,11 @@
 # Split exposure AND this stack terminates TLS.
 #
-# Selected automatically by `./chronicle up` when .env has
-#   TLS_MODE=own-tls
-#   DASHBOARD_EXPOSURE=internal
+# Mounted by overlays/mode-own-tls-internal.yml, which COMPOSE_FILE in .env selects.
 #
 #   :443  PUBLIC   — mobile ingest, participant forms, static SPA (HTTPS, your cert)
 #   :80   PUBLIC   — redirects to HTTPS
-#   :8081 INTERNAL — the above PLUS the researcher dashboard API (plain HTTP on your
-#                    VPN/management interface; put TLS in front of it if that interface
-#                    is not already trusted)
+#   :8081 INTERNAL — the above PLUS the researcher dashboard API (HTTPS with the internal
+#                    certificate, on your VPN/management interface)
 #
 # Routes come from caddy/snippets.caddy, identical to every other variant.
 
