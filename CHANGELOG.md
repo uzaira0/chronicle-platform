@@ -5,7 +5,241 @@ matching the `chronicle-selfhost-<version>` bundle, its image tags, and `./chron
 One bundle per calendar day: a same-day suffix such as `-2` is a semver prerelease and
 would sort below the day's release, so `./chronicle update` would refuse it.
 
-## [Unreleased]
+## [2026.11.2]
+
+Reset release: install fresh. Server, dashboard and self-host bundle; Android open flavor
+(versionCode 81) on Play internal and closed testing. Includes the 2026.10.23 notes below,
+which were prepared but never published.
+
+### Removed
+
+- Asynchronous study export jobs, stored export files, download tokens, the export-completed webhook and the Excel (xlsx) format. Participant data downloads stream straight to the browser as CSV (dashboard) or CSV/JSON (API), one data type per download, for the participants you select.
+- Self-host: the export storage volume, its `CHRONICLE_EXPORT_MIN_FREE_BYTES` setting, the export probe metric, dashboard panels and alert. An upgraded `.env` may keep that line; nothing reads it. An earlier install's `export_data` volume is no longer mounted; the export files in it stay until the operator removes the volume, so treat them as downloaded exports for retention.
+- The study "Enable daily notifications" setting, and the "on disable" choice for a module that is turned off.
+- The `collected_at` column of the usage export.
+
+### Changed
+
+- Spanish for the Android app (first time) and the web pages, from BAND's translation review. Text added or reworded after that review is drafted in BAND's wording and listed in `docs/i18n-provenance-es.tsv`; the consent, Usage Access and privacy-policy drafts are marked for BAND's review. A Spanish-language device or browser shows Spanish; any missing line falls back to English.
+- Download dates are days in the study time zone, and the download dialog names the zone. New studies default to the researcher's time zone.
+- Daily app-usage survey: days are calendar days in the study time zone, answerable once they have ended. The first day starts at enrollment; use across midnight counts on both days; apps used for 1 minute or more are listed. A date picker marks each day unanswered, answered or with new apps. Late uploads reopen only their own day, and only for the new apps. "I don't know" answers and days with nothing to review are stored. The export has one row per day, app and block, with `survey_date` and `answer_lag_seconds`.
+- The survey runs only for shared devices: in studies with User Identification turned on, on phones whose shared-device switch is on. Reminders fire at 12:00 and 19:00 in the study time zone until every ended day is answered. A reminder missed while the phone was off is not posted late; the next one covers it.
+- Paused, completed and archived participants can still answer the days they were enrolled. An answered day returns "already answered" instead of a server error.
+- Withdrawal, declining a required data type and Mark not enrolled clear everything waiting to upload on the phone and stop collection at once. Data already on the server stays.
+- After a pause, completion, archive or processing block, the phone uploads every row captured before it, whatever the phone's clock, and drops rows captured during it. Every upload, not only the periodic sync, checks the study status with the server first; a failed check retries.
+- The phone measures the server's clock on every status check, after boot and after a manual clock change. Invitation expiry and the enrollment replay window are judged by the server, not the phone or browser clock.
+- Cancelling a pending enrollment ends that attempt only: its key and binding are revoked and the participant is never withdrawn. The phone clears what it queued, says the study team cancelled it, and accepts a new invitation.
+- Each enrollment draws its own random device ID. Enrolling after a local data recovery no longer fails.
+- Consent survives study settings edits; only turning a data type off and on again asks the participant again. Turning a data type off uploads what the phone already collected. Upload authorization uses the settings version and a per-device decision number, never a clock.
+- Optional fields the participant did not consent to are removed from usage events instead of holding the event.
+- Usage is labelled only by an answer given in the same screen session; a clock change no longer lets an older answer win.
+- The Android device-user choices and their stored, uploaded and exported values are now "Study participant" and "Someone else" (were "Target child" and "Other"). A phone holding an older value shows and uploads the new one from its next read; rows already queued keep the value they were captured with.
+- Sensor availability reports every sensor the device has as one list; the separate unavailable list is gone.
+- A request-level upload error keeps rows queued; only a defective row is set aside. Battery uploads report per-row receipts, and refused rows are not sent again.
+- Diagnostics uploads no longer count as the device's last upload. Unknown diagnostic codes are kept as "unrecognized" instead of being refused.
+- The QR dialog shows the link already sent; a new link is issued only by "Replace the sent link".
+- The Participants page shows when a participant declined a required data type (collection stopped) or still has data types to review.
+- The Change enrollment dialog explains Mark not enrolled before you confirm: the phone stops collecting and deletes data it has not uploaded yet; data already on the server stays. Pause stops only for a while.
+- The privacy policy, the Usage Access disclosure, the App Usage Events consent and the Play Data Safety text name every Android usage event Chronicle records.
+- The Android sensor export gains an `uploaded_at` column (server receipt time), like the other exports.
+- API: `PATCH .../participant/{pid}/status` and `POST`/`DELETE .../participant/{pid}/processing-block` require `If-Match: "<statusRevision>"`; `POST /study/{id}/archive` and `/unarchive` require `If-Match` with the study ETag (428 when missing, 412 when stale). Participants carry `statusRevision`; archive and restore advance the study ETag.
+
+### Fixed
+
+- Self-host: `doctor`, `verify` and the disk-pressure alert apply one disk rule: under 15% free is a warning; only free space below `MIN_FREE_DISK_GIB` on the state, Docker data or database filesystem, where `./chronicle up` refuses to start, fails. `doctor` still shows free space when Docker is down, and reports a filesystem whose capacity cannot be read instead of failing.
+- Self-host: re-running setup on a host behind an off-host load balancer turns pool listener TLS back on, unless a reviewed `POOL_PLAINTEXT_WAIVER` is kept. Before, `check` and `up` then failed.
+- Self-host: `up` records the applied certificates as soon as services are healthy. A public origin that is not reachable yet no longer makes every 15-minute reconcile recreate the whole stack.
+- Self-host: restoring to a fresh database volume creates the pgcrypto extension first, so participant block tokens work after recovery. The scheduled backup self-check fails when a restore would lack an extension.
+- Self-host: `./chronicle restore --recover` releases a restore that was interrupted before it changed the database, and restarts the services. It also resumes a proven committed restore after a startup failure. Recover and rollback decide restore phases by the same rule.
+- Self-host: a manual rollback states the dump's creation time and age, and says that data written since then is discarded.
+- Self-host: a restore copies and rechecks the confirmed dump under the restore lock before stopping services, then restores that private copy. `--no-start` only leaves services stopped; manual and automatic update rollback run the rollback continuity proof.
+- Self-host: `verify` fails a rate-limited (HTTP 429) check as unproven and names the retry wait and command to rerun. Retry-After seconds and HTTP dates are supported; an absent or invalid header asks the operator to wait for the rate-limit window.
+- Self-host: `doctor` accepts VictoriaMetrics timestamps with any fraction width on Python 3.9 (RHEL 9).
+- Self-host: an interrupted setup no longer leaves `.chronicle-upgrade.lock` behind. Update, rollback and restore create their in-progress marker only together with its recovery record, and an empty marker left by an earlier release is cleared by the next command that holds the operation lock, so no marker ever has to be deleted by hand.
+- Self-host: `up`, `setup`, `update`, `restore`, `rotate-secret` and `doctor` print the exact recovery command for an incomplete operation.
+- Self-host: backup verification, `doctor` and the stale-backup alert follow `BACKUP_SCHEDULE`: a backup is overdue after the schedule's longest gap between runs plus 12 hours (36 hours for the default daily schedule), measured in the schedule's time zone. Every schedule the backup sidecar runs is accepted, including cron lines such as `0 3 * * 1-5`; `./chronicle check` and `up` refuse one it would reject or never run (for example `0 3 30 2 *`), which previously left backups silently stopped.
+- Self-host: setup says that a backup retention of 0 keeps only the newest backup of each kind.
+- Server: upload compliance uses the time the server received research data, so a phone that catches up after being offline is not flagged.
+- Dashboard: changing a participant's status, blocking or unblocking processing, or archiving or restoring a study from a stale tab or a retried request no longer undoes a newer change; the dashboard says the item changed and reloads it. Archive and Restore stay disabled until the study has loaded, and repeating a change already in force records nothing new.
+- Server: each participation status change is audited once, with the old and new status.
+- Server: a participant who cancels enrollment before the app finished setting up gets an immediate confirmation, and the cancelled attempt can no longer complete afterwards.
+- Server: Leave study from a phone whose pending enrollment the study team cancelled, and an enrollment that races a dashboard cancel, are answered as "enrollment cancelled" like every other request from that phone.
+- Server: a cancelled enrollment attempt no longer adds survey days before the real enrollment.
+- Android: a pause the phone learns of from the survey-reminder check no longer races the status check; rows captured during the pause stay on the phone until the pause is applied, and are then dropped.
+- Android: Leave study on a phone whose pending enrollment the study team cancelled ends that enrollment as cancelled and accepts a new invitation, instead of asking the participant to contact study support.
+- Server: participant stats recalculation skips rows whose time zone the database does not know, so one such row no longer stops the stats of its study or of later studies. Unknown time zones are stored as sent.
+- Server: a consent decision sent after a pause or completion is accepted whenever uploads are; after withdrawal or Mark not enrolled it is refused. A retried consent decision is stored once, a refused one no longer blocks later decisions, and settings syncs no longer record decisions the participant did not make.
+- Server and Android: Guava updated to 33.7.2 (CVE-2026-102554, out-of-memory when reading crafted serialized collections), including the build tools.
+- Dashboard: qs updated to 6.16.1 (CVE-2026-110816).
+- Android: leaving the Chronicle app no longer records a "Low Memory" event; Low Memory now means the phone was short of memory (Android 14 and later do not report this, so those phones record none).
+- Android: battery state is recorded as charging whenever the phone is plugged in, and is not recorded when Android does not report it, instead of showing "Battery Discharging". No more duplicate or phantom Charging/Discharging rows.
+- Android: if the participant turns off "Alarms & reminders", survey reminders are re-armed the next time Chronicle starts, even offline, and may arrive a few minutes late instead of not at all. Android 8-11 reminders are exact.
+- Android: a survey reminder is not shown twice for the same scheduled time. Reminders appear even while research storage is unavailable, and a reminder tapped before the app is ready stays and can be tried again.
+- Android: after a study is paused and resumed, the "who is using the phone" prompts come back without opening Chronicle; when collection is marked completed, the ongoing monitoring notification goes away at once. The shared-device prompt survives storage blips.
+- Android: turning off the in-app screen or device-user fields no longer removes them from usage recorded before the change; usage recorded after the change never carries them, even if the phone clock was changed meanwhile.
+- Android: app names show in usage data on the Play build.
+- Android: battery and diagnostic times sort in time order.
+- Android: every enrollment recovery screen has a Try again button and retries when you return to it.
+- Server: a required data type a participant declined stays declined when the researcher edits that data type's settings; collection stays stopped for that participant until they accept, and disabling the data type still clears the decline.
+- Server: a participant who re-enrolls on a new phone or after a local reset is governed by their latest decision, so accepting everything on the new enrollment reopens surveys.
+- Server: the phone settings endpoint no longer fails when stored settings and the settings history disagree; affected data types ask the participant to consent again and the server logs a warning.
+- Server: survey code issuance and code exchange no longer deadlock against each other.
+- Android: data captured while collection is paused is never uploaded, including Health Connect, app network usage and sleep records read after the pause ends.
+- Android: stopping collection can no longer land between saving Health Connect records and marking them read, and two background jobs no longer cancel each other's Health Connect read.
+- Android: turning Battery Saver on or off records one transition instead of two.
+- Android: an enrollment the server rejected, or answered with another credential, ends cleanly so the participant can enter a new invitation on the same phone.
+- Android: cancelling an enrollment whose outcome is unknown waits until the server answers or the replay window closes.
+- Android: tapping a survey reminder twice opens one form with one working code; the request survives rotation and a failure to open is shown.
+- Android: module review, consent-wizard progress, invitation verification, identification save and local-recovery completion survive screen rotation; stale policy reviews are rejected.
+- Android: consent bullet points translate one by one, falling back to English per line.
+- JSON downloads keep exact participant identifiers and text; spreadsheet formula neutralisation applies to CSV output only.
+- Restore recovery tolerates reused process IDs while keeping the exclusive-operation and database safety checks.
+- Scheduled reconciliation and update checks use the saved Compose project when recording outcomes and update warnings.
+- Trial setup rejects IPv6 listener addresses before publishing settings that need an IPv4 phone origin.
+- Release-download and image-pull deadlines can be extended with one validated setting (`CHRONICLE_TRANSFER_TIMEOUT_SECONDS`); the 600-second default is unchanged.
+- Dashboard CA replacement and certificate-renewal instructions follow the relocated state directory after release updates.
+- The pilot data guide describes the streamed downloads, every pilot dataset including the app-usage survey, labelled App Usage rows versus supplemental lifecycle rows, and the optional date bounds. The uninstall guide says the server keeps no export files.
+- Unsaved study settings survive lifecycle actions and background refreshes; the Create study draft survives a catalog refresh, and the empty catalog opens the same editor.
+- Reload and navigation warnings stay active for unsaved study and participant-note drafts while the dashboard is locked.
+- Participant notes and tags are read-only while their save is pending.
+- Clipboard copy failures are announced and point to copying the shown text by hand.
+- Participants' Last upload reflects committed usage, battery and sensor-availability receipts; enrollment, diagnostics and delayed processing no longer invent recent uploads.
+- Dashboard "Download data" sends the dashboard origin instead of a null origin and no longer returns 403.
+- Valid dashboard sessions never consume or hit login quotas; failed sign-ins keep their limits.
+- Downloads accept independently optional date bounds; download dates start blank.
+- Authenticated dashboard and phone requests bypass endpoint quotas after credential validation.
+- Study creation and editing preserve long titles, descriptions, groups and versions.
+- Participant registration rejects `.` and `..` while preserving other dotted IDs.
+- Fresh-host configuration checks use Docker Compose's parser without requiring host yq.
+- `./chronicle backup` takes and verifies a backup under deployment ownership and operation-lock checks.
+- Fresh-host recovery instructions restore the original token key before the first migration.
+- `./chronicle restore --no-start` stops every application writer and preserves the stop marker.
+- Doctor checks the same disk-byte and inode reserves that gate startup.
+- Incident collection follows the configured state directory after release updates and reports missing receipts.
+- Remote-load-balancer guidance requires explicit source CIDRs, including when client forwarding headers are unavailable.
+- Play build guidance lists supported collectors and the manual battery-optimization grant flow.
+- Edge quotas cover login, enrollment, credential exchange and public entry pages; authenticated phone and dashboard data requests rely on backend authentication checks without an edge quota.
+- Backup, restore and update startup waits accept operator-selected positive seconds above the unchanged 3600-second default; backup readiness avoids shell deadline overflow.
+- The monitoring release runbook uses supported in-place updates and guarded rollback.
+- Monitoring notification guidance uses the preserved webhook setting without modifying signed provisioning files.
+- Backup guidance explains pre-backup safety-dump pruning, including when the following backup fails.
+- Restore guidance requires a Chronicle-stamped post-reset dump in addition to a reviewed digest.
+- Installation requirements include Python, curl, OpenSSL, SSH signature support and Compose 2.17 or newer.
+- Monitoring guidance explains that a missing alert destination fails doctor and scheduled reconciliation.
+- Quick start identifies required retention choices, storage-encryption evidence and the shared password login.
+- The operations index lists supported secret rotation and per-device phone credentials.
+- Phones collect lifecycle broadcasts and restore survey alarms after reboot whether or not identification is allowed.
+- Settings shows survey-notification, battery-optimization and background-start status after the prompts are dismissed.
+- Interrupted enrollment acknowledgments replay after a restart; enrollment progress survives screen rotation. If the study changes during consent, the phone asks the participant to open the link again.
+- App-usage survey exports record the submission instant, not the previous day in Santiago.
+- Survey app lists include ongoing foreground use; surveys show their date and keep answers locked while submitting.
+- Usage exports include client_event_id; Santiago skipped-midnight download bounds keep the right day.
+- Study editing blocks edits while saving and keeps disabled-module cadence.
+- Participants page has an explicit refresh for upload statistics, devices and consent.
+- The API spec drops the removed export routes.
+
+### Prepared as 2026.10.23 (never published)
+
+### Breaking
+
+- Full reset. 2026.10.9 and earlier need a fresh installation and a fresh enrollment of every
+  phone; backups taken before the reset cannot be restored. From this release on,
+  `./chronicle update` upgrades in place.
+- Erasure runs only when a researcher or operator presses **Erase now**. No timer, quarantine
+  period or retention hold remains.
+- Phone-side payload encryption is removed.
+- Phones need Android build 79 or later. Earlier builds cannot enroll against this server and
+  their usage uploads are refused (no client event ID, no upload receipt). Update test phones
+  from Play internal testing before they enroll.
+
+### Changes
+
+- `.env` no longer carries `SMTP_*` or `DASHBOARD_USER`: nothing read them. The backend
+  entrypoint no longer accepts `OIDC_*`, `VAULT_*` or `HAZELCAST_*_PASSWORD`; OIDC and Vault
+  stay disabled. The web container no longer receives the dashboard password hash.
+- The backup sidecar's readiness probe reaches the backend over HTTPS and verifies its certificate.
+- `./chronicle help COMMAND` prints that command's usage. `rotate-secret` help lists the real
+  forms; it no longer accepts an action argument.
+- config-guard also checks `BACKEND_XMS`, and its failure footer points at `./chronicle up`.
+- `POSTGRES_STATEMENT_TIMEOUT`, `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT` and `POSTGRES_LOCK_TIMEOUT`
+  are now `POSTGRES_STATEMENT_TIMEOUT_MS`, `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` and
+  `POSTGRES_LOCK_TIMEOUT_MS`; values and defaults are unchanged.
+- The operational probe omits a database, storage or certificate sample it could not measure
+  instead of reporting 0; `chronicle_database_up` and the storage alerts' no-data state report it.
+- The Caddy image ships the license files of every Go module it links.
+- `POOL_LISTENER_TLS=true` now reaches Caddy. Before, the pool listener behind a load balancer
+  served plain HTTP whatever the setting said.
+- A usage event whose text fields are too large to index (over 2048 bytes together) is discarded
+  and counted on upload. Before, one such event stopped the move to event storage for every study.
+- Behind a proxy, a pool listener bound off loopback must serve TLS (`POOL_LISTENER_TLS=true`,
+  set by setup) or name an approved `POOL_PLAINTEXT_WAIVER`; config-guard refuses plain HTTP
+  otherwise. The listener moved to container port 8080; the host port is unchanged. Caddy
+  reaches the backend over HTTPS on 8443 and verifies its certificate.
+- Restore refuses a dump without the release header (a pre-reset backup: fresh install
+  required) or one that carries server-access statements (`COPY ... PROGRAM`, `lo_import`,
+  `pg_read_file` and similar), before it changes anything.
+  Withdrawal containment after restore runs from one SQL file.
+- config-guard names the variable when an export limit, `MIN_FREE_DISK_GIB`, `BACKUP_KEEP_*` or
+  `BACKEND_XMX` is malformed, and refuses `REQUIRE_MFA=true` with the internal password login.
+  `REQUIRE_MFA` now defaults to false, as `.env.example` says.
+- Rotating the dashboard password ends every dashboard session issued before it.
+- A failed backup no longer leaves the previous success marker behind; the backup image refuses
+  non-numeric retention ages.
+- PostgreSQL error logs omit the failing statement and its detail lines.
+- PostgreSQL image 18.6.1-4 (expat, gnutls and Python fixes); the backup image no longer patches
+  them itself.
+- `./chronicle doctor` and `verify` report whether the database volume sits on encrypted storage.
+  `check` and `up` warn when monitoring alerts reach no one and when the log queue can outgrow
+  host memory. Monitoring refuses release images that are not digest-pinned.
+- New alert: background tasks failing, by task. The permission-change alert now covers
+  role-membership changes and user deletion under `/chronicle/principal`.
+- The server no longer has the dashboard, role, token-revocation or token-refresh endpoints,
+  the mail stack, the open-redirect filter, `Organization.settings`, or the unused
+  `organization_members`, `organization_quotas` and `refresh_tokens` tables. Row-level security
+  policies evaluate their helpers once per statement. A usage event whose phone did not report a
+  collection time is stored with `collected_at` NULL instead of the upload time.
+- Upload diagnostics no longer accept the six issue codes the Android app stopped sending
+  (`SENSOR_SAMPLE_QUARANTINED`, `SENSOR_DEAD_LETTER_DROPPED`, `SENSOR_AGE_EXPIRED`,
+  `SENSOR_CAPACITY_DROPPED`, `USAGE_QUEUE_EVICTED`, `DISTRIBUTION_POLICY_ERASED`).
+- The Application dashboard shows browser errors by kind; the backend scrape now keeps
+  `chronicle_browser_errors_total` and `chronicle_api_key_usage_total`.
+- Bind mounts carry `:z` for SELinux-enforcing Docker daemons.
+- Docs: internal dashboard CA rotation, consent and withdrawal evidence purge; exports, webhook
+  deliveries, finished jobs and study events are kept until explicitly deleted.
+- Local CI: the fast group runs the Android unit job, which lints the open release variant. A
+  native rule forbids Room `fallbackToDestructiveMigration*`. Semgrep also scans chronicle-models,
+  rhizome and rhizome-client; the detekt baseline drops entries that no longer fire.
+- Setup removes the generation date when legacy mobile signing is disabled.
+- Setup preflight rejects invalid encryption flags and secret generation dates.
+- The server warns about malformed secret age metadata and keeps running.
+- Certificate and TDE initializers recover generation receipts after failed writes.
+- New generation receipts update secret age while preserving newer rotation dates.
+- Local CI includes rotation integration tests and runs each selected job once.
+- The edge answers 413 to every upload whose declared size exceeds the generated body ceiling, before the request
+  reaches the backend. 2026.10.9 sometimes answered 502, and the Android app retried the same
+  oversized batch instead of splitting it.
+- Android build 74: after a withdrawal that keeps prior data, the app returns to the enrollment
+  screen by itself instead of showing the old study in Settings.
+- The server answers 413, not 400, when a streamed or HTTP/2 upload body exceeds the limit.
+  The edge also checks every Content-Length value an HTTP/2 client sends. Caddy, the server,
+  the CLI and `.env.example` take the limit from one generated constant.
+- Restore no longer rolls back on installations with TDE key-generation evidence. Dumps leave
+  that evidence out, and restore keeps the destination's own copy.
+- Android build 77 (Play internal): no queued upload can stall on size. Each request is sized
+  under the limit before it is sent and is split if the server still answers 413. A single
+  sample too large to send, or a stored row over 1 MiB, is set aside with its reason and
+  reported in upload diagnostics; the rest of the queue keeps uploading.
+- Android build 76 could not upload any data in its release build and was replaced by build
+  77 the same day. Collected data stayed queued on the device and uploads after updating.
+- Android build 79: the daily 19:00 app-usage survey reminder posts in studies without
+  questionnaires. Earlier builds waited for the questionnaire module and stayed silent.
+- Saving study settings without changing them no longer answers 409 while an enrollment
+  invitation is pending.
+- The participant dialog's time-use diary links for today and yesterday both work. Issuing
+  one no longer revokes the other.
+
+- First-install instructions extract the public key shipped in the bundle. Operators compare
+  its fingerprint with the one the maintainer sends separately before verifying the download.
 
 ## [2026.10.9]
 
@@ -51,7 +285,7 @@ Server, dashboard and Android build 69 (Play internal, open flavor).
   Set `CADDY_TRUSTED_PROXIES` to exact upstream proxy CIDRs before relying on forwarded addresses;
   missing remote ranges warn without blocking the upgrade.
 - Dashboard and Grafana binds must be specific private or loopback addresses. Unrestricted
-  allowlists are refused. An upstream load balancer must support 10 MiB request bodies, 16 KiB
+  allowlists are refused. An upstream load balancer must support the generated body ceiling, 16 KiB
   headers and 300-second idle timeouts, and replace forwarded protocol headers with HTTPS.
   Enable `PUBLIC_HTTP_ENABLED` only when upstream HTTP redirects to the canonical HTTPS origin.
 - `HTTP_BIND` and `INTERNAL_BIND` take IPv4 addresses only. Configuration checks refuse a
@@ -80,7 +314,7 @@ Server, dashboard and Android build 69 (Play internal, open flavor).
   new form codes are refused, and device-key expiry stops extending. A collected-data purge
   keeps enrollment; database failures never count as ended participation.
 - V114 adds erased device-key tombstones containing only the key hash, erasure kind and expiry,
-  without study, participant or device identifiers. Completion deletes the key rows and keeps
+  without study, participant or random device identifiers. Completion deletes the key rows and keeps
   those hashes for 365 days, including expired or revoked keys. They permit only participation
   status and an already-withdrawn acknowledgment; manually revoked keys still return 401.
 - V115 removes key rows left by earlier completed erasures and creates their tombstones. If
@@ -341,7 +575,7 @@ Server and Android build 67. iOS changes are not in this release.
   `CHRONICLE_INTERNAL_WEB_SECRET`, so a copied log cannot be reversed by hashing guesses.
   Rotating that secret changes the references.
 - iOS device names ("Alex's iPhone") are no longer stored. V111 replaces stored names with the
-  enrolled device ID, or a random ID when no device record matches. Rows of a participant with an
+  enrolled random device ID, or a random ID when no device record matches. Rows of a participant with an
   open or failed deletion are skipped; they are erased when that deletion completes. The device
   system name column held the device name; it now holds the system name.
 - V112: the backend database role can no longer read the legacy audit tables or delete from the
@@ -434,8 +668,7 @@ unchanged from 2026.9.29.
 
 ## [2026.9.29]
 
-Fixes found in a review of release 2026.9.28 and in a codebase-wide sweep for hangs, crashes and
-erasure/consent races. Most sweep findings predate 2026.9.28.
+Fixes for hangs, crashes and erasure/consent races, most of which predate 2026.9.28.
 
 ### Server
 - V108 records erased upload diagnostics by event ID, study ID and an MD5 of study and participant ID; these records
