@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 METADATA = ROOT / "detekt-baseline.sources.json"
 BASELINE_BASE = "5dc62f05"
 # Pin the reviewed Git blob so the first metadata commit cannot authorize its own refresh.
-METADATA_REVISION = "3def1cdbd1e0a2f57e27a289736f7f0cb125cc77"
+METADATA_REVISION = "b4419cdc4e2510b76259046d85316395711ce06d"
 FUNCTION_RULES = {"LongMethod", "NestedBlockDepth", "CyclomaticComplexMethod", "ReturnCount", "ThrowsCount",
                   "FunctionOnlyReturningConstant"}
 FUNCTION_KINDS = {"function_declaration", "getter", "setter", "secondary_constructor", "anonymous_function"}
