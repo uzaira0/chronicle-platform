@@ -14,11 +14,19 @@ FROM chronicle-selfhost-frontend:release AS frontend
 
 FROM caddy:2.11.7-builder-alpine@sha256:bb53bc0dd94d5e93eca88bac50e435fd5f9dc6cc828fc6140086f282fb329e92 AS builder
 
-# golang.org/x/net raised past Caddy 2.11.7's v0.59.0 for a fixed HIGH advisory
-# (trivy gate in scripts/publish-images.sh). Drop the replace once Caddy's go.mod reaches it.
+# golang.org/x/net and go-jose v4 raised past Caddy 2.11.7's pins for fixed HIGH advisories
+# (trivy gate in scripts/publish-images.sh). Drop each replace once Caddy's go.mod reaches it.
+# go-jose v3 (via smallstep/certificates, the local-https CA) has no fixed release: build it from
+# v3.0.5 plus go-jose's own v4 fix a0111f82 (bound RSA modulus, check p*q == n) for CVE-2026-116587.
+COPY selfhost/caddy/go-jose-v3-rsa-bounds.patch /patches/
+RUN dir="$(go mod download -json github.com/go-jose/go-jose/v3@v3.0.5 | sed -n 's/^\t"Dir": "\(.*\)",$/\1/p')" && \
+    cp -R "$dir" /go-jose-v3 && chmod -R u+w /go-jose-v3 && \
+    cd /go-jose-v3 && git apply /patches/go-jose-v3-rsa-bounds.patch && CGO_ENABLED=0 go test ./...
 RUN xcaddy build v2.11.7 \
     --with github.com/mholt/caddy-ratelimit@v0.1.0 \
-    --replace golang.org/x/net=golang.org/x/net@v0.60.0
+    --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.8 \
+    --replace github.com/go-jose/go-jose/v3=/go-jose-v3
 
 # The binary links BSD- and MIT-licensed Go modules whose notices must ship with it. Copy the
 # license files of every module the binary records (after replacements) from the module cache;
@@ -26,11 +34,12 @@ RUN xcaddy build v2.11.7 \
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 RUN cache="$(go env GOMODCACHE)" && \
     go version -m /usr/bin/caddy | \
-    awk '$1 == "dep" { module[++n] = $2 "@" $3 } $1 == "=>" { module[n] = $2 "@" $3 } END { for (i = 1; i <= n; i++) print module[i] }' | \
+    awk '$1 == "dep" { module[++n] = $2 "@" $3 } $1 == "=>" { module[n] = ($2 ~ /^\// ? $2 : $2 "@" $3) } END { for (i = 1; i <= n; i++) print module[i] }' | \
     while IFS= read -r module; do \
       escaped="$(printf '%s' "$module" | awk '{ for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); printf "%s", (c ~ /[A-Z]/ ? "!" tolower(c) : c) } }')"; \
+      src="$cache/$escaped"; case "$module" in /*) src="$module" ;; esac; \
       mkdir -p "/licenses/$module"; \
-      find "$cache/$escaped" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' -o -iname 'patents*' \) \
+      find "$src" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' -o -iname 'patents*' \) \
         -exec cp {} "/licenses/$module/" \; ; \
       [ -n "$(ls -A "/licenses/$module")" ] || { echo "FATAL: no license file for $module" >&2; exit 1; }; \
     done

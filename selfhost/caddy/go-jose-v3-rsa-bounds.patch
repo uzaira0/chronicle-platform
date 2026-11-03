@@ -1,0 +1,106 @@
+--- a/jwk.go
++++ b/jwk.go
+@@ -481,13 +481,20 @@
+ 	return true
+ }
+ 
++// MaxRSAModulusBits is the largest RSA modulus size, in bits, accepted when parsing a JWK.
++var MaxRSAModulusBits = 4096
++
+ func (key rawJSONWebKey) rsaPublicKey() (*rsa.PublicKey, error) {
+ 	if key.N == nil || key.E == nil {
+ 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, missing n/e values")
+ 	}
++	n := key.N.bigInt()
++	if n.BitLen() > MaxRSAModulusBits {
++		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, modulus too large")
++	}
+ 
+ 	return &rsa.PublicKey{
+-		N: key.N.bigInt(),
++		N: n,
+ 		E: key.E.toInt(),
+ 	}, nil
+ }
+@@ -628,16 +635,23 @@
+ 		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA private key, missing %s value(s)", strings.Join(missing, ", "))
+ 	}
+ 
++	n := key.N.bigInt()
++	if n.BitLen() > MaxRSAModulusBits {
++		return nil, fmt.Errorf("go-jose/go-jose: invalid RSA key, modulus too large")
++	}
++
++	p, q := key.P.bigInt(), key.Q.bigInt()
++	if p.BitLen()+q.BitLen() > n.BitLen()+1 || new(big.Int).Mul(p, q).Cmp(n) != 0 {
++		return nil, errors.New("go-jose/go-jose: invalid RSA private key, p * q != n")
++	}
++
+ 	rv := &rsa.PrivateKey{
+ 		PublicKey: rsa.PublicKey{
+-			N: key.N.bigInt(),
++			N: n,
+ 			E: key.E.toInt(),
+ 		},
+-		D: key.D.bigInt(),
+-		Primes: []*big.Int{
+-			key.P.bigInt(),
+-			key.Q.bigInt(),
+-		},
++		D:      key.D.bigInt(),
++		Primes: []*big.Int{p, q},
+ 	}
+ 
+ 	if key.Dp != nil {
+--- /dev/null
++++ b/jwk_bounds_test.go
+@@ -0,0 +1,49 @@
++package jose
++
++import (
++	"crypto/rand"
++	"crypto/rsa"
++	"encoding/json"
++	"math/big"
++	"strings"
++	"testing"
++)
++
++func TestRSAModulusBound(t *testing.T) {
++	n := new(big.Int).Lsh(big.NewInt(1), uint(MaxRSAModulusBits))
++	raw := rawJSONWebKey{Kty: "RSA", N: newBuffer(n.Bytes()), E: newBuffer([]byte{1, 0, 1})}
++	if _, err := raw.rsaPublicKey(); err == nil || !strings.Contains(err.Error(), "modulus too large") {
++		t.Fatalf("oversized public modulus accepted: %v", err)
++	}
++	raw.D, raw.P, raw.Q = newBuffer([]byte{1}), newBuffer([]byte{1}), newBuffer([]byte{1})
++	if _, err := raw.rsaPrivateKey(); err == nil || !strings.Contains(err.Error(), "modulus too large") {
++		t.Fatalf("oversized private modulus accepted: %v", err)
++	}
++}
++
++func TestRSAPrivateKeyFactorsMustMatchModulus(t *testing.T) {
++	key, err := rsa.GenerateKey(rand.Reader, 2048)
++	if err != nil {
++		t.Fatal(err)
++	}
++	other, err := rsa.GenerateKey(rand.Reader, 2048)
++	if err != nil {
++		t.Fatal(err)
++	}
++	good, err := json.Marshal(JSONWebKey{Key: key})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var parsed JSONWebKey
++	if err := json.Unmarshal(good, &parsed); err != nil {
++		t.Fatalf("valid key rejected: %v", err)
++	}
++	raw := rawJSONWebKey{}
++	if err := json.Unmarshal(good, &raw); err != nil {
++		t.Fatal(err)
++	}
++	raw.Q = newBuffer(other.Primes[1].Bytes())
++	if _, err := raw.rsaPrivateKey(); err == nil || !strings.Contains(err.Error(), "p * q != n") {
++		t.Fatalf("mismatched factors accepted: %v", err)
++	}
++}
