@@ -33,7 +33,9 @@ messages. Experiments, reverts, and operational detail stay private.
    `docs/GIT-WORKFLOW.md` has the types, scopes, and examples.
 4. User-facing strings go through the translation tables (web `src/modern/i18n`, Android
    `values/strings.xml`, iOS String Catalogs, server `messages.properties`). Never author
-   translations; add the English key and leave the other languages to translators.
+   translations; add the English key and leave the other languages to translators. The one
+   exception is an owner-approved draft in a translator's own wording, recorded in
+   `docs/i18n-provenance-<code>.tsv`.
 
 ## Working with the submodules
 

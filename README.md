@@ -15,17 +15,22 @@ cd chronicle/selfhost
 ./chronicle verify    # proves the deployment actually works end to end
 ```
 
-`setup` asks how the deployment is reached — behind an existing load balancer, terminating
-its own TLS, or issuing a local certificate for phones on the same network — then which
-addresses to listen on and a dashboard password. Everything else has a default.
+`setup` asks how the deployment is reached (behind an existing load balancer, terminating
+its own TLS, or issuing a local certificate for phones on the same network), then which
+addresses to listen on and a shared dashboard password. Choose daily, weekly, monthly and
+pre-operation safety-dump retention from the institution's approved schedule; `all` keeps
+every copy in that tier. Safety-dump retention requires an explicit answer, and piped setup
+requires all four answers. If setup cannot confirm storage encryption, it also requires a
+reviewed storage-encryption waiver reference before continuing.
 
 The first `up` builds the backend and frontend from source and initialises the database, so
 it takes considerably longer than later runs. There is no output while the database settles;
 that is expected.
 
-Then open `https://<your-dashboard-address>/chronicle/` and sign in as `researcher`.
+Then open `https://<your-dashboard-address>/chronicle/` and enter the shared dashboard
+password chosen during setup.
 
-Other commands: `status`, `logs`, `doctor`, `restore`, `upgrade`, `rotate-secret`,
+Other commands: `status`, `logs`, `doctor`, `backup`, `restore`, `update`, `rotate-secret`,
 `monitoring`, `down`. Run the stack through this script rather than `docker compose`
 directly: in a source clone the script initializes the required submodules, builds and pins
 the local images, and runs host checks that Compose cannot perform.
@@ -50,12 +55,12 @@ at rest, upgrades, and what each deployment mode assumes.
 
 This is a Gradle multi-project that uses git submodules:
 
-- **chronicle** — Android data collection app
-- **chronicle-api** — shared API models and DTOs
-- **chronicle-server** — backend REST API server
-- **chronicle-web** — React web dashboard
-- **rhizome** — core framework (DB, auth, mail)
-- **rhizome-client** — shared client utilities
+- chronicle: Android data collection app
+- chronicle-api: shared API models and DTOs
+- chronicle-server: backend REST API server
+- chronicle-web: React web dashboard
+- rhizome: core framework (DB, auth, mail)
+- rhizome-client: shared client utilities
 
 `selfhost/` checks out the ones it needs on first run. To clone them all up front:
 
@@ -63,9 +68,9 @@ This is a Gradle multi-project that uses git submodules:
 git clone --recurse-submodules https://github.com/uzaira0/methodic.git
 ```
 
-## Development Setup
+## Development setup
 
-**Prerequisites:** JDK 25 (Temurin; Android submodule uses JDK 21), Bun 1.3.x, Gradle (wrapper included)
+Prerequisites are JDK 25 (Temurin; Android submodule uses JDK 21), Bun 1.3.x, Gradle (wrapper included)
 
 ```bash
 # Backend
@@ -96,8 +101,14 @@ instructions.
 
 ## Continuous integration
 
-All checks run locally; there are no hosted workflows. `lefthook` runs the fast gates on
-commit and push, and `scripts/local-ci.sh` runs the full matrix on demand:
+All checks run locally; there are no hosted workflows. `lefthook` runs source checks on
+commit and push. Run `scripts/local-ci.sh fast` before pushing to execute the test suites;
+`scripts/local-ci.sh` runs the full matrix on demand.
+
+The operator regression tests require util-linux `flock` on the host
+(macOS: `brew install flock`), Bash 4.4 or later, a Lua interpreter, and Docker Compose.
+Use the Python version in `toolchain-manifest.yaml` for build tools; the operator
+compatibility suite also runs on Python 3.9.
 
 ```bash
 scripts/local-ci.sh fast        # preflight, web, JVM smoke, repo guardrails, schema drift
@@ -110,4 +121,4 @@ Public history is curated from the private repositories with `make publish-stage
 
 ## License
 
-See [LICENSE](LICENSE).
+GPL-3.0. See [LICENSE](LICENSE) and [THIRD-PARTY.md](THIRD-PARTY.md).

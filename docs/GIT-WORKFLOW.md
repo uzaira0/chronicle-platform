@@ -18,8 +18,11 @@ from the private tree at publish time, not committed to directly.
 `scripts/publish.sh` (or the `make publish-*` targets) turns the private state into public
 commits:
 
+Set `CHRONICLE_PUBLISH_WORK` to the directory for publication worktrees before running
+the publish, changelog or release-image commands. The commands require this explicit location.
+
 1. `make publish-stage` creates, for each repository, a worktree under
-   `chronicle_work/publish/curate/<repo>` checked out at the public tip. Its working tree
+   `$CHRONICLE_PUBLISH_WORK/<repo>` checked out at the public tip. Its working tree
    is the current private HEAD minus every path in `.publishignore`; the index is the
    public tip. `git status` in that worktree is therefore exactly the delta that still
    needs to become public commits.

@@ -4,11 +4,23 @@ Chronicle handles research participant data.
 
 ## Self-host release signing key
 
+The public key ships in the bundle at `selfhost/release-signing.pub`.
 The Ed25519 release key has fingerprint
 `SHA256:PuOdejZ2d1CQgrWEF/tf95asMPC5RnsbCidg1PB6VSo`.
-Verify it with `ssh-keygen -lf selfhost/release-signing.pub` before trusting a release.
-Setup prints the installed fingerprint. Institutions should receive this fingerprint through
-their independent maintainer handoff; the archive and its sidecars alone do not establish trust.
+Only the fingerprint must come separately from the maintainer, by email or message from
+your study's Chronicle contact. Replace `<version>` with the release version in the file name.
+Extract only the key and show its fingerprint:
+
+```bash
+set -e
+tar -xzOf chronicle-selfhost-<version>.tar.gz chronicle-selfhost-<version>/selfhost/release-signing.pub > release-signing.pub
+ssh-keygen -lf release-signing.pub -E sha256
+```
+
+Compare it with the fingerprint the maintainer sent separately.
+If it differs, stop. Do not install. If it matches, follow the signature and checksum steps
+in [Quick start](selfhost/README.md#quick-start) before extracting the rest of the bundle.
+Setup also prints the installed fingerprint.
 
 ## Reporting a vulnerability
 
@@ -31,7 +43,5 @@ deployments you do not operate.
 ## Supported versions
 
 Only the tip of each repository's default branch receives security fixes in the source
-repositories. For self-host release bundles, see the release guidance in
-[`selfhost/README.md`](selfhost/README.md). This reporting clarification does not expand
-the release support window: support commitments for shipped releases remain owned by
-maintainers, and any change to them requires maintainer approval.
+repositories. Only the latest post-reset self-host release bundle receives security and
+bug fixes. See the [release support policy](selfhost/README.md#support) and update guidance.

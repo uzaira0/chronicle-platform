@@ -1,0 +1,604 @@
+surface	file	key	source	review
+android-play	chronicle/app/src/main/res/values/strings.xml	dashboard_action_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	recovery_reason_state_corrupt	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_withdrawal_policy	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_withdrawal_keeps	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	app_name	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	device_enroll_failure	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	device_enroll_success	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_issued_retry	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_recovery_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_existing_study_rejection	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_already_enrolled	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_study_modules_unsupported	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_study_changed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	channel_name	drafted in BAND wording; drafted, audit 2	
+android-play	chronicle/app/src/main/res/values/strings.xml	usage_settings_permission	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	disable_hibernation_exemption_dialog	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	background_data_restricted_header	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	background_data_restricted	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_guidance_body	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_vendor_xiaomi	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_vendor_huawei	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_vendor_oppo	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_vendor_vivo	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_vendor_samsung	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	upload_queue_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	notification_id	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	disable_battery_optimization_dialog	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	platform_privacy_policy_full	drafted in BAND wording; corrected by review audit	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	usage_access_disclosure_body	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	server_delete	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_delete_confirm_title	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_delete_confirm_message	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	server_delete_confirm_action	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_delete_needs_support	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_delete_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_load_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_cancel	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	data_sharing_intro	drafted in BAND wording; corrected by review audit	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	recovery_reason_schema_replaced	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_upload_history_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	notification_rationale_body	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	notification_rationale_not_now	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	overview_participant_ended	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	overview_participant_completed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	overview_participant_paused	drafted in BAND wording; drafted, audit 2	
+android-play	chronicle/app/src/main/res/values/strings.xml	participation_status_ended	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	participation_status_completed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	participation_status_paused	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	participation_status_not_enrolled	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	overview_participant_not_enrolled	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_health_not_enrolled	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	overview_collection_status_access	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_link_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_browser_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_form_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	notif_access_missing	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	orientation_title_format	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	orientation_none	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	ds_policy_changed	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	ds_capability_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	ds_status_paused_required	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	ds_status_paused_storage	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	settings_control_storage_paused	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	settings_identification_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	settings_identification_save_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	user_identification_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	summary_uploads_withdrawal_pending	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	summary_uploads_not_configured	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_restricted_breakdown	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_breakdown	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_history	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_history_research	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_usage	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_battery	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_device	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_sensor	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_app_runtime	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_interaction	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_audio_activity	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_audio_content	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_notification	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_sleep	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_activity_recognition	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_health	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_connectivity	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_app_network	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_device_settings	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_local_store	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_family_unknown	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_destination_missing	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_identity_mismatch	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_source_device_missing	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_credential_incomplete	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_app_crash	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_app_crash_native	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_app_anr	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_sample_quarantined	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_local_buffer_overflow	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_local_requeue_overflow	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_local_write_failed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_local_shutdown_dropped	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_collection_gate_dropped	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_module_policy_erased	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_direct_boot_capacity_dropped	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_direct_boot_corrupt_record	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_collection_paused_storage	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_collection_access_missing	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_http_server_error	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_http_client_error	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_timeout	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_dns_failure	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_tls_failure	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_connection_failure	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_upload_failure	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_unknown	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_line	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	nad_unavailable_affordance	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	nad_unavailable_body	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	nad_need	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	cap_not_in_play	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	cap_optional_not_included	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	cap_usage_access	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_function_upload_telemetry	drafted in BAND wording; corrected by review audit; drafted, audit 2	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_health_offline	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	ds_module_toggle_cd	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	overview_participant_withdrawal_pending	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	participation_status_withdrawal_pending	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_health_withdrawal_pending	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_preview_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_server_unavailable	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_server_rejected	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_response_unexpected	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_request_unconfirmed	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	ds_open_app_settings	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_public_message	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	collection_paused_storage	drafted in BAND wording; corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	cap_capture_retry	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	platform_policy_title	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	study_withdrawal_options	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	study_policy_effective_at	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_timing_title	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_timing_optional	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	reminder_timing_review	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_details	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_eligibility_attestation	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	settings_survey_notifications	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	survey_notifications_granted	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	survey_notifications_denied	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	background_access_granted	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	background_access_missing	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	oem_background_needs_review	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_collects_3	drafted in BAND wording	consent/legal: BAND review
+android-research	chronicle/app/src/googleServices/res/values/strings.xml	sensor_notification_message	drafted in BAND wording	
+android-research	chronicle/app/src/googleServices/res/values/consent_copy.xml	consent_audio_activity_collects[1]	BAND text corrected by review audit	
+android-research	chronicle/app/src/googleServices/res/values/consent_copy.xml	consent_health_connect_label	drafted in BAND wording	
+android-research	chronicle/app/src/googleServices/res/values/consent_copy.xml	consent_interaction_events_collects[2]	drafted in BAND wording	
+android-research	chronicle/app/src/googleServices/res/values/consent_copy.xml	consent_sleep_collects[2]	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	writes.conflict	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	writes.reload_discard	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	intro_text	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_of_week	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	weekday	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	bed_time_before_activity_day	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	wake_up_time_after_activity_day	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_start_time	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_start_time_ctx.wake_up_time_today	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_start_time_ctx.wake_up_time_yesterday	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_end_time	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_end_time_ctx.bed_time_today	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	day_end_time_ctx.bed_time_yesterday	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.childcare	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.napping	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.eating	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.media_use	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.reading	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.indoor	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.outdoor	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.grooming	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.other	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	primary_activities.outdoors	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	next_activity	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	activity_end_time	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	contextual_text	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	caregiver	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	caregiver_options.3	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	collaborator	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	adult_media	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	other_activity	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	secondary_activity	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	book_title	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_age	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_name	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_activity_options.0	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_activity_options.1	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_activity_options.2	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_activity_options.3	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_activity_options.4	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	media_activity_options.5	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	no_one	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	sleep_pattern	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	sleep_arrangement	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	sleep_arrangement_options.4	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_language_warning	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_language	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	nighttime_activity_title	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions.resolve_other_apps	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions.resolve_shared_apps	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions.select_child_apps	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions.select_shared_apps	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions.title	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions_intro	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.step_title	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.thank_you_for_participating	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.awaiting_confirmation	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.already_answered	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.answered_no_one	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.answered_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.answered_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.nothing_to_review_confirm	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.confirm_empty_day	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.no_days_yet_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.no_days_yet_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.day_picker_label	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.previous_month	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.next_month	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.day_state.unanswered	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.day_state.answered	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.day_state.new_apps	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.conflict.already_answered	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.conflict.apps_changed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.conflict.day_unavailable	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.scrollable_table	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.dash	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.download_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.ios	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.copy_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.leave_unsaved	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.error_unreadable_response	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	common.error_download_browser	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	status.job.quarantined	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	status.job.erasing	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	status.job.verifying	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	status.job.cancelled	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	shell.mobile_nav_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	shell.mobile_nav_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.error_unverified	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.error_network	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.error_timeout	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.error_server	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.error_response	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.error_disclosure	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.platform_always_records	drafted in BAND wording; corrected by review audit	consent/legal: BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.withdrawal_policy	drafted in BAND wording	consent/legal: BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.withdrawal_keeps	drafted in BAND wording	consent/legal: BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.invalid_reviewer_response	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	enrollment.invalid_reviewer_study	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.secret_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.error_network	drafted in BAND wording; corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.error_server	drafted in BAND wording; corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.error_scope	drafted in BAND wording; corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.error_response	drafted in BAND wording; corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.error_disclosure	drafted in BAND wording; corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_session.expired_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_session.expired_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_session.unavailable_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_session.unavailable_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_session.retry	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_submission.validation	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_submission.temporary	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_submission.unconfirmed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_submission.unreadable	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_submission.rejected	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	not_found.description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	login.unknown_failure	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	login.password_rejected	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	error_boundary.description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.banner_retention_ended	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.banner_deletion_requested	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.load_error_fallback	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.save_step_withdrawal	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.settings_conflict	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.archive_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.request_deletion_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.cancel_deletion_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.delete_request_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.delete_confirmation	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.requesting	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_layout.request_deletion	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.refresh	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.withdrawn	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.details_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.diagnostics_download_hint	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.diagnostics_device_filter	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.diagnostics_device_placeholder	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.diagnostics_unknown_device	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.enrollment_summary	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.sensor_matrix_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.register_failed	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.delete_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.header_description	BAND text corrected by review audit; drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.deletion_requests_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.deletion_whole_study	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.erase_now	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.erase_now_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.erase_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.erasing	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.requested_at	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.new_id_invalid	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.register	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.remove_one_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.remove_many_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.cancel_pending_enrollment	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.cancel_pending_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.cancel_pending_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.revoke_enrollment_code	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.revoking_enrollment_code	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.processing_blocked	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.block_processing	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.unblock_processing	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.processing_block_reason	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.block_processing_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.unblock_processing_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.response_contract_invalid_tags	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.collection_stopped	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.declined_required	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.awaiting_review	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	bulk_downloads.options_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	bulk_downloads.downloaded_tud	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	bulk_downloads.downloaded_questionnaire	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	bulk_downloads.description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaires.mutation_error	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.scopes_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.name	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.scope	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.scope_read_only	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.scope_write	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.scope_admin	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.expiry_days	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.create	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.shown_once	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.copy	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.dismiss	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.prefix	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.expires	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.last_used	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.never_used	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.none	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.revoke	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.revoke_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.revoke_confirmation	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.confirm_revoke	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.revoking	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.create_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.revoke_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	api_keys.load_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	settings_audit.toggle_details	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	settings_audit.consent_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.app_usage_frequency	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.app_usage_frequency_DAILY	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.app_usage_frequency_HOURLY	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.pending_enrollment	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.mode_enabled_hint	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.play_store_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.play_store_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.play_store_confirm	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.hc_description	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.collection_number_min	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.collection_number_range	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.duty_active_exceeds_period	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.create_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.settings_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.withdrawal_mode	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.time_zone	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.time_zone_invalid	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.withdrawal_keep	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.withdrawal_request_erasure	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.limits_whole_days	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.validation_summary	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.title_required	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.feature_required	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.contact_required	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.contact_invalid	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.discard_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.discard_description	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.discard_continue	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.discard_confirm	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.import_config_policy_kept	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_info.issue_links	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	download_modal.range_reversed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	download_modal.date_range_hint	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	download_modal.time_zone	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	qr_modal.replace	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	qr_modal.replace_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	qr_modal.lookup_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	notes_editor.save	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_enrollment.resume_confirmation	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_enrollment.pause_confirmation	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_enrollment.not_enrolled_consequence	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_enrollment.unavailable	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_enrollment.enroll	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	change_enrollment.mark_not_enrolled	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	policy_fields.purpose	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	policy_fields.data_use_always_recorded_hint	drafted in BAND wording; corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.add_choice	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.recurrence_rule	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.recurrence_hint	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.question_text_required	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.choice_n	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.move_up	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.move_down	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.delete_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.remove_question_confirm	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.remove_question_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.move_question_up	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	questionnaire_builder.move_question_down	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	sensors_card.cycle_active	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	sensors_card.cycle_suffix	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	sensors_card.consent_note	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	modules_panel.play_store_notice	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	modules_panel.set_under_after	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	activity_cell.idle	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	session.locked	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	session.sign_out_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	session.retry_sign_out	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	session.signing_out	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	session.auth_network_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.recovery_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.inactive	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.request_rejected	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.error_response	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.storage_failed	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.unavailable_title	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.processing_blocked	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.module.upload_telemetry	BAND text corrected by review audit	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.module.health_connect	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.module_description.sensor_accelerometer	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.module_description.sensor_rotation_vector	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_disabled	drafted, audit 2	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_noncanonical	drafted, audit 2	
+android-play	chronicle/app/src/main/res/values/strings.xml	uploads_issue_setup_incomplete	drafted, audit 2	
+android-play	chronicle/app/src/main/res/values/strings.xml	user_study_participant_label	owner wording 2026-10-29	
+android-play	chronicle/app/src/main/res/values/strings.xml	user_someone_else_label	owner wording 2026-10-29	
+android-play	chronicle/app/src/main/res/values/strings.xml	user_unassigned_label	owner wording (owner4 brief)	
+android-play	chronicle/app/src/main/res/values/strings.xml	upload_never	drafted, owner4 Spanish layout review	
+server	chronicle-server/src/main/resources/messages.properties	error.internal	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.internal.unknownId	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.unauthorized	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.forbidden	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.notFound	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.rateLimited.retryAfter	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.rateLimited	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalidBody	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalidJson	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.validationFailed	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalidParameters	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.invalidTimeZone	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.invalidCollectionSettingsVersion	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.invalidCollectionDecisionSeq	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.missingParameter	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.missingParameter.detail	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.missingHeader	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.missingHeader.detail	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalidParameterType	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalidParameterType.detail	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.state.invalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.unexpected	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.tooLong	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.email	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.ssn	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.nationalId	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.phone	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.name	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participantId.erased	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyRequired	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyMismatch	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyScope	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyEndpoint	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyStudyScope	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyDeviceScope	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.apiKeyCreatorAccess	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.apiKey.mixedCredentials	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.apiKey.scopeAboveCreator	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.credentialInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.credentialOrDigestInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.cancelled	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.cancelAfterEnrollment	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.studyChanged	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.configurationMissing	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.configurationUnavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.deviceNotBound	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.participantNotRegistered	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.notEnrolled	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.collectionHalted	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.enrollment.uploadIdentityMismatch	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.form.sessionInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.form.idempotencyKeyRequired	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.form.accessCodeInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.appUsage.alreadyAnswered	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.appUsage.appsChanged	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.appUsage.dayUnavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.form.accessInactive	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.form.kindNotIssuableByReminder	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.ids.unavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.ids.interrupted	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.reviewer.credentialInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.reviewer.scopeMismatch	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.reviewer.unavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.notFound	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.registrationUnavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.enrollmentDisclosurePending	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.versionedSettingsRemoval	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.participantPolicyLocked	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.export.participantRequired	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.export.dateRangeInvalid	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.webhook.recipientsLocked	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.questionnaire.responsesRetained	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.questionnaire.unavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	reminder.appUsage.title	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.invalidSettingsRevision	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.settingsRevisionRequired	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participant.unavailable	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participant.invalidStatusRevision	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.participant.statusChanged	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.study.lifecycleChanged	drafted, audit 2	
+server	chronicle-server/src/main/resources/messages.properties	error.form.submissionDateRequired	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.usage_lifecycle	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.battery	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.device_telemetry	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.sensor	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.app_runtime	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.interaction	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.audio_activity	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.audio_content	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.notification	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.sleep	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.activity_recognition	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.health	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.connectivity	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.app_network	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.device_settings	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.diagnostic_family.local_store	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_missing	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_identity_mismatch	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_source_device_missing	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_setup_incomplete	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_disabled	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_noncanonical	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.destination_credential_incomplete	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.http_server_error	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.http_client_error	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.timeout	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.dns_failure	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.tls_failure	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.connection_failure	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.upload_failure	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.app_crash	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.app_crash_native	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.app_anr	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.sample_quarantined	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.local_buffer_overflow	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.local_requeue_overflow	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.local_write_failed	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.local_shutdown_dropped	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.collection_gate_dropped	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.module_policy_erased	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.direct_boot_capacity_dropped	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.direct_boot_corrupt_record	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.collection_paused_storage	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.collection_access_missing	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.upload_issue.unrecognized_issue	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.selected_count_one	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.show_more_one	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	modules_panel.required_count_one	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	modules_panel.not_collected_one	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	study_form.group_summary_one	drafted, audit 2	
+web	chronicle-web/src/modern/i18n/en/translation.json	app_usage_survey.instructions.note_optional	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.description	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.history_title	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.history_description	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.history_loading	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.history_error	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.history_error_status	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.history_empty	drafted, audit 2 (corrects BAND text)	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_dashboard.submission_id	drafted, audit 2 (corrects BAND text)	
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_upload_telemetry_label	drafted, owner6	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_upload_telemetry_privacy_class	drafted, owner6	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_sensor_availability_label	drafted, owner6	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_sensor_availability_privacy_class	drafted, owner6	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	orientation_plan_line	drafted, owner6	
+android-play	chronicle/app/src/main/res/values/strings.xml	orientation_plan_current	drafted, owner6	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.instance_badge	drafted in BAND wording (R4-web-1: singular-safe)	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_server_incompatible	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	enrollment_server_certificate_untrusted	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	server_health_uploads_failing	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participant_access.server_ca_unavailable	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	catalog.data_type.iosscreentime	drafted in BAND wording (Apple Spanish name Tiempo en pantalla)	
+android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_function_sensor_availability	drafted in BAND wording	BAND review: accuracy fix 2026-10-31
+android-play	chronicle/app/src/main/res/values/strings.xml	platform_privacy_policy_full	drafted in BAND wording	BAND review: accuracy fix 2026-10-31
+android-play	chronicle/app/src/main/res/values/strings.xml	interactivity_monitoring_notification_message	BAND text corrected by review audit	
