@@ -42,6 +42,11 @@ RUN dnf -y upgrade python3.12-urllib3-1.26.19-3.el9_8.2 && \
 RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem && \
     dnf clean all
 
+# Patroni and its etcd client are never run here; their unpackaged dnspython (CVE-2026-114605) goes with them.
+RUN dnf -y remove percona-patroni python3.12-etcd && \
+    dnf clean all && \
+    rm -rf /usr/lib/python3.12/site-packages/dns /usr/lib/python3.12/site-packages/dnspython-*.dist-info
+
 # CVE-2026-114406: distrust the compromised eMudhra intermediates in the system trust store until Red Hat
 # ships the ca-certificates update. Remove with the .trivyignore.yaml entry once it does.
 COPY backup-image/emudhra-distrusted-2026-10.pem /etc/pki/ca-trust/source/blocklist/
