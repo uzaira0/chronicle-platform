@@ -84,16 +84,15 @@ copy_keyring() {
 # one database transaction before the backend starts; its eager MapStore load then performs only
 # reads. Never repair a partial set by resetting missing ranges to zero, because those ranges may
 # already have issued IDs and doing so could create duplicates.
-bootstrap_id_generation_ranges() {
-  local postgres_host="${POSTGRES_HOST:-postgres}"
-  local postgres_port="${POSTGRES_PORT:-5432}"
-  local postgres_user="${POSTGRES_USER:-chronicle}"
-  local postgres_db="${POSTGRES_DB:-chronicle}"
-  local postgres_password="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+psql_run() {
+  PGPASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}" psql \
+    -h "${POSTGRES_HOST:-postgres}" -p "${POSTGRES_PORT:-5432}" \
+    -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" \
+    -v ON_ERROR_STOP=1 "$@"
+}
 
-  PGPASSWORD="$postgres_password" psql \
-    -h "$postgres_host" -p "$postgres_port" -U "$postgres_user" -d "$postgres_db" \
-    -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+bootstrap_id_generation_ranges() {
+  psql_run >/dev/null <<'SQL'
 CREATE TABLE IF NOT EXISTS public.id_gen (
   partition_index bigint PRIMARY KEY,
   msb bigint NOT NULL,
@@ -131,10 +130,17 @@ prepare_backups_dir
 if [[ "${ENABLE_ENCRYPTION:-true}" == true ]]; then
   /selfhost/init-tde.sh
 else
+  uses_tde="$(psql_run -Atc "SELECT current_setting('default_table_access_method') LIKE 'tde%' OR EXISTS (
+    SELECT 1 FROM pg_class c JOIN pg_am a ON a.oid = c.relam WHERE a.amname LIKE 'tde%');")"
+  [[ "$uses_tde" == f ]] || {
+    echo 'ERROR: ENABLE_ENCRYPTION=false requires a plain database; the existing database still uses TDE. Follow the TDE-to-plain database migration in docs/BACKUP-RESTORE.md#tde-to-plain-database-migration; keep ENABLE_ENCRYPTION=true until then.' >&2
+    exit 1
+  }
   echo "  --   encryption at rest is OFF (ENABLE_ENCRYPTION=false)"
 fi
 
 bootstrap_id_generation_ranges
+psql_run -q -f /selfhost/database-app-role.sql
 
 if [[ "${ENABLE_ENCRYPTION:-true}" != true ]]; then
   exit 0

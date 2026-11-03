@@ -1,0 +1,3 @@
+-- Generated from selfhost/database-app-role.sql; do not edit.
+\getenv app_password POSTGRES_APP_PASSWORD
+SELECT format('ALTER ROLE chronicle_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION PASSWORD %L', :'app_password') \gexec

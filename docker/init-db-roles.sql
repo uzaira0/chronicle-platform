@@ -19,6 +19,8 @@
 --   - Passwords should be set via environment variables or secrets management
 -- =============================================================================
 
+SET search_path TO public;
+
 -- Create application role (RLS enforced)
 DO $$
 BEGIN
@@ -62,18 +64,10 @@ END $$;
 -- not create attacker-controlled tables, functions, or triggers in it.
 GRANT USAGE ON SCHEMA public TO chronicle_app;
 GRANT USAGE ON SCHEMA public TO chronicle_admin;
-REVOKE CREATE ON SCHEMA public FROM chronicle_app, chronicle_admin;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC, chronicle_app, chronicle_admin;
 
--- Grant table permissions to application role
--- chronicle_app can SELECT, INSERT, UPDATE, DELETE on all tables
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO chronicle_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO chronicle_app;
-
--- Grant full permissions to admin role (including TRUNCATE for maintenance)
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO chronicle_admin;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO chronicle_admin;
-
--- Set default privileges for future tables
+-- Framework tables are created after role bootstrap. Set their creation defaults;
+-- preserve existing object/column ACLs, which the migration or restored dump owns.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO chronicle_app;
 
@@ -85,10 +79,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT ALL PRIVILEGES ON SEQUENCES TO chronicle_admin;
-
--- Grant execute on functions (needed for RLS helper function)
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO chronicle_app;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO chronicle_admin;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT EXECUTE ON FUNCTIONS TO chronicle_app;
@@ -103,7 +93,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- PRIMARY enforcement (V2 policies on audit_logs; V44 policies on study_settings_audit and
 -- participant_collection_acknowledgment; V90/V93 policies on withdrawal receipts and settings
 -- revisions) and is GRANT-proof. These REVOKEs are belt-and-suspenders:
--- the blanket `GRANT ... ON ALL TABLES` and `ALTER DEFAULT PRIVILEGES` above otherwise hand
+-- the creation defaults above otherwise hand
 -- chronicle_app (and chronicle_admin, which BYPASSes RLS) UPDATE/DELETE on every table — which
 -- is exactly what silently defeated the V15/V25/V26 REVOKEs once before (the grant re-ran after
 -- the one-time migration). Stripping it here, as the LAST word and on every re-run, means the
@@ -114,6 +104,10 @@ DO $$
 DECLARE
     audit_table TEXT;
 BEGIN
+    -- The function owner reads the token key; request roles never read or replace it.
+    IF to_regclass('public.chronicle_participant_token_key') IS NOT NULL THEN
+        REVOKE ALL ON public.chronicle_participant_token_key FROM PUBLIC, chronicle_app, chronicle_admin;
+    END IF;
     FOREACH audit_table IN ARRAY ARRAY[
         'audit_logs',
         'audit',

@@ -18,22 +18,35 @@
 # variable into an empty string, so boolean and numeric fields still need explicit defaults.
 set -eu
 
+if [ "${1:-}" = --migrate ]; then
+  [ "$#" -eq 1 ] || exit 1
+  : "${POSTGRES_MIGRATION_USER:=${POSTGRES_USER:?POSTGRES_USER is required for migration}}"
+  : "${POSTGRES_MIGRATION_JDBC_URL:=jdbc:postgresql://${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?POSTGRES_DB is required for migration}?logServerErrorDetail=false&sslmode=${POSTGRES_SSL_MODE:-verify-full}&sslrootcert=${POSTGRES_SSL_ROOT_CERT:-/app/ssl/ca.crt}}"
+  umask 077
+  migration_password=$(mktemp "${TMPDIR:-/tmp}/chronicle-migration.XXXXXX")
+  if [ -n "${POSTGRES_MIGRATION_PASSWORD_FILE:-}" ]; then
+    [ -f "$POSTGRES_MIGRATION_PASSWORD_FILE" ] || exit 1
+    cat "$POSTGRES_MIGRATION_PASSWORD_FILE" > "$migration_password"
+  else
+    printf '%s' "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required for migration}" > "$migration_password"
+  fi
+  POSTGRES_MIGRATION_PASSWORD_FILE=$migration_password
+  unset POSTGRES_PASSWORD
+  export POSTGRES_MIGRATION_USER POSTGRES_MIGRATION_JDBC_URL POSTGRES_MIGRATION_PASSWORD_FILE
+  set -- java -Xms64m -Xmx256m -cp '/server/lib/*' com.openlattice.chronicle.upgrades.FlywayMigrationCommand
+  if [ "$(id -u)" = 0 ]; then
+    chown chronicle:chronicle "$POSTGRES_MIGRATION_PASSWORD_FILE"
+    exec su-exec chronicle "$@"
+  fi
+  exec "$@"
+fi
+
 : "${DOMAIN:=localhost}"
 : "${CHRONICLE_PUBLIC_BASE_URL:=https://${DOMAIN}}"
 : "${POSTGRES_HOST:=postgres}"
 : "${POSTGRES_PORT:=5432}"
 : "${POSTGRES_DB:=chronicle}"
-: "${POSTGRES_USER:=chronicle}"
 
-# Hazelcast OSS does not authenticate clients. The self-host interfaces setting and JVM
-# bind flag below restrict this single-node member and its client to loopback.
-: "${HAZELCAST_SERVER_PASSWORD:=chronicle-selfhost}"
-: "${HAZELCAST_CLIENT_PASSWORD:=chronicle-selfhost}"
-
-: "${MOBILE_SIGNING_ENABLED:=false}"
-: "${MOBILE_SIGNING_REQUIRED:=false}"
-: "${MOBILE_SIGNING_SECRET:=}"
-: "${MOBILE_SIGNING_SECRET_PREVIOUS:=}"
 : "${CHRONICLE_REVIEWER_ACCESS_ENABLED:=false}"
 : "${CHRONICLE_REVIEWER_ACCESS_SECRET:=}"
 : "${CHRONICLE_REVIEWER_STUDY_ID:=}"
@@ -111,110 +124,22 @@ CORS_ALLOWED_ORIGINS_YAML=$(
 export CORS_ALLOWED_ORIGINS_YAML
 
 : "${TESTING_LOGIN_ENABLED:=false}"
-: "${ALLOW_PRODUCTION_TESTING_LOGIN:=false}"
 : "${DASHBOARD_PASSWORD_HASH:=}"
-
-: "${OIDC_ENABLED:=false}"
-: "${OIDC_PROVIDER_LABEL:=}"
-: "${OIDC_PUBLIC_BASE_URL:=}"
-: "${OIDC_ISSUER:=}"
-: "${OIDC_AUTHORIZATION_URI:=}"
-: "${OIDC_TOKEN_URI:=}"
-: "${OIDC_JWKS_URI:=}"
-: "${OIDC_CLIENT_ID:=}"
-: "${OIDC_CLIENT_SECRET:=}"
-: "${OIDC_IDP_HINT:=}"
-: "${OIDC_COOKIE_TOKEN_CLAIM:=}"
-
-: "${SMTP_ENABLED:=false}"
-: "${SMTP_HOST:=}"
-: "${SMTP_PORT:=587}"
-: "${SMTP_USERNAME:=}"
-: "${SMTP_PASSWORD:=}"
-: "${SMTP_FROM_EMAIL:=}"
-
-: "${VAULT_ENABLED:=false}"
-: "${VAULT_ADDR:=}"
-: "${VAULT_TOKEN:=}"
+: "${JWT_SECRET_PREVIOUS:=}"
+: "${JWT_SECRET_PREVIOUS_EXPIRES_AT:=0}"
 
 : "${CHRONICLE_SERVER_XMS:=-Xms512m}"
 : "${CHRONICLE_SERVER_XMX:=-Xmx2g}"
-: "${CHRONICLE_SERVER_ARGS:=local postgres medialocal}"
+: "${CHRONICLE_SERVER_ARGS:=local postgres}"
 
-mobile_signing_fatal() {
-  printf 'FATAL: %s\n' "$1" >&2
-  return 1
-}
-
-validate_mobile_signing() {
-  case "$MOBILE_SIGNING_ENABLED" in
-    true|false) ;;
-    *) mobile_signing_fatal "MOBILE_SIGNING_ENABLED must be exactly true or false" || return 1 ;;
-  esac
-  case "$MOBILE_SIGNING_REQUIRED" in
-    true|false) ;;
-    *) mobile_signing_fatal "MOBILE_SIGNING_REQUIRED must be exactly true or false" || return 1 ;;
-  esac
-
-  if [ "$MOBILE_SIGNING_ENABLED" != "$MOBILE_SIGNING_REQUIRED" ]; then
-    mobile_signing_fatal \
-      "MOBILE_SIGNING_ENABLED and MOBILE_SIGNING_REQUIRED must either both be true or both be false" || return 1
-  fi
-
-  if [ "$MOBILE_SIGNING_ENABLED" = false ]; then
-    if [ -n "$MOBILE_SIGNING_SECRET" ]; then
-      mobile_signing_fatal \
-        "MOBILE_SIGNING_SECRET must stay blank unless controlled legacy compatibility is enabled" || return 1
-    fi
-    if [ -n "$MOBILE_SIGNING_SECRET_PREVIOUS" ]; then
-      mobile_signing_fatal \
-        "MOBILE_SIGNING_SECRET_PREVIOUS must stay blank unless controlled legacy compatibility is enabled" || return 1
-    fi
-    return 0
-  fi
-
-  case "$MOBILE_SIGNING_SECRET" in
-    *CHANGE_ME*|'')
-      mobile_signing_fatal \
-        "MOBILE_SIGNING_SECRET must be a generated 32+ character key when controlled legacy compatibility is enabled" || return 1
-      ;;
-  esac
-  if [ "${#MOBILE_SIGNING_SECRET}" -lt 32 ]; then
-    mobile_signing_fatal \
-      "MOBILE_SIGNING_SECRET must be a generated 32+ character key when controlled legacy compatibility is enabled" || return 1
-  fi
-  if [ -n "$MOBILE_SIGNING_SECRET_PREVIOUS" ]; then
-    if [ "${#MOBILE_SIGNING_SECRET_PREVIOUS}" -lt 32 ]; then
-      mobile_signing_fatal "MOBILE_SIGNING_SECRET_PREVIOUS must be at least 32 characters" || return 1
-    fi
-    if [ "$MOBILE_SIGNING_SECRET_PREVIOUS" = "$MOBILE_SIGNING_SECRET" ]; then
-      mobile_signing_fatal "MOBILE_SIGNING_SECRET_PREVIOUS must differ from MOBILE_SIGNING_SECRET" || return 1
-    fi
-  fi
-}
-
-validate_mobile_signing
-if [ "${1:-}" = --validate-mobile-signing ]; then
-  [ "$#" -eq 1 ] || mobile_signing_fatal "--validate-mobile-signing accepts no additional arguments"
-  exit 0
-fi
-
-export DOMAIN POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD \
-  CHRONICLE_PUBLIC_BASE_URL \
-  HAZELCAST_SERVER_PASSWORD HAZELCAST_CLIENT_PASSWORD JWT_SECRET \
-  MOBILE_SIGNING_ENABLED MOBILE_SIGNING_REQUIRED MOBILE_SIGNING_SECRET \
-  MOBILE_SIGNING_SECRET_PREVIOUS \
+export DOMAIN POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_APP_PASSWORD \
+  CHRONICLE_PUBLIC_BASE_URL JWT_SECRET JWT_SECRET_PREVIOUS JWT_SECRET_PREVIOUS_EXPIRES_AT \
   CHRONICLE_REVIEWER_ACCESS_ENABLED CHRONICLE_REVIEWER_ACCESS_SECRET \
   CHRONICLE_REVIEWER_STUDY_ID CHRONICLE_REVIEWER_PARTICIPANT_ID \
-  CHRONICLE_INTERNAL_WEB_SECRET CHRONICLE_RECORD_STAFF_IP TESTING_LOGIN_ENABLED ALLOW_PRODUCTION_TESTING_LOGIN \
-  DASHBOARD_PASSWORD_HASH \
-  OIDC_ENABLED OIDC_PROVIDER_LABEL OIDC_PUBLIC_BASE_URL OIDC_ISSUER \
-  OIDC_AUTHORIZATION_URI OIDC_TOKEN_URI OIDC_JWKS_URI OIDC_CLIENT_ID OIDC_CLIENT_SECRET \
-  OIDC_IDP_HINT OIDC_COOKIE_TOKEN_CLAIM \
-  SMTP_ENABLED SMTP_HOST SMTP_PORT SMTP_USERNAME SMTP_PASSWORD SMTP_FROM_EMAIL \
-  VAULT_ENABLED VAULT_ADDR VAULT_TOKEN
+  CHRONICLE_INTERNAL_WEB_SECRET CHRONICLE_RECORD_STAFF_IP TESTING_LOGIN_ENABLED \
+  DASHBOARD_PASSWORD_HASH
 
-for required in POSTGRES_PASSWORD JWT_SECRET CHRONICLE_INTERNAL_WEB_SECRET; do
+for required in POSTGRES_APP_PASSWORD JWT_SECRET CHRONICLE_INTERNAL_WEB_SECRET; do
   eval "value=\${$required:-}"
   if [ -z "$value" ]; then
     echo "FATAL: $required is not set — see selfhost/.env.example" >&2
