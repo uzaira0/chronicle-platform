@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 source "${ROOT_DIR}/tests/security/lib/selfhost-fixtures.sh"
 CHRONICLE_SCRIPT="${ROOT_DIR}/selfhost/chronicle"
+WRITER_SERVICES=""
 RUN_PARENT="${SELFHOST_RESTORE_ORCHESTRATION_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-restore-orchestration}"
 
 fail() {
@@ -39,9 +40,9 @@ setup_case() {
   OUTPUT="${CASE_DIR}/output.log"
   CASE_STOP_EXIT=0
   CASE_INCLUDE_CA_EXPORT=0
+  CASE_RESTORE_MUTATES=1
   /bin/mkdir -p "${SELFHOST_DIR}/backups/last" "$COMMAND_DIR"
-  /bin/cp "$CHRONICLE_SCRIPT" "${SELFHOST_DIR}/chronicle"
-  /bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "${SELFHOST_DIR}/"
+  copy_selfhost_setup_fixture "$SELFHOST_DIR"
   /bin/chmod 0755 "${SELFHOST_DIR}/chronicle"
   CASE_TRUSTED_SHA256="$(write_trusted_restore_fixture "${SELFHOST_DIR}/backups/last/chronicle-latest.sql.gz")"
   cat >"${SELFHOST_DIR}/.env" <<'EOF'
@@ -49,10 +50,6 @@ COMPOSE_PROJECT_NAME=chronicle-selfhost-restore-fixture
 CHRONICLE_STATE_DIR=.
 COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml
 POSTGRES_PASSWORD=fixture-postgres-password
-MOBILE_SIGNING_ENABLED=false
-MOBILE_SIGNING_REQUIRED=false
-MOBILE_SIGNING_SECRET=
-MOBILE_SIGNING_SECRET_PREVIOUS=
 JWT_SECRET=fixture-jwt-secret
 METRICS_PASSWORD=fixture-metrics-secret
 CHRONICLE_INTERNAL_WEB_SECRET=fixture-internal-secret
@@ -61,88 +58,12 @@ RESTORE_START_WAIT_TIMEOUT_SECONDS=17
 EOF
   /bin/chmod 0600 "${SELFHOST_DIR}/.env"
 
-  cat >"${COMMAND_DIR}/docker" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-for secret_name in POSTGRES_PASSWORD MOBILE_SIGNING_SECRET JWT_SECRET METRICS_PASSWORD \
-    CHRONICLE_INTERNAL_WEB_SECRET DASHBOARD_PASSWORD_HASH; do
-  [[ -z "${!secret_name+x}" ]] || {
-    echo "deployment secret reached docker environment: ${secret_name}" >&2
-    exit 91
-  }
-done
-
-log="${SELFHOST_RESTORE_ORCHESTRATION_LOG:?}"
-stopped="${SELFHOST_RESTORE_ORCHESTRATION_STOPPED:?}"
-[[ "${1:-}" == compose ]] || exit 92
-shift
-if [[ "${1:-}" == -p ]]; then
-  [[ -n "${2:-}" ]] || exit 93
-  shift 2
-fi
-profile=""
-if [[ "${1:-}" == --profile ]]; then
-  profile="${2:-}"
-  [[ "$profile" == restore ]] || exit 101
-  shift 2
-fi
-
-case "${1:-}" in
-  ls)
-    [[ "$*" == 'ls --all --format json' ]] || exit 105
-    printf '[]\n'
-    ;;
-  config)
-    [[ "${2:-}" == --services ]] || exit 94
-    printf '%s\n' postgres backend web db-init db-backup
-    [[ "${SELFHOST_RESTORE_INCLUDE_CA_EXPORT:-0}" != 1 || "$profile" == restore ]] || printf '%s\n' ca-export
-    [[ "$profile" != restore ]] || printf '%s\n' restore
-    ;;
-  stop)
-    shift
-    printf 'stop:%s\n' "$*" >>"$log"
-    : >"$stopped"
-    exit "${SELFHOST_RESTORE_ORCHESTRATION_STOP_EXIT:-0}"
-    ;;
-  ps)
-    [[ "$profile" == restore ]] || exit 102
-    [[ "$*" == 'ps --status running --services' ]] || exit 95
-    printf '%s\n' postgres
-    if [[ ! -e "$stopped" ]]; then
-      printf '%s\n' backend web db-backup
-    fi
-    ;;
-  run)
-    if [[ "$profile" == restore ]]; then
-      printf 'run:%s\n' "$*" >>"$log"
-      [[ -e "$stopped" ]] || {
-        echo "restore ran before writers stopped" >&2
-        exit 96
-      }
-      [[ " $* " == *' -e CHRONICLE_RESTORE_ORCHESTRATED=true '* ]] || exit 97
-      [[ " $* " == *' -e RESTORE_FILE=/backups/'* ]] || exit 98
-      exit "${SELFHOST_RESTORE_ORCHESTRATION_RUN_EXIT:-0}"
-    fi
-    [[ "$*" == 'run --rm --no-deps ca-export' ]] || exit 103
-    printf 'ca-export\n' >>"$log"
-    ;;
-  up)
-    [[ -z "$profile" ]] || exit 104
-    printf 'up:%s\n' "$*" >>"$log"
-    case "$*" in
-      'up -d --wait --wait-timeout 17 --remove-orphans --force-recreate postgres backend web db-init db-backup') ;;
-      'up -d --wait --wait-timeout 17 --no-deps backend web db-backup')
-        /bin/rm -f -- "$stopped"
-        ;;
-      *) exit 99 ;;
-    esac
-    exit "${SELFHOST_RESTORE_ORCHESTRATION_UP_EXIT:-0}"
-    ;;
-  *) exit 100 ;;
-esac
-EOF
+  /bin/cp "${ROOT_DIR}/tests/security/fixtures/selfhost-restore/commands/docker" "${COMMAND_DIR}/docker"
   /bin/chmod 0755 "${COMMAND_DIR}/docker"
+  WRITER_SERVICES=$(SELFHOST_RESTORE_ORCHESTRATION_LOG="$COMMAND_LOG" \
+    SELFHOST_RESTORE_ORCHESTRATION_STOPPED="$STOPPED_MARKER" \
+    "${COMMAND_DIR}/docker" compose --profile restore config --services |
+    selfhost_python -c 'import sys; from chronicle_ops.common import application_services; print(" ".join(application_services(sys.stdin.read().splitlines())))')
 }
 
 run_restore() {
@@ -159,6 +80,9 @@ run_restore() {
       "SELFHOST_RESTORE_ORCHESTRATION_RUN_EXIT=${run_exit}" \
       "SELFHOST_RESTORE_ORCHESTRATION_UP_EXIT=${up_exit}" \
       "SELFHOST_RESTORE_INCLUDE_CA_EXPORT=${CASE_INCLUDE_CA_EXPORT}" \
+      "SELFHOST_RESTORE_ORCHESTRATION_MUTATES=${CASE_RESTORE_MUTATES}" \
+      "SELFHOST_RESTORE_ORCHESTRATION_MUTATION_MARKER=${SELFHOST_DIR}/backups/$(selfhost_python -c \
+        'from chronicle_ops.dump import RESTORE_MUTATION_MARKER; print(RESTORE_MUTATION_MARKER)')" \
       /bin/bash ./chronicle restore "--trusted-sha256=${CASE_TRUSTED_SHA256}" "$@"
   ) >"$OUTPUT" 2>&1
   RESTORE_STATUS=$?
@@ -184,41 +108,74 @@ if [[ "$RESTORE_STATUS" -ne 0 ]]; then
   fail "guarded restore success case failed"
 fi
 assert_ordered_success
-grep -Fq 'stop:backend web db-init db-backup' "$COMMAND_LOG" ||
+grep -Fq "stop:${WRITER_SERVICES}" "$COMMAND_LOG" ||
   fail "guarded restore did not stop every configured application/backup service"
 [[ ! -e "${SELFHOST_DIR}/.chronicle-restore.lock" ]] ||
   fail "successful restore left its ownership lock"
 grep -Fq 'Restore complete.' "$OUTPUT" || fail "success was not reported"
 grep -Fxq 'ca-export' "$COMMAND_LOG" || fail "local restore did not run CA export after healthy startup"
-! grep -Fq 'CHRONICLE_RESTORE_LEAVE_STOPPED=true' "$COMMAND_LOG" ||
+! grep -Fq 'CHRONICLE_RESTORE_ROLLBACK=true' "$COMMAND_LOG" ||
   fail "normal restore incorrectly selected prior-binary rollback verification"
 
 setup_case no-start
 run_restore 0 0 --yes --no-start
 [[ "$RESTORE_STATUS" -eq 0 ]] || fail "--no-start restore failed"
 grep -q '^run:' "$COMMAND_LOG" || fail "--no-start omitted the restore"
-grep -Fq 'CHRONICLE_RESTORE_LEAVE_STOPPED=true' "$COMMAND_LOG" ||
-  fail "--no-start omitted protected continuity comparison"
+# --no-start only leaves services stopped; the rollback continuity proof belongs to ./chronicle rollback.
+! grep -Fq 'CHRONICLE_RESTORE_ROLLBACK=true' "$COMMAND_LOG" ||
+  fail "--no-start selected prior-binary rollback verification"
 ! grep -q '^up:' "$COMMAND_LOG" || fail "--no-start restarted the application"
 [[ ! -e "${SELFHOST_DIR}/.chronicle-restore.lock" ]] ||
   fail "successful --no-start restore left its ownership lock"
 grep -Fq 'application remains stopped' "$OUTPUT" ||
   fail "--no-start output did not describe the resulting state"
 
-setup_case no-start-continuity-failure
+# Only ./chronicle rollback asks restore.sh for the prior-binary continuity proof. Drive the Rollback
+# step itself (its constructor needs two installed releases) against the same Compose stub.
+setup_case rollback-proof
+set +e
+(
+  cd "$SELFHOST_DIR"
+  export "PATH=${COMMAND_DIR}:${PATH}" \
+    "SELFHOST_RESTORE_ORCHESTRATION_LOG=${COMMAND_LOG}" \
+    "SELFHOST_RESTORE_ORCHESTRATION_STOPPED=${STOPPED_MARKER}" \
+    "SELFHOST_RESTORE_ORCHESTRATION_MUTATION_MARKER=${SELFHOST_DIR}/backups/$(selfhost_python -c \
+      'from chronicle_ops.dump import RESTORE_MUTATION_MARKER; print(RESTORE_MUTATION_MARKER)')" \
+    CHRONICLE_OPS_PROJECT=chronicle-selfhost-restore-fixture "CHRONICLE_OPS_STATE=${SELFHOST_DIR}" \
+    "CHRONICLE_OPS_BACKUPS=${SELFHOST_DIR}/backups" RESTORE_START_WAIT_TIMEOUT_SECONDS=17
+  selfhost_python -c '
+import sys
+from pathlib import Path
+from chronicle_ops.restore import Rollback
+step = Rollback.__new__(Rollback)
+step.state = step.current = Path.cwd()
+step.previous, step.assume_yes = Path.cwd() / "previous", True
+step.record = dict(dump="/backups/last/chronicle-latest.sql.gz", sha256=sys.argv[1])
+step.restore_database()
+' "$CASE_TRUSTED_SHA256"
+) >"$OUTPUT" 2>&1
+RESTORE_STATUS=$?
+set -e
+if [[ "$RESTORE_STATUS" -ne 0 ]]; then
+  /bin/cat "$OUTPUT" >&2
+  fail "rollback restore step failed"
+fi
+grep '^run:' "$COMMAND_LOG" | grep -Fq ' -e CHRONICLE_RESTORE_ROLLBACK=true ' ||
+  fail "rollback did not ask restore.sh for the prior-binary continuity proof"
+! grep -q '^up:' "$COMMAND_LOG" || fail "rollback restore started the application before the previous release took over"
+
+setup_case no-start-restore-failure
 run_restore 45 0 --yes --no-start
-[[ "$RESTORE_STATUS" -ne 0 ]] || fail "rollback continuity rejection returned success"
-grep -Fq 'CHRONICLE_RESTORE_LEAVE_STOPPED=true' "$COMMAND_LOG" ||
-  fail "rollback continuity rejection did not exercise the protected comparison path"
-! grep -q '^up:' "$COMMAND_LOG" || fail "rejected rollback restarted the application"
+[[ "$RESTORE_STATUS" -ne 0 ]] || fail "failed --no-start restore returned success"
+! grep -q '^up:' "$COMMAND_LOG" || fail "failed --no-start restore restarted the application"
 [[ "$(cat "${SELFHOST_DIR}/.chronicle-restore.lock/phase")" == restoring ]] ||
-  fail "rejected rollback did not preserve its destructive phase"
+  fail "failed --no-start restore did not preserve its destructive phase"
 
 setup_case stop-failure
 CASE_STOP_EXIT=44
 run_restore 0 0 --yes
 [[ "$RESTORE_STATUS" -ne 0 ]] || fail "partial service-stop failure returned success"
-grep -Fq 'stop:backend web db-init db-backup' "$COMMAND_LOG" ||
+grep -Fq "stop:${WRITER_SERVICES}" "$COMMAND_LOG" ||
   fail "partial service-stop failure did not exercise the stop command"
 ! grep -q '^run:' "$COMMAND_LOG" || fail "restore ran after the service-stop command failed"
 grep -Fq 'up -d --wait --wait-timeout 17 --no-deps backend web db-backup' "$COMMAND_LOG" ||
@@ -229,8 +186,8 @@ grep -Fq 'The pre-restore service state was restored.' "$OUTPUT" ||
   fail "pre-restore stop failure did not report service recovery"
 
 setup_case changed-backup
-rejected_status="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${ROOT_DIR}/selfhost" \
-  python3 -c 'from chronicle_ops.dump import EXIT_REJECTED_BEFORE_MUTATION; print(EXIT_REJECTED_BEFORE_MUTATION)')"
+CASE_RESTORE_MUTATES=0
+rejected_status="$(selfhost_python -c 'from chronicle_ops.dump import EXIT_REJECTED_BEFORE_MUTATION; print(EXIT_REJECTED_BEFORE_MUTATION)')"
 run_restore "$rejected_status" 0 --yes
 [[ "$RESTORE_STATUS" -ne 0 ]] || fail "changed backup rejection returned success"
 assert_ordered_success
@@ -239,8 +196,18 @@ grep -Fq 'up -d --wait --wait-timeout 17 --no-deps backend web db-backup' "$COMM
 [[ ! -e "$STOPPED_MARKER" ]] || fail "changed backup rejection left services stopped"
 [[ ! -e "${SELFHOST_DIR}/.chronicle-restore.lock" ]] ||
   fail "changed backup rejection left a destructive-operation lock"
-grep -Fq 'backup changed' "$OUTPUT" || fail "changed backup rejection was not explained"
-grep -Fq 'rerun ./chronicle restore' "$OUTPUT" || fail "changed backup rejection omitted retry instructions"
+grep -Fq 'restore failed before database mutation' "$OUTPUT" || fail "changed backup rejection omitted the mutation boundary"
+grep -Fq 'live database was preserved' "$OUTPUT" || fail "changed backup rejection omitted its preservation result"
+
+setup_case rolled-back-transaction
+rollback_status="$(selfhost_python -c \
+  'from chronicle_ops.dump import EXIT_RESTORE_TRANSACTION_ROLLED_BACK; print(EXIT_RESTORE_TRANSACTION_ROLLED_BACK)')"
+run_restore "$rollback_status" 0 --yes --no-start
+[[ "$RESTORE_STATUS" -ne 0 ]] || fail "rolled-back restore returned success"
+assert_ordered_success
+[[ ! -e "$STOPPED_MARKER" ]] || fail "rolled-back restore left the preserved live deployment stopped"
+[[ ! -e "${SELFHOST_DIR}/.chronicle-restore.lock" ]] || fail "rolled-back restore retained its mutation lock"
+grep -Fq 'live database was preserved' "$OUTPUT" || fail "rolled-back restore omitted its preservation result"
 
 setup_case restore-failure
 run_restore 42 0 --yes
@@ -287,6 +254,7 @@ grep -Fq 'did not return healthy' "$OUTPUT" ||
 
 setup_case upgrade-interlock
 /bin/mkdir "${SELFHOST_DIR}/.chronicle-upgrade.lock"
+printf '{}\n' >"${SELFHOST_DIR}/.chronicle-upgrade.lock/recovery.json"
 run_restore 0 0 --yes
 [[ "$RESTORE_STATUS" -ne 0 ]] || fail "restore ignored an upgrade lock"
 [[ ! -e "$COMMAND_LOG" ]] || ! grep -Eq '^(stop|run|up):' "$COMMAND_LOG" ||
@@ -296,6 +264,7 @@ grep -Fq 'an upgrade is active or incomplete' "$OUTPUT" ||
 
 setup_case rotation-interlock
 /bin/mkdir "${SELFHOST_DIR}/.chronicle-secret-rotation"
+printf 'prepared\n' >"${SELFHOST_DIR}/.chronicle-secret-rotation/phase"
 run_restore 0 0 --yes
 [[ "$RESTORE_STATUS" -ne 0 ]] || fail "restore ignored a secret-rotation lock"
 [[ ! -e "$COMMAND_LOG" ]] || ! grep -Eq '^(stop|run|up):' "$COMMAND_LOG" ||
@@ -312,6 +281,7 @@ run_restore 0 0 --yes
 
 setup_case existing-restore-lock
 /bin/mkdir "${SELFHOST_DIR}/.chronicle-restore.lock"
+printf 'prepared\n' >"${SELFHOST_DIR}/.chronicle-restore.lock/phase"
 run_restore 0 0 --yes
 [[ "$RESTORE_STATUS" -ne 0 ]] || fail "restore ignored an existing restore lock"
 grep -Fq 'another restore is active or incomplete' "$OUTPUT" ||
@@ -326,12 +296,4 @@ run_restore 0 0 --yes /backups/last/escaped.sql.gz
 grep -Fq 'restore dump is unavailable or unsafe' "$OUTPUT" ||
   fail "unsafe restore path was not explained"
 
-# Exercise the moved post-acquisition checks against racing operation locks.
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${ROOT_DIR}/tests/selfhost-py:${ROOT_DIR}/selfhost" \
-  python3 -m unittest test_restore.RestoreTests.test_post_acquisition_interlocks \
-  test_upgrade.UpgradeTests.test_post_acquisition_interlocks
-grep -Fq 'started while the secret-rotation lock was being acquired' \
-  "${ROOT_DIR}/selfhost/rotate-secret.sh" ||
-  fail "secret rotation omits post-acquisition operation-lock rechecks"
-
-echo "self-host restore orchestration test passed"
+echo "PASS: restore orchestration fixture cases"

@@ -104,7 +104,7 @@ case "${1:-}" in
         if [[ "${LEGACY_RESTORE_TEST_DEPLOYMENT_MANIFEST_VALID:-true}" == "true" ]]; then
           printf '%s\n' \
             '{' \
-            '  "schema_version": 1,' \
+            "  \"schema_version\": ${BACKUP_MANIFEST_VERSION}," \
             '  "timestamp": "2026-01-01T00:00:00Z",' \
             '  "git_commit": "0000000000000000000000000000000000000000",' \
             '  "git_branch": "fixture",' \

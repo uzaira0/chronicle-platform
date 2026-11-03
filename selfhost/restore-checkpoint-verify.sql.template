@@ -1,0 +1,67 @@
+DO $$
+DECLARE expected record; actual_digest TEXT; pair record;
+        captured BIGINT; unresolved_continuity BIGINT; predicate TEXT;
+BEGIN
+    IF (SELECT count(*) FROM chronicle_restore_continuity.checkpoint) <> 1 THEN
+        RAISE EXCEPTION 'Incomplete continuity checkpoint';
+    END IF;
+    SELECT * INTO STRICT expected FROM chronicle_restore_continuity.checkpoint
+    WHERE contract_version = @RESTORE_CONTINUITY_CONTRACT_VERSION@;
+    IF expected.withdrawal_receipt_count <> (SELECT count(*) FROM chronicle_restore_continuity.withdrawal_requests) OR
+        expected.revoked_api_key_count <> (SELECT count(*) FROM chronicle_restore_continuity.revoked_api_keys) OR
+        expected.withdrawn_participant_count <> (SELECT count(*) FROM chronicle_restore_continuity.withdrawn_participants) OR
+        expected.deletion_operation_count <> (SELECT count(*) FROM chronicle_restore_continuity.deletion_operations) OR
+        expected.source_tombstone_count <> (SELECT count(*) FROM chronicle_restore_continuity.deletion_tombstones) OR
+        expected.collection_revision_count <> (SELECT count(*) FROM chronicle_restore_continuity.data_collection_settings_revisions) OR
+        expected.published_collection_settings_count <> (SELECT count(*) FROM chronicle_restore_continuity.published_data_collection_settings) OR
+        expected.enrollment_invitation_count <> (SELECT count(*) FROM chronicle_restore_continuity.enrollment_invitations) OR
+        expected.erased_device_key_tombstone_count <> (SELECT count(*) FROM chronicle_restore_continuity.erased_device_key_tombstones) OR
+        expected.restricted_participant_count <> (SELECT count(*) FROM chronicle_restore_continuity.restricted_participants) OR
+        expected.archived_study_count <> (SELECT count(*) FROM chronicle_restore_continuity.archived_studies) OR
+        expected.purge_cutoff_count <> (SELECT count(*) FROM chronicle_restore_continuity.participant_purge_cutoffs) OR
+        expected.collection_acknowledgment_count <> (SELECT count(*) FROM chronicle_restore_continuity.participant_collection_acknowledgment) THEN
+        RAISE EXCEPTION 'Incomplete continuity checkpoint counts';
+    END IF;
+    @CHECKPOINT_DIGEST_SQL@
+SELECT value INTO actual_digest FROM digest;
+    IF actual_digest IS DISTINCT FROM expected.checkpoint_sha256 THEN
+        RAISE EXCEPTION 'Corrupt continuity checkpoint digest';
+    END IF;
+    FOR pair IN SELECT * FROM (VALUES
+        ('withdrawal_requests', 'mobile_withdrawal_requests'),
+        ('revoked_api_keys', 'api_keys'),
+        ('withdrawn_participants', 'study_participants'),
+        ('deletion_operations', 'data_deletion_operations'),
+        ('deletion_tombstones', 'data_deletion_tombstones'),
+        ('data_collection_settings_revisions', 'data_collection_settings_revisions'),
+        ('published_data_collection_settings', 'studies'),
+        ('enrollment_invitations', 'participant_form_access_codes'),
+        ('erased_device_key_tombstones', 'erased_device_key_tombstones'),
+        ('participant_purge_cutoffs', 'participant_purge_cutoffs'),
+        ('participant_collection_acknowledgment', 'participant_collection_acknowledgment')
+    ) AS tables(source_name, target_name) LOOP
+        EXECUTE format('SELECT count(*) FROM chronicle_restore_continuity.%I', pair.source_name) INTO captured;
+        IF captured = 0 THEN CONTINUE; END IF;
+        IF to_regclass('public.' || pair.target_name) IS NULL THEN
+            RAISE EXCEPTION 'selected rollback backup predates protected table %', pair.target_name;
+        END IF;
+        predicate := 'to_jsonb(target) @> to_jsonb(source)';
+        IF pair.source_name = 'revoked_api_keys' THEN
+            predicate := predicate || ' AND target.revoked';
+        ELSIF pair.source_name = 'withdrawn_participants' THEN
+            predicate := predicate || ' AND target.participation_status = ''NOT_ENROLLED''';
+        ELSIF pair.source_name = 'data_collection_settings_revisions' THEN
+            predicate := predicate || ' AND target.study_modules = source.study_modules';
+        ELSIF pair.source_name = 'published_data_collection_settings' THEN
+            predicate := 'target.study_id = source.study_id AND target.settings -> ''DataCollection'' = source.setting AND target.modules = source.study_modules';
+        END IF;
+        EXECUTE format('SELECT count(*) FROM chronicle_restore_continuity.%I source WHERE NOT EXISTS
+            (SELECT 1 FROM public.%I target WHERE %s)', pair.source_name, pair.target_name, predicate)
+        INTO unresolved_continuity;
+        IF unresolved_continuity <> 0 THEN
+            RAISE EXCEPTION 'selected rollback backup predates % protected continuity fact(s)', unresolved_continuity;
+        END IF;
+    END LOOP;
+END $$;
+@RESTRICTIONS_VERIFICATION_SQL@
+DROP SCHEMA chronicle_restore_continuity CASCADE;

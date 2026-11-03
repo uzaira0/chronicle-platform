@@ -50,8 +50,20 @@ mkdir "$FIXTURE_BIN"
 cp "${original_fixture_bin}/"* "$FIXTURE_BIN/"
 cat >"${FIXTURE_BIN}/python3" <<'SH'
 #!/usr/bin/env bash
-exec env PYTHONPATH="${ROOT_DIR}/selfhost" PYTHONDONTWRITEBYTECODE=1 "$REAL_PYTHON" "$@"
+exec env PYTHONPATH="${ROOT_DIR}/selfhost" PYTHONDONTWRITEBYTECODE=1 "$REAL_PYTHON" -s "$@"
 SH
+mv "${FIXTURE_BIN}/psql" "${FIXTURE_BIN}/psql-original"
+cat >"${FIXTURE_BIN}/psql" <<'PY'
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import sys
+from chronicle_ops.dump import CATALOG_GATE_SQL
+args = sys.argv[1:]
+if '-c' in args and args[args.index('-c') + 1] == CATALOG_GATE_SQL.rstrip('\n'):
+    sys.exit(0)
+os.execv(str(Path(__file__).with_name('psql-original')), sys.argv)
+PY
 chmod 0755 "${FIXTURE_BIN}/"*
 
 cleanup() {
@@ -84,7 +96,7 @@ run_direct_invocation_case() {
     POSTGRES_DB="chronicle" \
     SELFHOST_RESTORE_TEST_PG_DUMP_MARKER="$pg_dump_marker" \
     SELFHOST_RESTORE_TEST_PSQL_MARKER="$psql_marker" \
-    /bin/bash "$RESTORE_SCRIPT" >"$output_file" 2>&1
+    "$BASH" "$RESTORE_SCRIPT" >"$output_file" 2>&1
   local result_code=$?
   set -e
 
@@ -123,11 +135,17 @@ run_failure_case() {
     SELFHOST_RESTORE_TEST_PSQL_MARKER="$psql_marker" \
     SELFHOST_RESTORE_TEST_PG_DUMP_EXIT="$pg_dump_exit" \
     SELFHOST_RESTORE_TEST_GZIP_PIPE_EXIT="$gzip_exit" \
-    /bin/bash "$RESTORE_SCRIPT" > "$output_file" 2>&1
+    "$BASH" "$RESTORE_SCRIPT" > "$output_file" 2>&1
   local result_code=$?
   set -e
 
   [[ "$result_code" -ne 0 ]] || fail "${case_name}: restore returned success after safety dump failure"
+  # ./chronicle restore already pinned this file; a second dump-sized copy only costs free space.
+  grep -Fq "ok   ${restore_file} passes its gzip integrity check" "$output_file" ||
+    fail "${case_name}: restore.sh did not validate the pinned input in place"
+  if /usr/bin/find "$backups_dir" -name '.reviewed-restore.*' -print -quit | /usr/bin/grep -q .; then
+    fail "${case_name}: restore.sh left a second copy of the pinned input"
+  fi
   [[ -f "$pg_dump_marker" ]] || fail "${case_name}: pg_dump failure fixture was not exercised"
   [[ ! -e "$psql_marker" ]] || fail "${case_name}: destructive psql path ran after safety dump failure"
   grep -Fq "FAIL unable to create pre-restore safety dump; refusing to drop the existing schema" "$output_file" ||
@@ -169,7 +187,7 @@ run_unique_safety_dump_case() {
     SELFHOST_RESTORE_TEST_PSQL_MARKER="$psql_marker" \
     SELFHOST_RESTORE_TEST_PG_DUMP_EXIT=0 \
     SELFHOST_RESTORE_TEST_GZIP_PIPE_EXIT=0 \
-    /bin/bash "$RESTORE_SCRIPT" >"$output_file" 2>&1
+    "$BASH" "$RESTORE_SCRIPT" >"$output_file" 2>&1
   local result_code=$?
   set -e
 
@@ -195,4 +213,4 @@ run_failure_case "pg-dump-failure" 42 0
 run_failure_case "gzip-failure" 0 43
 run_unique_safety_dump_case
 
-echo "selfhost restore fail-closed test passed"
+echo "PASS: restore fail-closed shell fixture cases"

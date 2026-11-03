@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+for secret_name in POSTGRES_PASSWORD MOBILE_SIGNING_SECRET JWT_SECRET METRICS_PASSWORD \
+    CHRONICLE_INTERNAL_WEB_SECRET DASHBOARD_PASSWORD_HASH; do
+  [[ -z "${!secret_name+x}" ]] || {
+    echo "deployment secret reached docker environment: ${secret_name}" >&2
+    exit 91
+  }
+done
+
+log="${SELFHOST_RESTORE_ORCHESTRATION_LOG:?}"
+stopped="${SELFHOST_RESTORE_ORCHESTRATION_STOPPED:?}"
+[[ "${1:-}" == compose ]] || exit 92
+shift
+if [[ "${1:-}" == -p ]]; then
+  [[ -n "${2:-}" ]] || exit 93
+  shift 2
+fi
+profile=""
+if [[ "${1:-}" == --profile ]]; then
+  profile="${2:-}"
+  [[ "$profile" == restore ]] || exit 101
+  shift 2
+fi
+
+case "${1:-}" in
+  ls)
+    [[ "$*" == 'ls --all --format json' ]] || exit 105
+    printf '[]\n'
+    ;;
+  config)
+    [[ "${2:-}" == --services ]] || exit 94
+    printf '%s\n' postgres backend web db-init migrate db-backup
+    [[ "${SELFHOST_RESTORE_INCLUDE_CA_EXPORT:-0}" != 1 || "$profile" == restore ]] || printf '%s\n' ca-export
+    [[ "$profile" != restore ]] || printf '%s\n' restore
+    ;;
+  stop)
+    shift
+    printf 'stop:%s\n' "$*" >>"$log"
+    : >"$stopped"
+    exit "${SELFHOST_RESTORE_ORCHESTRATION_STOP_EXIT:-0}"
+    ;;
+  ps)
+    [[ "$profile" == restore ]] || exit 102
+    [[ "$*" == 'ps --status running --services' ]] || exit 95
+    printf '%s\n' postgres
+    if [[ ! -e "$stopped" ]]; then
+      printf '%s\n' backend web db-backup
+    fi
+    ;;
+  run)
+    if [[ "$profile" == restore ]]; then
+      printf 'run:%s\n' "$*" >>"$log"
+      [[ -e "$stopped" ]] || {
+        echo "restore ran before writers stopped" >&2
+        exit 96
+      }
+      [[ " $* " == *' -e CHRONICLE_RESTORE_ORCHESTRATED=true '* ]] || exit 97
+      [[ " $* " == *' -e RESTORE_FILE=/backups/'* ]] || exit 98
+      if [[ "${SELFHOST_RESTORE_ORCHESTRATION_MUTATES:-1}" == 1 ]]; then
+        : >"${SELFHOST_RESTORE_ORCHESTRATION_MUTATION_MARKER:?}"
+      fi
+      exit "${SELFHOST_RESTORE_ORCHESTRATION_RUN_EXIT:-0}"
+    fi
+    [[ "$*" == 'run --rm --no-deps ca-export' ]] || exit 103
+    printf 'ca-export\n' >>"$log"
+    ;;
+  up)
+    [[ -z "$profile" ]] || exit 104
+    printf 'up:%s\n' "$*" >>"$log"
+    case "$*" in
+      'up -d --wait --wait-timeout 17 --remove-orphans --force-recreate postgres backend web db-init migrate db-backup') ;;
+      'up -d --wait --wait-timeout 17 --no-deps backend web db-backup')
+        /bin/rm -f -- "$stopped"
+        ;;
+      *) exit 99 ;;
+    esac
+    exit "${SELFHOST_RESTORE_ORCHESTRATION_UP_EXIT:-0}"
+    ;;
+  *) exit 100 ;;
+esac

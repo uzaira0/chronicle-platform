@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "$ROOT_DIR/tests/security/lib/selfhost-fixtures.sh"
 RUN_PARENT="${SELFHOST_DELETION_STATUS_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-deletion-status}"
 REAL_PYTHON="$(command -v python3)"
 
@@ -34,8 +35,7 @@ STUDY_ID='11111111-2222-4333-8444-555555555555'
 OPERATION_ID='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 
 /bin/mkdir -p "$SELFHOST_DIR" "$COMMAND_DIR"
-/bin/cp "${ROOT_DIR}/selfhost/chronicle" "$SELFHOST_DIR/chronicle"
-/bin/cp -R "${ROOT_DIR}/selfhost/chronicle_ops" "$SELFHOST_DIR/"
+copy_selfhost_setup_fixture "$SELFHOST_DIR"
 /bin/chmod 0755 "$SELFHOST_DIR/chronicle"
 
 cat >"${SELFHOST_DIR}/.env" <<'EOF'
@@ -43,40 +43,30 @@ COMPOSE_PROJECT_NAME=chronicle-selfhost-deletion-fixture
 CHRONICLE_STATE_DIR=.
 COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml
 export POSTGRES_PASSWORD='fixture-deletion-db-password-0123456789'
-MOBILE_SIGNING_ENABLED=true
-MOBILE_SIGNING_REQUIRED=true
-export MOBILE_SIGNING_SECRET='fixture-deletion-mobile-secret-0123456789'
-export MOBILE_SIGNING_SECRET_PREVIOUS='fixture-deletion-mobile-previous-0123456789'
 export CHRONICLE_INTERNAL_WEB_SECRET='fixture-deletion-internal-secret-0123456789'
 export JWT_SECRET='fixture-deletion-jwt-secret-0123456789'
 export METRICS_PASSWORD='fixture-deletion-metrics-password-0123456789'
 export GRAFANA_ADMIN_PASSWORD='fixture-deletion-grafana-password-0123456789'
 export DASHBOARD_PASSWORD_HASH='fixture-deletion-dashboard-hash-0123456789'
-export SMTP_PASSWORD='fixture-deletion-smtp-password-0123456789'
-export OIDC_CLIENT_SECRET='fixture-deletion-oidc-secret-0123456789'
 EOF
 /bin/chmod 0600 "${SELFHOST_DIR}/.env"
 
 cat >"$SECRETS_FILE" <<'EOF'
 fixture-deletion-db-password-0123456789
-fixture-deletion-mobile-secret-0123456789
-fixture-deletion-mobile-previous-0123456789
 fixture-deletion-internal-secret-0123456789
 fixture-deletion-jwt-secret-0123456789
 fixture-deletion-metrics-password-0123456789
 fixture-deletion-grafana-password-0123456789
 fixture-deletion-dashboard-hash-0123456789
-fixture-deletion-smtp-password-0123456789
-fixture-deletion-oidc-secret-0123456789
 EOF
 /bin/chmod 0600 "$SECRETS_FILE"
 
 cat >"${COMMAND_DIR}/python3" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-for key in POSTGRES_PASSWORD MOBILE_SIGNING_SECRET MOBILE_SIGNING_SECRET_PREVIOUS \
+for key in POSTGRES_PASSWORD \
   CHRONICLE_INTERNAL_WEB_SECRET JWT_SECRET METRICS_PASSWORD GRAFANA_ADMIN_PASSWORD \
-  DASHBOARD_PASSWORD_HASH SMTP_PASSWORD OIDC_CLIENT_SECRET; do
+  DASHBOARD_PASSWORD_HASH; do
   [[ -z "${!key+x}" ]] || {
     echo "deployment secret ${key} reached Python environment" >&2
     exit 81
@@ -94,9 +84,9 @@ expected_input="$(cat "${SELFHOST_DELETION_STATUS_TEST_EXPECTED_INPUT_FILE:?}")"
 study_id="$(sed -n '1p' "${SELFHOST_DELETION_STATUS_TEST_EXPECTED_INPUT_FILE}")"
 operation_id="$(sed -n '2p' "${SELFHOST_DELETION_STATUS_TEST_EXPECTED_INPUT_FILE}")"
 
-for key in POSTGRES_PASSWORD MOBILE_SIGNING_SECRET MOBILE_SIGNING_SECRET_PREVIOUS \
+for key in POSTGRES_PASSWORD \
   CHRONICLE_INTERNAL_WEB_SECRET JWT_SECRET METRICS_PASSWORD GRAFANA_ADMIN_PASSWORD \
-  DASHBOARD_PASSWORD_HASH SMTP_PASSWORD OIDC_CLIENT_SECRET; do
+  DASHBOARD_PASSWORD_HASH; do
   [[ -z "${!key+x}" ]] || {
     echo "deployment secret ${key} reached Docker environment" >&2
     exit 82
@@ -137,7 +127,7 @@ done
 container_script="${9:-}"
 [[ "$container_script" == *'data_deletion_operations'* \
   && "$container_script" == *'data_deletion_tombstones'* \
-  && "$container_script" == *'retention_holds'* \
+  && "$container_script" == *'requested_at'* \
   && "$container_script" == *'operation_predicate='* ]] || exit 89
 [[ "$container_script" != *'participant_id'* \
   && "$container_script" != *'participant_ref'* \
@@ -148,9 +138,9 @@ captured_input="$(cat "${SELFHOST_DELETION_STATUS_TEST_CAPTURED_INPUT_FILE}")"
 [[ "$captured_input" == "$expected_input" ]] || exit 91
 
 cat <<'STATUS'
-             operation_id             |       mode        |   status    |    quarantine_until    | completed_at | proof_state | active_hold | failure_code
---------------------------------------+-------------------+-------------+------------------------+--------------+-------------+-------------+--------------
- aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee | WITHDRAW_AND_ERASE | QUARANTINED | 2026-08-18 12:00:00+00 |              | pending     | f           |
+             operation_id             |       mode        |   status    |      requested_at      | completed_at | proof_state | failure_code
+--------------------------------------+-------------------+-------------+------------------------+--------------+-------------+--------------
+ aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee | WITHDRAW_AND_ERASE | QUARANTINED | 2026-08-18 12:00:00+00 |              | pending     |
 STATUS
 EOF
 

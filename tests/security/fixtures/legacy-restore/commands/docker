@@ -92,7 +92,11 @@ case "${1:-}" in
         mark "${LEGACY_RESTORE_TEST_MIGRATION_PREFLIGHT_MARKER:?}"
         exit "${LEGACY_RESTORE_TEST_MIGRATION_PREFLIGHT_EXIT:-0}"
       fi
-      if contains_argument chronicle-migration-runner "$@"; then
+      if contains_argument backend-secrets-init "$@"; then
+        exit "${LEGACY_RESTORE_TEST_SECRETS_INIT_EXIT:-0}"
+      fi
+      # The one-shot runner is the compose `migrate` service run with its own entrypoint.
+      if contains_argument migrate "$@"; then
         mark "${LEGACY_RESTORE_TEST_MIGRATION_RUN_MARKER:?}"
         exit "${LEGACY_RESTORE_TEST_MIGRATION_RUN_EXIT:-0}"
       fi
