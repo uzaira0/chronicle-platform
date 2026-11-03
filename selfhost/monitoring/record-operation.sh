@@ -7,7 +7,7 @@ exec 9>/metrics/.operations.lock
 
 record_event() {
   local operation=$1 outcome=$2 category=$3
-  flock -x 9
+  flock -x 9 || return $?
   local events=/metrics/operator-events.jsonl
   local version="${RELEASE_VERSION:-unknown}"
   [[ "$version" =~ ^[A-Za-z0-9._+-]{1,48}$ ]] || version=unknown
@@ -29,7 +29,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   operation="${1:-}"
   outcome="${2:-}"
   category="${3:-none}"
-  [[ "$operation" =~ ^(setup|check|up|verify|status|down|doctor|restore|deletion-status|upgrade|rotate-secret|monitoring-status|monitoring-add-viewer|monitoring-remove-viewer|monitoring-reset-viewer)$ ]] || exit 64
+  [[ "$operation" =~ ^[a-z0-9-]{1,64}$ ]] || exit 64
   [[ "$outcome" =~ ^(success|failure)$ ]] || exit 64
   [[ "$category" =~ ^[a-z0-9_-]{1,48}$ ]] || exit 64
 

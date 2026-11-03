@@ -21,9 +21,20 @@ fail() { printf 'monitoring-config: %s\n' "$*" >&2; exit 1; }
 [[ ${#GRAFANA_ADMIN_PASSWORD} -ge 32 && ${#GRAFANA_ADMIN_PASSWORD} -le 1024 ]] ||
   fail "Grafana password must contain 32..1024 characters"
 case "$GRAFANA_ADMIN_PASSWORD" in *CHANGE_ME*|*changeme*) fail "Grafana password is a placeholder" ;; esac
+# The same release digest rule as config-guard, for the images this stack runs from .env.
+if [[ "${RELEASE_VERSION:-development}" != development ]]; then
+  for image_var in POSTGRES_IMAGE CADDY_IMAGE GRAFANA_IMAGE; do
+    [[ "${!image_var:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] ||
+      fail "${image_var} must be digest-pinned (name@sha256:...) in a release"
+  done
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/../network-policy.sh" || exit 1
 specific_private_bind "$GRAFANA_BIND" || fail "Grafana must bind one specific private or loopback IP"
 
+: "${CHRONICLE_HOST_UID:?operator UID is required}"
+: "${CHRONICLE_HOST_GID:?operator GID is required}"
+[[ "$CHRONICLE_HOST_UID" =~ ^[1-9][0-9]*$ && "$CHRONICLE_HOST_GID" =~ ^(0|[1-9][0-9]*)$ ]] ||
+  fail "monitoring probe requires a non-root operator UID and numeric GID"
 mkdir -p /monitoring-secrets /monitoring-config /metrics
 chown -R 65534:65534 /vmdata /vldata
 chown -R 100:101 /fluent-bit/state
@@ -55,9 +66,9 @@ scrape_configs:
     metric_relabel_configs:
       # Dashboard-login refusals use the API error counter; retain endpoint/method/status labels.
       - source_labels: [__name__]
-        regex: 'chronicle_(api_errors_total|enrollment_total|upload_total|upload_errors_total|sensor_materialization_runs_total|sensor_materialized_samples_total|sensor_materialization_quarantined_rows_total|sensor_materialization_duration_seconds(_bucket|_count|_sum)?|api_request_duration_seconds(_bucket|_count|_sum)?|participant_form_access_total|participant_form_submission_total|data_deletion_operations_total|data_deletion_operation_duration_seconds(_bucket|_count|_sum)?|data_deletion_retention_holds_total|data_quality_evaluations_total|data_quality_alerts_total|export_artifact_bytes|export_storage_usable_bytes|export_storage_admission_rejections_total|export_jobs_total|active_requests|studies_retention_expired|retention_holds_overdue|operator_operation_timestamp_seconds)'
+        regex: 'chronicle_(api_errors_total|enrollment_total|upload_total|upload_errors_total|sensor_materialization_runs_total|sensor_materialized_samples_total|sensor_materialization_quarantined_rows_total|sensor_materialization_duration_seconds(_bucket|_count|_sum)?|api_request_duration_seconds(_bucket|_count|_sum)?|participant_form_access_total|participant_form_submission_total|data_deletion_operations_total|data_deletion_operation_duration_seconds(_bucket|_count|_sum)?|active_requests|studies_retention_expired|operator_operation_timestamp_seconds|background_task_failures_total|browser_errors_total|api_key_usage_total)'
         action: keep
-      - regex: '(study_ref|study_id|participant_id|device_id|user_id|source_ip|client_ip|key_name|key_prefix|instance)'
+      - regex: '(study_ref|study_id|participant_id|random_device_id|user_id|source_ip|client_ip|key_name|key_prefix|instance)'
         action: labeldrop
   - job_name: chronicle-containers
     static_configs:
@@ -116,4 +127,5 @@ chronicle_configuration_check_timestamp_seconds $(date +%s)
 EOF
   chmod 0644 /metrics/configuration.prom
 fi
+chown -R "$CHRONICLE_HOST_UID:$CHRONICLE_HOST_GID" /metrics
 printf 'monitoring-config: scraper credential installed without printing it\n'

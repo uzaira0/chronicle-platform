@@ -426,51 +426,6 @@
       }
     },
     {
-      "id": 145,
-      "title": "Export storage size",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "chronicle-victoriametrics"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 8,
-        "y": 34
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "chronicle_export_storage_bytes",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "chronicle-victoriametrics"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto"
-      }
-    },
-    {
       "id": 146,
       "title": "Backup storage size",
       "type": "stat",

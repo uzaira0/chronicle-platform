@@ -1,5 +1,5 @@
 local function token(value, limit)
-  local text = tostring(value or "")
+  local text = value == nil and "" or tostring(value)
   text = string.gsub(text, "[^%w_.:-]", "_")
   if string.len(text) > limit then text = string.sub(text, 1, limit) end
   return text
@@ -39,17 +39,17 @@ function sanitize(tag, timestamp, record)
     duration_ms = tonumber(source["duration"]) * 1000
   end
   local event_timestamp = source["timestamp"] or source["@timestamp"] or source["ts"]
-  if event_timestamp == nil and tonumber(source["timestamp_ms"]) ~= nil then
-    event_timestamp = tonumber(source["timestamp_ms"]) / 1000
+  if event_timestamp == nil and tonumber(source["timestamp_seconds"]) ~= nil then
+    event_timestamp = tonumber(source["timestamp_seconds"])
   end
   local out = {
     timestamp = event_timestamp or os.date("!%Y-%m-%dT%H:%M:%SZ"),
     service = service,
     stream = service == "audit" and "audit" or "operational",
-    severity = string.upper(token(source["level"] or source["severity"] or "INFO", 16)),
+    severity = string.upper(token(source["level"] or source["severity"] or (service == "postgres" and "UNPARSED" or "INFO"), 16)),
     request_id = token(source["requestId"] or source["request_id"], 64),
     error_id = token(source["errorId"] or source["error_id"], 64),
-    operation = token(source["operation"] or source["eventType"], 64),
+    operation = token(source["operation"] or source["eventType"] or source["action"], 64),
     result = token(source["result"] or source["outcome"] or source["success"], 32),
     failure_category = token(source["failureCategory"] or source["failure_category"], 48),
     release_version = token(source["releaseVersion"] or source["release_version"], 48),

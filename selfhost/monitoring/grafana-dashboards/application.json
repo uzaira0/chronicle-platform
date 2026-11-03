@@ -173,67 +173,6 @@
       ]
     },
     {
-      "id": 241,
-      "title": "Export storage",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "chronicle-victoriametrics"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "chronicle_export_artifact_bytes",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "chronicle-victoriametrics"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes"
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 253,
-      "title": "Export failures and admission rejections",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "chronicle-victoriametrics"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 24,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(chronicle_export_storage_admission_rejections_total[1h])) by (reason)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "chronicle-victoriametrics"
-          }
-        },
-        {
-          "expr": "sum(increase(chronicle_export_jobs_total{outcome=\"failed\"}[1h]))",
-          "legendFormat": "failed jobs",
-          "refId": "B"
-        }
-      ]
-    },
-    {
       "datasource": {
         "type": "prometheus",
         "uid": "chronicle-victoriametrics"
@@ -305,6 +244,37 @@
         }
       ],
       "title": "Participant form access failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "chronicle-victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 334,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (kind)(rate(chronicle_browser_errors_total[5m]))",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Browser errors by kind",
       "type": "timeseries"
     }
   ],

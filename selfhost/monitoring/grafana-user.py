@@ -30,6 +30,8 @@ if operation not in {"add", "remove", "reset"}:
 if not base.startswith("https://"):
     fail("Grafana URL must be HTTPS")
 context = ssl.create_default_context(cafile=os.environ["GRAFANA_CA_FILE"])
+# Grafana is a private local listener: an inherited HTTPS_PROXY cannot reach it, so never consult one.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context))
 
 authorization = base64.b64encode(f"admin:{admin_password}".encode()).decode()
 
@@ -46,18 +48,19 @@ def request(method: str, path: str, payload: dict | None = None, expected=(200,)
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=10, context=context) as response:
+        with opener.open(req, timeout=10) as response:
             content = response.read()
             if response.status not in expected:
                 fail(f"Grafana returned HTTP {response.status}")
             return json.loads(content) if content else {}
     except urllib.error.HTTPError as exc:
         detail = ""
-        try:
-            parsed = json.loads(exc.read())
-            detail = parsed.get("message", "")
-        except Exception:
-            pass
+        with exc:
+            try:
+                parsed = json.loads(exc.read())
+                detail = parsed.get("message", "")
+            except Exception:
+                pass
         fail(f"Grafana returned HTTP {exc.code}" + (f": {detail}" if detail else ""))
     except urllib.error.URLError:
         fail("Grafana is unreachable; run ./chronicle monitoring status")

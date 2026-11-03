@@ -15,8 +15,13 @@ command -v timeout >/dev/null 2>&1 || TIMEOUT=gtimeout
 case "$RUN_ROOT" in /tmp|/tmp/*|/private/tmp|/private/tmp/*) fail "test root must not use a system temporary directory" ;; esac
 /bin/mkdir -p "$RUN_ROOT"
 output="${RUN_ROOT}/latest.log"
-container="chronicle-log-sanitizer-$$"
-cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+container="chronicle-sat-r1-log-sanitizer-$$"
+outage="chronicle-sat-r1-log-outage-$$"
+cleanup() {
+  docker rm -f "$container" "${outage}-sink" "${outage}-fluent-bit" >/dev/null 2>&1 || true
+  docker network rm "$outage" >/dev/null 2>&1 || true
+  [[ -z "${outage_dir:-}" ]] || rm -rf -- "$outage_dir"
+}
 trap cleanup EXIT HUP INT TERM
 
 "$TIMEOUT" 30 docker run -d --name "$container" --network none \
@@ -28,7 +33,7 @@ trap cleanup EXIT HUP INT TERM
   -i dummy -p tag=chronicle.backend \
     -p 'dummy={"log":"{\"timestamp\":\"2026-08-13T00:00:00Z\",\"severity\":\"WARN\",\"request_id\":\"request-safe-1\",\"method\":\"POST\",\"route\":\"/chronicle/v3/participant/private-name?secret=TOPSECRET_9\",\"message\":\"TOPSECRET_9\"}"}' \
   -i dummy -p tag=chronicle.postgres \
-    -p 'dummy={"log":"chronicle_pg timestamp_ms=1786580000500 sqlstate=23505 ERROR: statement SELECT TOPSECRET_9"}' \
+    -p 'dummy={"log":"chronicle_pg timestamp_seconds=1786580000.500 sqlstate=23505 ERROR: statement SELECT TOPSECRET_9"}' \
   -F parser -m 'chronicle.*' -p key_name=log -p parser=chronicle_json -p reserve_data=true -p preserve_key=false \
   -F parser -m chronicle.postgres -p key_name=log -p parser=chronicle_postgres -p reserve_data=true -p preserve_key=false \
   -F lua -m 'chronicle.*' -p script=/sanitize.lua -p call=sanitize \
@@ -88,3 +93,118 @@ for forbidden in (
     assert forbidden not in serialized, forbidden
 print("self-host structured log sanitizer test passed")
 PY
+
+# Collector outage, restart and storage budget, with the shipped fluent-bit.conf and the shipped Docker
+# fluentd driver options. VictoriaLogs is replaced by a recorder that can be stopped and started.
+outage_dir="$(mktemp -d "${RUN_ROOT}/outage.XXXXXX")"
+mkdir -p "${outage_dir}/etc" "${outage_dir}/state" "${outage_dir}/sink"
+chmod 0777 "${outage_dir}/sink"
+cp "${ROOT_DIR}/selfhost/monitoring/fluent-bit.conf" "${ROOT_DIR}/selfhost/monitoring/parsers.conf" \
+  "${ROOT_DIR}/selfhost/monitoring/sanitize.lua" "${outage_dir}/etc/"
+helper_image=$(awk '/^FROM /{image=$2} END{print image}' "${ROOT_DIR}/selfhost/Dockerfile.backup")
+cat >"${outage_dir}/sink.py" <<'PY'
+import http.server
+class Recorder(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        with open("/data/received.jsonl", "ab") as received:
+            received.write(body if body.endswith(b"\n") else body + b"\n")
+        self.send_response(204)
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+http.server.ThreadingHTTPServer(("0.0.0.0", 9428), Recorder).serve_forever()
+PY
+subnet="$(python3 "${ROOT_DIR}/selfhost/network-subnet.py" select 10.251.3.0/24 "$outage")"
+docker network create --subnet "$subnet" "$outage" >/dev/null
+start_sink() {
+  docker rm -f "${outage}-sink" >/dev/null 2>&1 || true
+  docker run -d --name "${outage}-sink" --network "$outage" --network-alias victorialogs --memory 128m \
+    --user "$(id -u):$(id -g)" -v "${outage_dir}/sink.py:/sink.py:ro" -v "${outage_dir}/sink:/data" \
+    --entrypoint python3 "$helper_image" /sink.py >/dev/null
+}
+start_collector() { # the shipped service's user namespace, memory limit and read-only root
+  docker rm -f "${outage}-fluent-bit" >/dev/null 2>&1 || true
+  docker run -d --name "${outage}-fluent-bit" --network "$outage" --user "$(id -u):$(id -g)" --memory 128m \
+    --read-only --tmpfs /tmp --tmpfs /run -p 127.0.0.1::24224 \
+    -v "${outage_dir}/etc:/fluent-bit/etc:ro" -v "${outage_dir}/state:/fluent-bit/state" "$IMAGE" >/dev/null
+  forward_port=$(docker port "${outage}-fluent-bit" 24224/tcp | head -1 | cut -d: -f2)
+  for _ in {1..40}; do
+    docker logs "${outage}-fluent-bit" >"${outage_dir}/collector.log" 2>&1
+    grep -q 'listening on' "${outage_dir}/collector.log" && return 0
+    sleep 0.25
+  done
+  fail "Fluent Bit did not start its forward input"
+}
+emit() { # first last: one backend container writes numbered events through Docker's fluentd driver
+  local started=$SECONDS
+  "$TIMEOUT" 60 docker run --rm -i --network none --log-driver fluentd \
+    --log-opt "fluentd-address=127.0.0.1:${forward_port}" --log-opt fluentd-async=true \
+    --log-opt fluentd-buffer-limit=4096 --log-opt tag=chronicle.backend --entrypoint bash "$helper_image" \
+    -s -- "$1" "$2" "${3:-padding}" >/dev/null <<'SH' || fail "the writer failed while the log collector was degraded"
+for i in $(seq "$1" "$2"); do
+  printf '{"severity":"INFO","operation":"outage","request_id":"seq-%06d-%s"}\n' "$i" "$3"
+done
+SH
+  (( SECONDS - started < 30 )) || fail "the writer blocked for $((SECONDS - started)) s on the log collector"
+}
+received_check() { # mode first last
+  python3 - "${outage_dir}/sink/received.jsonl" "$@" <<'PY'
+import json, re, sys
+path, mode, first, last = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+try:
+    rows = [json.loads(line) for line in open(path) if line.strip()]
+except FileNotFoundError:
+    rows = []
+ids = [int(match[1]) for row in rows if (match := re.match(r"seq-(\d{6})", row.get("request_id", "")))]
+assert len(ids) == len(set(ids)), "duplicate delivery"
+wanted = set(range(first, last + 1))
+if mode == "all":
+    sys.exit(0 if wanted <= set(ids) else 1)
+# "bounded": some of the range arrived, nothing outside what was written, nothing twice.
+assert set(ids) <= set(range(1, last + 1)), "events never written were delivered"
+sys.exit(0 if set(ids) & wanted else 1)
+PY
+}
+wait_for() {
+  for _ in {1..240}; do received_check "$@" && return 0; sleep 0.5; done
+  docker logs "${outage}-fluent-bit" 2>&1 | tail -20 >&2
+  fail "the sink did not receive events $2-$3 ($1)"
+}
+wait_for_collector_log() {
+  for _ in {1..120}; do
+    docker logs "${outage}-fluent-bit" >"${outage_dir}/collector.log" 2>&1
+    grep -Eq "$1" "${outage_dir}/collector.log" && return 0
+    sleep 0.5
+  done
+  tail -20 "${outage_dir}/collector.log" >&2
+  fail "the collector never reported $1"
+}
+start_sink
+start_collector
+emit 1 50
+wait_for all 1 50
+# Sink outage across a collector restart: filesystem chunks must survive and replay once.
+docker stop "${outage}-sink" >/dev/null
+emit 51 100
+wait_for_collector_log 'failed to flush chunk'
+docker stop -t 10 "${outage}-fluent-bit" >/dev/null
+start_sink
+docker start "${outage}-fluent-bit" >/dev/null
+wait_for all 1 100
+# Past the storage budget: storage stays bounded, the loss is reported, and the writer never blocks.
+# Same option, scaled from 128M so the test writes megabytes, not hundreds of them.
+grep -Eq '^ +storage\.total_limit_size +128M$' "${outage_dir}/etc/fluent-bit.conf" || fail "shipped storage budget changed"
+sed -i 's/^\( *storage\.total_limit_size *\)128M$/\12M/' "${outage_dir}/etc/fluent-bit.conf"
+docker stop "${outage}-sink" >/dev/null
+start_collector
+emit 101 60100 padpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpad
+wait_for_collector_log 'fail to drop enough chunks|could not ingest|dropping chunk'
+stored=$(du -sb "${outage_dir}/state/forward.0" | cut -f1)
+(( stored <= 2 * 2 * 1024 * 1024 )) || fail "filesystem buffer grew to ${stored} bytes past its 2M budget"
+[[ "$(docker inspect --format '{{.State.Running}} {{.State.OOMKilled}}' "${outage}-fluent-bit")" == 'true false' ]] ||
+  fail "the collector did not survive the overflow"
+start_sink
+docker restart -t 10 "${outage}-fluent-bit" >/dev/null
+wait_for bounded 101 60100
+echo "self-host log collector outage test passed"

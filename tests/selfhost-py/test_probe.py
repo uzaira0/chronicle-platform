@@ -4,10 +4,21 @@ import subprocess
 import unittest
 
 
+ROOT = Path(__file__).resolve().parents[2]
+SETTINGS = ('DASHBOARD_BASE_URL', 'INTERNAL_BIND', 'INTERNAL_PORT', 'INTERNAL_HEALTH_URL', 'DOMAIN')
+
+
+def probe(script, *args, **settings):
+    """Source probe.sh (functions and settings only) and run script the way collect() does."""
+    environment = {key: value for key, value in os.environ.items() if key not in SETTINGS}
+    environment.update(settings, POSTGRES_PASSWORD='fixture', PYTHONPATH=str(ROOT / 'selfhost'),
+                       PROBE_SCRIPT=str(ROOT / 'selfhost/monitoring/probe.sh'))
+    return subprocess.run(['bash', '-c', 'source "$PROBE_SCRIPT"\n' + script, 'probe', *args],
+                          env=environment, capture_output=True, text=True, check=True).stdout
+
+
 class ProbeTests(unittest.TestCase):
     def test_served_certificates_require_trust_identity_and_convert_expiry(self):
-        source = (Path(__file__).resolve().parents[2] / "selfhost/monitoring/probe.sh").read_text()
-        functions = source[source.index("certificate_expiry() {"):source.index("collect() {")]
         stubs = '''
 DOMAIN=configured
 timeout() { shift; "$@"; }
@@ -37,34 +48,23 @@ date() {
             ("https://[fd00::1]:8443", "[fd00::1]:8443 -noservername"),
         ):
             with self.subTest(url=url):
-                script = functions + stubs + 'EXPECTED_CONNECT="$2"; public_tls_expiry "$1"'
-                result = subprocess.run(["bash", "-c", script, "probe", url, "-verify_return_error -connect " + connect + (" -verify_ip " if " -noservername" in connect else " -verify_hostname ") + ("fd00::1" if "fd00" in url else "192.168.0.1" if "192.168" in url else "host.test")],
-                                        capture_output=True, text=True, check=True)
-                self.assertEqual(result.stdout, "1900000000")
-        for command, expected in (("certificate_expiry </dev/null", "0"),
-                                  ("public_tls_expiry http://host.test", "0"),
-                                  ("DOMAIN=unknown; public_tls_expiry https://host.test", "0")):
+                script = stubs + 'EXPECTED_CONNECT="$2"; printf %s "$(public_tls_expiry "$1")"'
+                self.assertEqual(probe(script, url, "-verify_return_error -connect " + connect + (" -verify_ip " if " -noservername" in connect else " -verify_hostname ") + ("fd00::1" if "fd00" in url else "192.168.0.1" if "192.168" in url else "host.test")),
+                                 "1900000000")
+        # No certificate measured prints nothing, so the sample is dropped rather than read as expiry 0.
+        for command, expected in (("certificate_expiry </dev/null", ""),
+                                  ("public_tls_expiry http://host.test", ""),
+                                  ("DOMAIN=unknown; public_tls_expiry https://host.test", "")):
             with self.subTest(command=command):
-                result = subprocess.run(["bash", "-c", functions + stubs + command],
-                                        capture_output=True, text=True, check=True)
-                self.assertEqual(result.stdout, expected)
+                self.assertEqual(probe(stubs + f'printf %s "$({command})"'), expected)
         expected = '-verify_return_error -connect web:8081 -servername management.example.org -verify_hostname management.example.org -partial_chain -CAfile retained.crt'
-        script = functions + stubs + 'EXPECTED_CONNECT="$1"; public_tls_expiry https://management.example.org:8443 retained.crt web:8081'
-        result = subprocess.run(['bash', '-c', script, 'probe', expected], capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout, '1900000000')
+        script = stubs + 'EXPECTED_CONNECT="$1"; printf %s "$(public_tls_expiry https://management.example.org:8443 retained.crt web:8081)"'
+        self.assertEqual(probe(script, expected), '1900000000')
 
     def test_management_probe_keeps_configured_identity_and_maps_container_port(self):
-        root = Path(__file__).resolve().parents[2]
-        source = (root / 'selfhost/monitoring/probe.sh').read_text()
-        start = source.index('read -r INTERNAL_TLS_URL')
-        end = source.index('\n\n[[ "$PROBE_INTERVAL_SECONDS"', start)
-        script = source[start:end] + '\nprintf "%s\\n%s" "$INTERNAL_HEALTH_URL" "$INTERNAL_CONNECT"'
+        script = 'printf "%s\\n%s" "$INTERNAL_HEALTH_URL" "$INTERNAL_CONNECT"'
         for settings, expected in (({'DASHBOARD_BASE_URL': 'https://management.example.org:8443'},
                                     'https://management.example.org:8443/health\nmanagement.example.org:8443:web:8081'),
                                    ({'INTERNAL_BIND': 'fd42::1', 'INTERNAL_PORT': '8443'},
                                     'https://[fd42::1]:8443/health\n[fd42::1]:8443:web:8081')):
-            environment = {key: value for key, value in os.environ.items()
-                           if key not in ('DASHBOARD_BASE_URL', 'INTERNAL_BIND', 'INTERNAL_PORT', 'INTERNAL_HEALTH_URL')}
-            result = subprocess.run(['bash', '-eu', '-c', script], env=dict(environment, **settings,
-                                    PYTHONPATH=str(root / 'selfhost')), capture_output=True, text=True, check=True)
-            self.assertEqual(result.stdout, expected)
+            self.assertEqual(probe(script, **settings), expected)

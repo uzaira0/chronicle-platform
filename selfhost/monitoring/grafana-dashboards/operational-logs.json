@@ -33,7 +33,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "severity:(ERROR OR WARN) | limit 200",
+          "expr": "severity:(ERROR OR WARN OR UNPARSED) | limit 200",
           "queryType": "instant",
           "datasource": {
             "type": "victoriametrics-logs-datasource",

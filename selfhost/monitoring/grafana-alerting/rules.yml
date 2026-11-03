@@ -535,7 +535,7 @@
                   "type": "prometheus",
                   "uid": "chronicle-victoriametrics"
                 },
-                "expr": "chronicle_backups_expected * (time()-chronicle_backup_latest_success_timestamp_seconds)",
+                "expr": "chronicle_backups_expected * (time()-chronicle_backup_latest_success_timestamp_seconds-chronicle_backup_max_age_seconds)",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
@@ -572,7 +572,7 @@
                   "type": "__expr__",
                   "uid": "__expr__"
                 },
-                "expression": "$B > 129600",
+                "expression": "$B > 0",
                 "refId": "C",
                 "type": "math"
               }
@@ -666,7 +666,7 @@
         },
         {
           "uid": "disk-pressure",
-          "title": "Chronicle host filesystem has less than 15% free",
+          "title": "Chronicle host filesystem is low on free space",
           "condition": "C",
           "data": [
             {
@@ -681,7 +681,7 @@
                   "type": "prometheus",
                   "uid": "chronicle-victoriametrics"
                 },
-                "expr": "1-(container_fs_usage_bytes{id=\"/\"}/container_fs_limit_bytes{id=\"/\"})",
+                "expr": "1-(container_fs_usage_bytes{id=\"/\"}/container_fs_limit_bytes{id=\"/\"}) - on() group_left() chronicle_disk_low_free_ratio",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
@@ -718,7 +718,7 @@
                   "type": "__expr__",
                   "uid": "__expr__"
                 },
-                "expression": "$B < 0.15",
+                "expression": "$B < 0",
                 "refId": "C",
                 "type": "math"
               }
@@ -728,12 +728,12 @@
           "execErrState": "Alerting",
           "for": "600s",
           "annotations": {
-            "summary": "Chronicle host filesystem has less than 15% free",
+            "summary": "Chronicle host filesystem is low on free space",
             "runbook_url": "/public/runbooks/index.html#disk-pressure"
           },
           "labels": {
             "service": "storage",
-            "severity": "critical",
+            "severity": "warning",
             "scope": "selfhost"
           }
         },
@@ -1614,79 +1614,6 @@
           }
         },
         {
-          "uid": "export-failures",
-          "title": "Chronicle exports are failing",
-          "condition": "C",
-          "data": [
-            {
-              "refId": "A",
-              "datasourceUid": "chronicle-victoriametrics",
-              "relativeTimeRange": {
-                "from": 3600,
-                "to": 0
-              },
-              "model": {
-                "datasource": {
-                  "type": "prometheus",
-                  "uid": "chronicle-victoriametrics"
-                },
-                "expr": "sum(increase(chronicle_export_jobs_total{outcome=\"failed\"}[1h]))",
-                "instant": true,
-                "intervalMs": 1000,
-                "maxDataPoints": 43200,
-                "refId": "A"
-              }
-            },
-            {
-              "refId": "B",
-              "datasourceUid": "__expr__",
-              "relativeTimeRange": {
-                "from": 0,
-                "to": 0
-              },
-              "model": {
-                "datasource": {
-                  "type": "__expr__",
-                  "uid": "__expr__"
-                },
-                "expression": "A",
-                "reducer": "last",
-                "refId": "B",
-                "type": "reduce"
-              }
-            },
-            {
-              "refId": "C",
-              "datasourceUid": "__expr__",
-              "relativeTimeRange": {
-                "from": 0,
-                "to": 0
-              },
-              "model": {
-                "datasource": {
-                  "type": "__expr__",
-                  "uid": "__expr__"
-                },
-                "expression": "$B > 0",
-                "refId": "C",
-                "type": "math"
-              }
-            }
-          ],
-          "noDataState": "OK",
-          "execErrState": "Alerting",
-          "for": "0s",
-          "annotations": {
-            "summary": "Chronicle exports are failing",
-            "runbook_url": "/public/runbooks/index.html#export-failures"
-          },
-          "labels": {
-            "service": "export",
-            "severity": "warning",
-            "scope": "selfhost"
-          }
-        },
-        {
           "uid": "deletion-failures",
           "title": "Chronicle deletion jobs are failing",
           "condition": "C",
@@ -1756,6 +1683,79 @@
           "labels": {
             "service": "deletion",
             "severity": "critical",
+            "scope": "selfhost"
+          }
+        },
+        {
+          "uid": "background-task-failures",
+          "title": "Chronicle background tasks are failing",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "chronicle-victoriametrics",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "chronicle-victoriametrics"
+                },
+                "expr": "sum by (task) (increase(chronicle_background_task_failures_total[1h]))",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "reducer": "last",
+                "refId": "B",
+                "type": "reduce"
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$B > 0",
+                "refId": "C",
+                "type": "math"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "0s",
+          "annotations": {
+            "summary": "Chronicle background task {{ $labels.task }} is failing",
+            "runbook_url": "/public/runbooks/index.html#background-task-failures"
+          },
+          "labels": {
+            "service": "background-tasks",
+            "severity": "warning",
             "scope": "selfhost"
           }
         },
@@ -2068,7 +2068,7 @@
                   "type": "prometheus",
                   "uid": "chronicle-victoriametrics"
                 },
-                "expr": "sum(increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/v3/permissions(/update)?/?\",method=\"PATCH\"}[15m]) or increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/study/[^/]+/(roles|permissions)\",method=~\"POST|DELETE\"}[15m]))",
+                "expr": "sum(increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/v3/permissions(/update)?/?\",method=\"PATCH\"}[15m]) or increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/principal/update\",method=~\"POST|DELETE\"}[15m]) or increase(chronicle_api_request_duration_seconds_count{endpoint=~\".*/principal/users/[^/]+\",method=\"DELETE\"}[15m]))",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
@@ -2188,7 +2188,7 @@
           "execErrState": "Alerting",
           "for": "60s",
           "annotations": {
-            "summary": "Retention period ended \u2014 delete the study from the dashboard after reviewing holds.",
+            "summary": "Retention period ended \u2014 delete the study from the dashboard.",
             "runbook_url": "/public/runbooks/index.html#study-retention-ended"
           },
           "labels": {
@@ -2198,8 +2198,8 @@
           }
         },
         {
-          "uid": "retention-hold-review-overdue",
-          "title": "Retention hold review is overdue",
+          "uid": "operator-action-available",
+          "title": "A Chronicle operator action is available",
           "condition": "C",
           "data": [
             {
@@ -2214,7 +2214,7 @@
                   "type": "prometheus",
                   "uid": "chronicle-victoriametrics"
                 },
-                "expr": "max(chronicle_retention_holds_overdue)",
+                "expr": "max(chronicle_operator_operation_timestamp_seconds{outcome=\"success\",failure_category!=\"none\"})",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
@@ -2257,15 +2257,15 @@
               }
             }
           ],
-          "noDataState": "NoData",
+          "noDataState": "OK",
           "execErrState": "Alerting",
-          "for": "60s",
+          "for": "0s",
           "annotations": {
-            "summary": "Review overdue retention holds and release or document an authorized extension.",
-            "runbook_url": "/public/runbooks/index.html#retention-hold-review-overdue"
+            "summary": "A Chronicle update is available",
+            "runbook_url": "/public/runbooks/index.html#update-available"
           },
           "labels": {
-            "service": "backend",
+            "service": "operations",
             "severity": "warning",
             "scope": "selfhost"
           }

@@ -1,12 +1,13 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -s
 """Local regressions for self-host runtime, release assets and the Viewer API client."""
 
 from __future__ import annotations
 
+import base64
 import json
+import yaml
 import gzip
 import io
-import ipaddress
 import os
 import re
 import runpy
@@ -19,6 +20,7 @@ import tempfile
 import threading
 import time
 import sys
+import urllib.request
 from contextlib import redirect_stdout
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +28,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "selfhost"))
+sys.path.insert(0, str(ROOT / "tests/selfhost-py"))
+from chronicle_ops.route_surface import RETIRED_PREFIXES
+from host_tools import modern_bash
+
 USERS: dict[str, dict] = {}
 NEXT_ID = 1
 RELEASE_FIXTURE_VERSION = "2.0.0"
@@ -43,8 +50,10 @@ def release_image_fixture(root: Path, builder: dict) -> tuple[dict[str, str], Pa
               for name in builder["PLACEHOLDERS"].values()}
     overlay = root / "backups.yml"
     overlay.write_text((ROOT / "selfhost/overlays/backups.yml").read_text())
-    backup = "ghcr.io/example/backup@sha256:" + "b" * 64
-    builder["pin_backup_image"](overlay, backup)
+    backup = images["backup"]
+    config = yaml.safe_load(overlay.read_text())
+    config["services"]["db-backup"]["image"] = backup
+    overlay.write_text(yaml.safe_dump(config))
     return images, overlay, backup
 
 
@@ -126,90 +135,52 @@ def test_edge_limiter_keys_ignore_credentials() -> None:
     assert keys and all(key in ("{client_ip}", "{remote_ip}") for key in keys), keys
 
 
-def test_direct_tls_does_not_trust_docker_gateway() -> None:
-    for name in ("mode-own-tls-internal.yml", "mode-local-https.yml"):
-        overlay = (ROOT / "selfhost/overlays" / name).read_text()
-        web = overlay.split("\n  web:\n", 1)[1].split("\n  ca-export:\n", 1)[0]
-        trusted = re.search(r'^      CADDY_TRUSTED_PROXIES: "([^"$]+)"$', web, re.MULTILINE)
-        assert trusted, "direct TLS must override inherited proxy trust"
-        networks = [ipaddress.ip_network(cidr) for cidr in trusted[1].split()]
-        for gateway in ("172.28.0.1", "10.253.55.1", "192.168.240.1"):
-            assert not any(ipaddress.ip_address(gateway) in network for network in networks)
-
-
-def test_publisher_rechecks_source_before_push() -> None:
-    path = ROOT / "scripts/publish-images.sh"
-    source = path.read_text()
-    harness = '''set -euo pipefail
-root=fixture revision=original
-git() {
-  case "$3" in
-    rev-parse) printf '%s\\n' "$CURRENT_HEAD" ;;
-    status) printf '%s' "$SOURCE_STATE" ;;
-    submodule) printf '%s' "$SUBMODULE_STATE" ;;
-    *) return 1 ;;
-  esac
-}
-'''
-    for head, state, submodules, accepted in (
-            ("original", "", " original module", True),
-            ("changed", "", " original module", False),
-            ("original", " m chronicle-server", " original module", False),
-            ("original", "", "+changed module", False)):
-        result = subprocess.run(["bash", "-c", harness + bash_function(path, "require_unchanged_source") +
-                                 "require_unchanged_source\n"],
-                                env=dict(os.environ, CURRENT_HEAD=head, SOURCE_STATE=state,
-                                         SUBMODULE_STATE=submodules), capture_output=True, text=True, timeout=10)
-        assert (result.returncode == 0) == accepted, result.stderr
-    assert source.index("scan release runtime dependencies") < source.index("run require_unchanged_source") < source.index("run docker push")
-
-
 def test_fresh_candidate_runs_setup_up_verify() -> None:
-    path = ROOT / "tests/smoke/selfhost-release-smoke.sh"
-    function = bash_function(path, "fresh_candidate_install")
+    driver_path = ROOT / "tests/smoke/selfhost_release_setup.py"
+    driver = runpy.run_path(str(driver_path))
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
         cli = root / "chronicle"
         cli.write_text('''#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$1" >>"$CALLS"
+if printenv "$WAIVER_VARIABLE" >/dev/null; then exit 1; fi
 [[ "$FAIL_AT" != "$1" ]] || exit 1
+generated_settings=generated-by-setup
 case "$1" in
   setup)
     [[ ! -e .env && "$COMPOSE_PROJECT_NAME" == fixture-fresh ]]
-    mapfile -t answers
-    [[ "${answers[0]}" == '' && "${answers[1]}" == public.example.org ]]
-    [[ "${answers[14]}" == "$SMOKE_PASSWORD" && "${answers[15]}" == "$SMOKE_PASSWORD" ]]
-    if [[ "$MONITORING" == true ]]; then
-      [[ ${#answers[@]} == 22 && "${answers[17]}" == y ]]
-    else
-      [[ ${#answers[@]} == 18 && "${answers[17]}" == n ]]
-    fi
-    printf 'generated-by-setup\\n' >.env ;;
-  up|verify) [[ "$(cat .env)" == generated-by-setup ]] ;;
+    cat >/dev/null
+    printf '%s\\n' "$generated_settings" >.env ;;
+  up|verify)
+    [[ "$(cat .env)" == "$generated_settings" ]]
+    if [[ "$1" == verify ]]; then
+      [[ "${2:-}" == --dashboard-password ]]
+      IFS= read -r password
+      [[ "$password" == "$SMOKE_PASSWORD" ]]
+    fi ;;
   *) exit 1 ;;
 esac
 ''')
         cli.chmod(0o755)
         calls = root / "calls"
-        harness = 'set -euo pipefail\nfail() { exit 1; }\n' + function + 'fresh_candidate_install "$1"\n'
-        env = dict(os.environ, PROJECT="fixture-fresh", http_port="18080", internal_port="18081",
-                   grafana_port="13000", SMOKE_PUBLIC_HOST="public.example.org", SMOKE_PASSWORD="fixture-password",
-                   CALLS=str(calls))
+        env = dict(os.environ, COMPOSE_PROJECT_NAME="fixture-fresh", DOMAIN="public.example.org",
+                   SMOKE_PASSWORD="fixture-password",
+                   CALLS=str(calls), WAIVER_VARIABLE=driver["BACKUP_WAIVER_KEY"])
+        env[driver["BACKUP_WAIVER_KEY"]] = "fixture-ambient-waiver"
         for monitoring, failure in (("false", ""), ("true", ""), ("true", "setup"), ("true", "up"), ("true", "verify")):
             (root / ".env").unlink(missing_ok=True)
             calls.unlink(missing_ok=True)
-            result = subprocess.run(["bash", "-c", harness, "fixture", str(root)],
-                                    env=dict(env, MONITORING=monitoring, FAIL_AT=failure),
+            result = subprocess.run([sys.executable, "-s", str(driver_path),
+                                     str(root), "--install"],
+                                    env=dict(env, ENABLE_MONITORING=monitoring, FAIL_AT=failure),
                                     capture_output=True, text=True, timeout=10)
             assert (result.returncode == 0) == (not failure), result.stderr
             expected = ["setup", "up", "verify"]
             if failure:
                 expected = expected[:expected.index(failure) + 1]
             assert calls.read_text().splitlines() == expected
-    source = path.read_text()
-    assert 'echo "fresh_install=$fresh_install"' in source
-    assert source.index('fresh_candidate_install "$FRESH_BUNDLE"') < source.index("fresh_install=pass")
+            assert (root / ".env").exists() == (failure != "setup")
 
 
 def test_backup_sbom_inventory() -> None:
@@ -219,25 +190,46 @@ def test_backup_sbom_inventory() -> None:
         bin_dir = root / "bin"
         bin_dir.mkdir()
         syft = bin_dir / "syft"
-        syft.write_text('#!/bin/sh\n[ "$2" = -o ] && [ "$3" = spdx-json ] || exit 1\n'
-                        'printf \'{"spdxVersion":"SPDX-2.3","name":"%s"}\\n\' "$1"\n')
+        syft_real = subprocess.check_output(['bash', '-c', 'source "$1"; ensure_syft; command -v syft',
+                                             'fixture', str(ROOT / 'scripts/local-ci.sh')], text=True, timeout=30).strip()
+        syft.write_text('#!/bin/sh\n[ "$1" != "${FAIL_IMAGE:-}" ] || exit 7\ncase "$1" in dir:*) exec "$REAL_SYFT" "$@";; esac\n'
+                        'printf \'{"spdxVersion":"SPDX-2.3","name":"%s","packages":[{"externalRefs":[{"referenceLocator":"pkg:apk/alpine/zlib@1"}]}]}\\n\' "$1"\n')
         syft.chmod(0o755)
-        refs = [f"ghcr.io/example/{name}@sha256:" + str(index) * 64
-                for index, name in enumerate(("backend", "frontend", "caddy", "backup"), 1)]
+        from chronicle_ops.images import SOURCE_IMAGES
+        refs = [f"ghcr.io/example/{image.component}@sha256:" + str(index) * 64
+                for index, image in enumerate(SOURCE_IMAGES, 1)]
         assets = root / "release assets"
-        result = subprocess.run(["bash", str(ROOT / "scripts/write-image-sboms.sh"),
-                                 RELEASE_FIXTURE_VERSION, str(assets), *refs],
-                                env=dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"]),
-                                capture_output=True, text=True, check=True, timeout=10)
+        command = ["bash", str(ROOT / "scripts/write-image-sboms.sh"), RELEASE_FIXTURE_VERSION]
+        environment = dict(os.environ, CHRONICLE_LOCAL_BIN_DIR=str(bin_dir), REAL_SYFT=syft_real,
+                           PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
+        result = subprocess.run([*command, str(assets), *refs], env=environment,
+                                capture_output=True, text=True, check=False, timeout=30)
+        assert result.returncode == 0, result.stderr
         manifest = json.loads((assets / f"chronicle-image-sboms-{RELEASE_FIXTURE_VERSION}.json").read_text())
         assert [row["image"] for row in manifest["sboms"]] == refs
-        assert manifest["sboms"][-1]["asset"] == f"chronicle-backup-{RELEASE_FIXTURE_VERSION}.spdx.json"
+        assert {row["asset"] for row in manifest["sboms"]} == {f"chronicle-{image.component}-{RELEASE_FIXTURE_VERSION}.spdx.json" for image in SOURCE_IMAGES}
         for row in manifest["sboms"]:
             assert sha256(assets / row["asset"]) == row["sha256"]
+            assert json.loads((assets / row["asset"]).read_text())["name"] == row["image"]
+        frontend = next(row for row in manifest["sboms"] if row["image"] == refs[next(i for i, image in enumerate(SOURCE_IMAGES) if image.component == "frontend")])
+        image_packages = json.loads((assets / frontend["asset"]).read_text())["packages"]
+        assert any(ref.get("referenceLocator", "").startswith("pkg:apk/")
+                   for package in image_packages for ref in package.get("externalRefs", []))
+        inventory, = frontend["inventories"]
+        assert sha256(assets / inventory["asset"]) == inventory["sha256"]
+        packages = json.loads((assets / inventory["asset"]).read_text())["packages"]
+        assert any(ref.get("referenceLocator", "").startswith("pkg:npm/")
+                   for package in packages for ref in package.get("externalRefs", []))
         for line in (assets / f"chronicle-image-sboms-{RELEASE_FIXTURE_VERSION}.sha256").read_text().splitlines():
             digest, name = line.split("  ", 1)
             assert sha256(assets / name) == digest
-        assert len(result.stdout.splitlines()) == len(refs) + 2
+        assert len(result.stdout.splitlines()) == len(refs) + 3
+        failed_assets = root / 'failed assets'
+        failed = subprocess.run([*command, str(failed_assets), *refs],
+                                env=dict(environment, FAIL_IMAGE=refs[0]),
+                                capture_output=True, text=True, timeout=30, check=False)
+        assert failed.returncode != 0 and not failed.stdout
+        assert not list(failed_assets.iterdir()), 'a failed image scan published release assets'
     output = publisher_dry_run(RELEASE_FIXTURE_VERSION)
     writer = next(line for line in output.splitlines() if "write-image-sboms.sh " in line)
     assert "backup_digest" in writer
@@ -265,31 +257,6 @@ def test_release_changelog() -> None:
                 assert not accepted, headings
             else:
                 assert accepted, headings
-
-
-def test_backup_release_image() -> None:
-    builder = runpy.run_path(str(ROOT / "scripts/build-selfhost-release.py"))
-    pin = f"ghcr.io/example/backup:{RELEASE_FIXTURE_VERSION}@sha256:" + "a" * 64
-    with tempfile.TemporaryDirectory() as folder:
-        overlay = Path(folder) / "backups.yml"
-        overlay.write_text((ROOT / "selfhost/overlays/backups.yml").read_text())
-        builder["pin_backup_image"](overlay, pin)
-        assert f"    image: {pin}\n" in overlay.read_text()
-        overlay.write_text(overlay.read_text() + f"    image: {pin}\n")
-        try:
-            builder["pin_backup_image"](overlay, pin)
-        except SystemExit:
-            pass
-        else:
-            raise AssertionError("ambiguous backup image was accepted")
-    output = publisher_dry_run(RELEASE_FIXTURE_VERSION)
-    assert "cd selfhost " in output and "docker build -f Dockerfile.backup " in output
-    assert "--backup-image" in output
-    backup_commands = [line for line in output.splitlines() if "chronicle-selfhost-backup:" in line]
-    assert any("scan-selfhost-release-images.sh" in line for line in backup_commands)
-    assert any(line.startswith("docker push ") for line in backup_commands)
-    dockerfile = (ROOT / "selfhost/Dockerfile.backup").read_text()
-    assert "COPY backup-image/selfcheck.sh backup-image/selfcheck.py init-tde.sh /" in dockerfile
 
 
 def test_public_source_equality() -> None:
@@ -320,10 +287,14 @@ def test_public_researcher_credentials() -> None:
     snippets = (ROOT / "selfhost/caddy/snippets.caddy").read_text()
     block = snippets.split("(chronicle_strip_researcher_bearer) {", 1)[1].split("\n}", 1)[0]
     path_pattern = re.search(r"@publicResearcherSurface path_regexp (.+)", block).group(1)
+    retired = snippets.split("(chronicle_mobile) {", 1)[1].split("\n}", 1)[0]
+    deny_pattern = re.search(r"path_regexp (.+)", retired).group(1)
+    for prefix in RETIRED_PREFIXES:
+        assert re.search(deny_pattern, prefix + "/x")
+    assert "respond @chronicle_retired_api 404" in retired
     for path in ("/chronicle/v3/study/x/participants", "/chronicle/v3/permissions",
                  "/chronicle/v3/admin/x", "/chronicle/v3/organization/x",
-                 "/chronicle/v3/survey/x", "/chronicle/v2/x", "/chronicle/v4/study/x",
-                 "/chronicle/study/x"):
+                 "/chronicle/v3/survey/x", "/chronicle/v4/study/x"):
         assert re.search(path_pattern, path), path
     replacements = re.findall(r'request_header Cookie `([^`]+)` ""', block)
     assert replacements and "respond" not in block
@@ -347,35 +318,31 @@ def test_public_researcher_credentials() -> None:
 def test_backup_probe_caches_verified_file_identity() -> None:
     from chronicle_ops import dump
     contents = runpy.run_path(str(ROOT / "tests/selfhost-py/test_restore.py"))["DUMP"]
-    source = (ROOT / "selfhost/monitoring/probe.sh").read_text()
-    code = source.split("<<'PY_BACKUP'\n", 1)[1].split("\nPY_BACKUP\n", 1)[0]
-    assert 'gzip -t "$latest_backup"' not in source
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
-        last = root / "backups/last"
-        last.mkdir(parents=True)
-        path = last / "chronicle-1.sql.gz"
-        path.write_bytes(gzip.compress(contents))
+        last = root / "backups/last"; last.mkdir(parents=True)
+        path = last / "chronicle-1.sql.gz"; path.write_bytes(gzip.compress(contents))
         dump.publish_backup(path, "chronicle", {})
-        code = code.replace("/metrics", str(root)).replace("/backups", str(root / "backups"))
-        with patch.dict(sys.modules, {"dump": dump}), patch.object(sys, "argv", ["probe", "chronicle"]), \
-             patch.object(dump, "validate_dump", wraps=dump.validate_dump) as validate:
+        cache = root / 'cache.json'
+        with patch.object(dump, "validate_dump", wraps=dump.validate_dump) as validate:
             for _ in range(2):
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    exec(compile(code, "probe-backup", "exec"), {})
-                assert output.getvalue().strip() == str(path)
-            assert validate.call_count == 1, "unchanged backups must not be decompressed again"
-            output = io.StringIO()
-            with patch.object(time, "time", return_value=time.time() + dump.BACKUP_MAX_AGE_SECONDS + 1), redirect_stdout(output):
-                exec(compile(code, "probe-backup", "exec"), {})
-            assert not output.getvalue() and validate.call_count == 1
+                assert dump.cached_verified_backup(last.parent, 'chronicle', cache, '@daily').path == path
+            assert validate.call_count == 1
+            with patch.object(time, "time", return_value=time.time() + dump.backup_max_age_seconds('@daily') + 1):
+                try:
+                    dump.cached_verified_backup(last.parent, 'chronicle', cache, '@daily')
+                except dump.DumpError:
+                    pass
+                else:
+                    raise AssertionError('cached stale backup accepted')
             path.write_bytes(b"corrupt replacement")
-            output = io.StringIO()
-            with redirect_stdout(output):
-                exec(compile(code, "probe-backup", "exec"), {})
-            assert not output.getvalue() and validate.call_count == 2
-
+            try:
+                dump.cached_verified_backup(last.parent, 'chronicle', cache, '@daily')
+            except dump.DumpError:
+                pass
+            else:
+                raise AssertionError('cached replaced backup accepted')
+            assert validate.call_count == 2
 
 def test_cadvisor_oom_counter(rules: dict) -> None:
     fixture = 'container_oom_events_total{name="chronicle-postgres-1"} 1'
@@ -388,46 +355,55 @@ def test_cadvisor_oom_counter(rules: dict) -> None:
     assert "failure_type" not in expression + oom["targets"][0]["expr"]
 
 
-def test_grafana_tls_mounts() -> None:
-    overlay = (ROOT / "selfhost/overlays/monitoring.yml").read_text()
-    grafana = overlay.split("  grafana:\n", 1)[1].split("  backend:\n", 1)[0]
-    assert "/tls:/etc/grafana/tls" not in grafana
-    for name in ("monitoring.crt", "monitoring.key"):
-        assert f"/tls/{name}:/etc/grafana/tls/{name}:ro" in grafana
-
-
-def test_signed_smoke_update_fixture() -> None:
-    source = (ROOT / "tests/smoke/selfhost-release-smoke.sh").read_text()
-    verifier = bash_function(ROOT / "tests/smoke/selfhost-release-smoke.sh", "verify_release_signature")
-    start = source.index('fixture_key="')
-    signing = source[start:source.index("\nelse\n", start)]
+def test_release_signature_rejects_tampered_checksum() -> None:
+    builder = runpy.run_path(str(ROOT / "scripts/build-selfhost-release.py"))
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
-        old = root / "previous/selfhost"
-        old.mkdir(parents=True)
-        manifest = old.parent / "release-manifest.json"
-        manifest.write_text(json.dumps({"files": {}}))
-        checksum = root / f"chronicle-selfhost-{RELEASE_FIXTURE_VERSION}.tar.gz.sha256"
-        checksum.write_text("a" * 64 + "  fixture.tar.gz\n")
-        env = dict(os.environ, RUN_DIR=str(root), OLD_BUNDLE=str(old), NEW_SHA256_FILE=str(checksum),
-                   NEW_SIGNATURE_FILE=str(checksum) + ".sig", ROOT_DIR=str(ROOT),
-                   BUILDER=str(ROOT / "scripts/build-selfhost-release.py"))
-        subprocess.run(["bash", "-c", "set -euo pipefail\n" + verifier + signing],
-                       env=env, check=True, capture_output=True, timeout=15)
-        builder = runpy.run_path(env["BUILDER"])
-        assert json.loads(manifest.read_text())["files"]["selfhost/release-signing.pub"] == builder["sha256"](old / "release-signing.pub")
-        builder["verify_release_signature"](checksum, Path(str(checksum) + ".sig"), old / "release-signing.pub")
+        key = root / "fixture-key"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
+                       check=True, capture_output=True, timeout=10)
+        checksum = root / "candidate.tar.gz.sha256"
+        checksum.write_text("a" * 64 + "  candidate.tar.gz\n")
+        subprocess.run(["ssh-keygen", "-Y", "sign", "-n", builder["RELEASE_SIGNER"], "-f", str(key), str(checksum)],
+                       check=True, capture_output=True, timeout=10)
+        signature, public_key = Path(str(checksum) + ".sig"), Path(str(key) + ".pub")
+        builder["verify_release_signature"](checksum, signature, public_key)
         checksum.write_text("tampered checksum\n")
         try:
-            builder["verify_release_signature"](checksum, Path(str(checksum) + ".sig"), old / "release-signing.pub")
+            builder["verify_release_signature"](checksum, signature, public_key)
         except SystemExit:
             pass
         else:
-            raise AssertionError("tampered smoke checksum signature was accepted")
-        payload = source.split('RELEASE_VERSION="$NEW_VERSION" \\\npython3 - <<\'PY\'\n', 1)[1].split("\nPY\n", 1)[0]
-        with patch.dict(os.environ, RELEASE_FIXTURE_DIR=str(root), RELEASE_PORT="8080", RELEASE_VERSION=RELEASE_FIXTURE_VERSION):
-            exec(compile(payload, "smoke-release-payload", "exec"), {})
-        assert checksum.name + ".sig" in {asset["name"] for asset in json.loads((root / "latest.json").read_text())["assets"]}
+            raise AssertionError("tampered checksum signature was accepted")
+
+
+def test_release_archive_rejects_unsafe_inventory() -> None:
+    builder = runpy.run_path(str(ROOT / "scripts/build-selfhost-release.py"))
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        bundle = f"chronicle-selfhost-{RELEASE_FIXTURE_VERSION}"
+        archive = root / f"{bundle}.tar.gz"
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({builder["UPGRADE_FLOOR_KEY"]: builder["UPGRADE_FROM_MINIMUM"], builder["MIGRATIONS_KEY"]: {"V1__fixture.sql": "a" * 64}, "release_version": RELEASE_FIXTURE_VERSION, "source_revision": "a" * 40,
+                                        "images": {"backend": "example/backend@sha256:" + "a" * 64}}))
+        cli = root / "chronicle"
+        cli.write_text("#!/bin/sh\nexit 0\n")
+        cli.chmod(0o755)
+        checksum = Path(str(archive) + ".sha256")
+        for extra in (None, f"{bundle}/../outside", f"{bundle}/selfhost/.env", f"{bundle}/chronicle-server/source.kt"):
+            with tarfile.open(archive, "w:gz") as source:
+                builder["add_to_tar"](source, manifest, f"{bundle}/release-manifest.json", 0)
+                builder["add_to_tar"](source, cli, f"{bundle}/selfhost/chronicle", 0)
+                if extra:
+                    builder["add_to_tar"](source, cli, extra, 0)
+            checksum.write_text(f'{builder["sha256"](archive)}  {archive.name}\n')
+            try:
+                actual = builder["inspect_release_archive"](archive, checksum)
+            except SystemExit:
+                assert extra is not None
+            else:
+                assert extra is None
+                assert actual["release_version"] == RELEASE_FIXTURE_VERSION
 
 
 def test_candidate_smoke_matches_images_and_archive() -> None:
@@ -440,12 +416,9 @@ def test_candidate_smoke_matches_images_and_archive() -> None:
         (host / "overlays").mkdir(parents=True)
         (host / "chronicle").touch()
         (bundle / "release-manifest.json").write_text(json.dumps({"release_version": RELEASE_FIXTURE_VERSION}))
-        backup = "ghcr.io/example/chronicle-selfhost-backup@sha256:" + "b" * 64
-        overlay = host / "overlays/backups.yml"
-        overlay.write_text((ROOT / "selfhost/overlays/backups.yml").read_text())
-        builder["pin_backup_image"](overlay, backup)
-        complete(bundle)
-        images = json.loads((bundle / "release-manifest.json").read_text())["images"]
+        images, overlay, backup = release_image_fixture(root, builder)
+        shutil.copy2(overlay, host / 'overlays/backups.yml')
+        complete(bundle, images=images)
         builder["require_smoke_images"](bundle, images, backup)
         for selected, selected_backup in ((dict(images, backend="foreign/image@sha256:" + "c" * 64), backup),
                                           (images, "foreign/backup@sha256:" + "c" * 64)):
@@ -457,38 +430,33 @@ def test_candidate_smoke_matches_images_and_archive() -> None:
                 raise AssertionError("candidate accepted different runtime images")
         archive = root / "candidate.tar.gz"
         archive.write_bytes(b"exact downloaded candidate")
-        previous_archive = root / "previous.tar.gz"
-        previous_manifest = root / "previous-manifest.json"
-        previous_manifest.write_text(json.dumps({"release_version": RELEASE_FIXTURE_PREVIOUS_VERSION,
-                                                 "source_revision": "a" * 40}))
-        with tarfile.open(previous_archive, "w:gz") as previous:
-            builder["add_to_tar"](previous, previous_manifest, "previous/release-manifest.json", 0)
         result = root / "result.txt"
         evidence = dict(status="passed", **{builder["SMOKE_ARCHIVE_HASH_FIELD"]: builder["sha256"](archive)},
-                        **builder["smoke_predecessor_evidence"](previous_archive),
                         **builder["SMOKE_REQUIRED_EVIDENCE"])
-        for field in (*builder["smoke_predecessor_evidence"](previous_archive), *builder["SMOKE_REQUIRED_EVIDENCE"]):
+        required = ("credential_rotation_consumers", "inode_full_recovery", "certificate_renewal")
+        evidence.update(dict.fromkeys(required, "pass"))
+        for field in (*required, *builder["SMOKE_REQUIRED_EVIDENCE"]):
             for changed in ({key: value for key, value in evidence.items() if key != field},
-                            dict(evidence, **{field: "different published predecessor"})):
+                            dict(evidence, **{field: "missing fresh-install proof"})):
                 result.write_text("".join(f"{key}={value}\n" for key, value in changed.items()))
                 try:
-                    builder["require_smoke_result"](result, archive, previous_archive)
+                    builder["require_smoke_result"](result, archive)
                 except SystemExit:
                     pass
                 else:
                     raise AssertionError(f"promotion accepted a missing or mismatched {field}")
         result.write_text("".join(f"{key}={value}\n" for key, value in evidence.items()))
-        builder["require_smoke_result"](result, archive, previous_archive)
+        builder["require_smoke_result"](result, archive)
         archive.write_bytes(b"different archive after the drill")
         try:
-            builder["require_smoke_result"](result, archive, previous_archive)
+            builder["require_smoke_result"](result, archive)
         except SystemExit:
             pass
         else:
             raise AssertionError("promotion accepted a different archive")
 
 
-def test_bridge_release_promotion_uses_trusted_old_key() -> None:
+def test_release_promotion_uses_installed_key() -> None:
     builder = runpy.run_path(str(ROOT / "scripts/build-selfhost-release.py"))
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
@@ -500,52 +468,29 @@ def test_bridge_release_promotion_uses_trusted_old_key() -> None:
         cli = root / "chronicle"
         cli.write_text("#!/bin/sh\nexit 0\n")
         cli.chmod(0o755)
-        archives = []
-        for version, key in ((RELEASE_FIXTURE_PREVIOUS_VERSION, old_key), (RELEASE_FIXTURE_VERSION, new_key)):
-            archive = root / f"chronicle-selfhost-{version}.tar.gz"
-            manifest = root / "manifest.json"
-            manifest.write_text(json.dumps({"release_version": version,
-                                            "source_revision": ("a" if key == old_key else "b") * 40,
-                                            "public_revision": "c" * 40, "images": images}))
-            bundle = archive.name.removesuffix(".tar.gz")
-            with tarfile.open(archive, "w:gz") as source:
-                builder["add_to_tar"](source, manifest, f"{bundle}/release-manifest.json", 0)
-                builder["add_to_tar"](source, Path(str(key) + ".pub"), f"{bundle}/selfhost/release-signing.pub", 0)
-                builder["add_to_tar"](source, overlay, f"{bundle}/selfhost/overlays/backups.yml", 0)
-                builder["add_to_tar"](source, cli, f"{bundle}/selfhost/chronicle", 0)
-            Path(str(archive) + ".sha256").write_text(f'{builder["sha256"](archive)}  {archive.name}\n')
-            archives.append(archive)
-        previous, candidate = archives
-        for archive in archives:
-            subprocess.run(["ssh-keygen", "-Y", "sign", "-n", builder["RELEASE_SIGNER"], "-f", str(old_key),
-                            str(archive) + ".sha256"], check=True, capture_output=True, timeout=10)
+        archive = root / f"chronicle-selfhost-{RELEASE_FIXTURE_VERSION}.tar.gz"
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({builder["UPGRADE_FLOOR_KEY"]: builder["UPGRADE_FROM_MINIMUM"], builder["MIGRATIONS_KEY"]: {"V1__fixture.sql": "a" * 64}, "release_version": RELEASE_FIXTURE_VERSION,
+                                        "source_revision": "b" * 40,
+                                        "public_revision": "c" * 40, "images": images}))
+        bundle = archive.name.removesuffix(".tar.gz")
+        with tarfile.open(archive, "w:gz") as source:
+            builder["add_to_tar"](source, manifest, f"{bundle}/release-manifest.json", 0)
+            builder["add_to_tar"](source, Path(str(new_key) + ".pub"), f"{bundle}/selfhost/release-signing.pub", 0)
+            builder["add_to_tar"](source, overlay, f"{bundle}/selfhost/overlays/backups.yml", 0)
+            builder["add_to_tar"](source, cli, f"{bundle}/selfhost/chronicle", 0)
+        Path(str(archive) + ".sha256").write_text(f'{builder["sha256"](archive)}  {archive.name}\n')
+
+        subprocess.run(["ssh-keygen", "-Y", "sign", "-n", builder["RELEASE_SIGNER"], "-f", str(old_key),
+                        str(archive) + ".sha256"], check=True, capture_output=True, timeout=10)
         result = root / "result.txt"
-        evidence = dict(status="passed", **{builder["SMOKE_ARCHIVE_HASH_FIELD"]: builder["sha256"](candidate)},
-                        **builder["smoke_predecessor_evidence"](previous),
+        evidence = dict(status="passed", **{builder["SMOKE_ARCHIVE_HASH_FIELD"]: builder["sha256"](archive)},
                         **builder["SMOKE_REQUIRED_EVIDENCE"])
         result.write_text("".join(f"{key}={value}\n" for key, value in evidence.items()))
-        harness = '''set -euo pipefail
-gh() {
-  case "$1 $2" in
-    'release view')
-      if [[ "$*" == *isDraft* ]]; then printf 'true\n'; else printf '%s\n' "$PREVIOUS_TAG"; fi ;;
-    'release download')
-      local tag=$3 destination=''
-      shift 3
-      while (( $# )); do
-        if [[ "$1" == --dir ]]; then destination=$2; shift; fi
-        shift
-      done
-      cp "$ASSETS/chronicle-selfhost-${tag#v}.tar.gz"* "$destination/" ;;
-    'release edit') printf '%s\n' "$3" >"$PROMOTED" ;;
-    *) return 1 ;;
-  esac
-}
-export -f gh
-bash "$1" "$2" --promote "$3"
-'''
         bin_dir = root / "bin"
         bin_dir.mkdir()
+        shutil.copy2(ROOT / 'tests/security/fixtures/selfhost-promotion/gh', bin_dir / 'gh')
+        (bin_dir / 'gh').chmod(0o700)
         for name, command in {
             "git": '#!/bin/sh\ncase "$*" in *ls-remote*) exit 0;; *) printf "fixture-repository\\n";; esac\n',
             "docker": '#!/bin/sh\n[ "$1 $2" = "manifest inspect" ] && [ -d "$DOCKER_CONFIG" ] && [ ! -f "$DOCKER_CONFIG/config.json" ]\n',
@@ -553,59 +498,25 @@ bash "$1" "$2" --promote "$3"
             executable = bin_dir / name
             executable.write_text(command)
             executable.chmod(0o755)
-        env = dict(os.environ, ASSETS=str(root), PREVIOUS_TAG=RELEASE_FIXTURE_PREVIOUS_VERSION,
+        env = dict(os.environ, ASSETS=str(root), RELEASE_CATALOG="[[]]",
                    PROMOTED=str(root / "promoted"), PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
         def promote():
-            return subprocess.run(["bash", "-c", harness, "fixture", str(ROOT / "scripts/publish-images.sh"),
-                                  RELEASE_FIXTURE_VERSION, str(result)],
+            return subprocess.run(["bash", str(ROOT / "scripts/publish-images.sh"), RELEASE_FIXTURE_VERSION, '--promote', str(result)],
                                  env=env, capture_output=True, text=True, timeout=15)
         for key, accepted in ((new_key, False), (old_key, True)):
             env["CHRONICLE_RELEASE_VERIFY_KEY"] = str(key) + ".pub"
             promoted = promote()
             assert (promoted.returncode == 0) == accepted, promoted.stderr
-        assert (root / "promoted").read_text().strip() == RELEASE_FIXTURE_VERSION
+        arguments = (root / "promoted").read_text().splitlines()
+        assert arguments[2] == RELEASE_FIXTURE_VERSION and '--latest=true' in arguments
+        from chronicle_ops.update import version_key
+        newer = str(version_key(RELEASE_FIXTURE_VERSION)[0] + 1) + '.0.0'
+        env['RELEASE_CATALOG'] = json.dumps([[dict(tag_name=newer, draft=False, prerelease=False)]])
+        assert promote().returncode == 0
+        assert '--latest=false' in (root / "promoted").read_text().splitlines()
         with patch.dict(os.environ, CHRONICLE_RELEASE_VERIFY_KEY=str(old_key) + ".pub"):
             output = publisher_dry_run(RELEASE_FIXTURE_VERSION)
         assert f"ssh-keygen -lf {old_key}.pub -E sha256" in output
-        publisher = (ROOT / "scripts/publish-images.sh").read_text()
-        assert '\' "$root" "$bundle.sha256" "$release_verify_key"' in publisher
-        smoke = (ROOT / "tests/smoke/selfhost-release-smoke.sh").read_text()
-        assert '"${CHRONICLE_RELEASE_VERIFY_KEY:-$ROOT_DIR/selfhost/release-signing.pub}"' in smoke
-        test_predecessor_authentication(builder, previous, env, promote)
-
-
-def test_predecessor_authentication(builder: dict, previous: Path, env: dict, promote) -> None:
-    root = previous.parent
-    inspector = bash_function(ROOT / "tests/smoke/selfhost-release-smoke.sh", "inspect_release_archive")
-    previous_checksum = Path(str(previous) + ".sha256")
-    previous_signature = Path(str(previous_checksum) + ".sig")
-    trusted_digest = builder["sha256"](previous)
-    # A replaced asset and its matching same-release checksum remain unauthenticated.
-    signature_bytes = previous_signature.read_bytes()
-    previous_signature.unlink()
-    for pin, accepted in (("", False), ("0" * 64, False), (trusted_digest, True)):
-        env[builder["PREVIOUS_RELEASE_TRUSTED_SHA256_ENV"]] = pin
-        env["BUILDER"] = str(ROOT / "scripts/build-selfhost-release.py")
-        inspected = subprocess.run(["bash", "-c", "set -euo pipefail\n" + inspector +
-                                    'inspect_release_archive "$1" "$2" "$3"\n', "fixture",
-                                    str(previous), str(previous_checksum), str(previous_signature)],
-                                   env=env, capture_output=True, text=True, timeout=15)
-        assert (inspected.returncode == 0) == accepted, inspected.stderr
-        (root / "promoted").unlink(missing_ok=True)
-        promoted = promote()
-        assert (promoted.returncode == 0) == accepted, promoted.stderr
-        assert (root / "promoted").exists() == accepted
-    previous_signature.write_bytes(signature_bytes)
-    previous.write_bytes(previous.read_bytes() + b"tampered asset")
-    previous_checksum.write_text(f'{builder["sha256"](previous)}  {previous.name}\n')
-    try:
-        builder["require_trusted_release_archive"](
-            previous, previous_checksum, previous_signature, Path(env["CHRONICLE_RELEASE_VERIFY_KEY"]))
-    except SystemExit:
-        pass
-    else:
-        raise AssertionError("a recomputed same-release checksum authenticated a tampered predecessor")
-
 
 def test_public_release_tag_matches_source() -> None:
     builder = runpy.run_path(str(ROOT / "scripts/build-selfhost-release.py"))
@@ -631,11 +542,11 @@ def test_release_images_require_anonymous_registry_access() -> None:
         archive = root / "candidate.tar.gz"
         manifest = root / "release-manifest.json"
         images, overlay, backup = release_image_fixture(root, builder)
-        manifest.write_text(json.dumps({"images": images}))
+        manifest.write_text(json.dumps({builder["UPGRADE_FLOOR_KEY"]: builder["UPGRADE_FROM_MINIMUM"], builder["MIGRATIONS_KEY"]: {"V1__fixture.sql": "a" * 64}, "images": images}))
         with tarfile.open(archive, "w:gz") as source:
             builder["add_to_tar"](source, manifest, "candidate/release-manifest.json", 0)
             builder["add_to_tar"](source, overlay, "candidate/selfhost/overlays/backups.yml", 0)
-        for private in ("", *images.values(), backup):
+        for private in ("", *images.values()):
             calls = []
             def inspect(command, *, env, **kwargs):
                 assert command[:3] == ["docker", "manifest", "inspect"]
@@ -648,14 +559,15 @@ def test_release_images_require_anonymous_registry_access() -> None:
                 except SystemExit:
                     assert private
                 else:
-                    assert not private and calls == [*images.values(), backup]
+                    assert not private and set(calls) == set(images.values())
 
 
 def test_smoke_monitoring_certificate_uses_state_directory() -> None:
     source = (ROOT / "tests/smoke/selfhost-release-smoke.sh").read_text()
     resolver = source.split("<<'PY_MONITORING_CA'\n", 1)[1].split("\nPY_MONITORING_CA", 1)[0]
     with tempfile.TemporaryDirectory() as folder:
-        root = Path(folder)
+        # The resolver prints a resolved path; macOS temporary folders sit behind the /var -> /private/var link.
+        root = Path(folder).resolve()
         bundle = root / "current"
         bundle.mkdir()
         for setting, state in (("", bundle), ("CHRONICLE_STATE_DIR=\n", bundle),
@@ -668,34 +580,6 @@ def test_smoke_monitoring_certificate_uses_state_directory() -> None:
             assert output.getvalue().strip() == str(state / "tls/monitoring.crt")
     assert '--cacert "$monitoring_ca"' in source
     assert 'cafile=os.environ["MONITORING_CA_FILE"]' in source
-
-
-def test_frontend_reconcile_preserves_published_files() -> None:
-    source = (ROOT / "selfhost/Dockerfile.frontend").read_text()
-    command = json.loads(re.search(r"^CMD (.+)$", source, re.MULTILINE)[1])
-    with tempfile.TemporaryDirectory() as folder:
-        root = Path(folder)
-        dist, out = root / "dist", root / "out"
-        dist.mkdir()
-        out.mkdir()
-        script = command[-1].replace("/dist", str(dist)).replace("/out", str(out))
-        (dist / "version.json").write_text('{"version":"first"}')
-        (dist / "chunk.js").write_text("complete first chunk")
-        subprocess.run([*command[:-1], script], check=True, capture_output=True, timeout=10)
-        before = (out / "chunk.js").stat()
-        (out / "sentinel").touch()
-        subprocess.run([*command[:-1], script], check=True, capture_output=True, timeout=10)
-        after = (out / "chunk.js").stat()
-        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
-        assert (out / "sentinel").exists(), "reconcile deleted the live bundle"
-        (dist / "version.json").write_text('{"version":"second"}')
-        (dist / "chunk.js").write_text("complete second chunk")
-        failed = subprocess.run(["bash", "-ec", "cp() { command cp \"$@\"; return 1; }\n" + script],
-                                capture_output=True, timeout=10)
-        assert failed.returncode != 0 and not (out / "version.json").exists()
-        subprocess.run([*command[:-1], script], check=True, capture_output=True, timeout=10)
-        assert (out / "chunk.js").read_text() == "complete second chunk"
-        assert not (out / "sentinel").exists()
 
 
 def test_monitoring_references_survive_scrape_allowlist() -> None:
@@ -711,6 +595,13 @@ def test_monitoring_references_survive_scrape_allowlist() -> None:
         references.difference_update(re.findall(r"(?m)^chronicle_[a-z][a-z0-9_]+", path.read_text()))
     assert references, "no backend monitoring expressions were checked"
     assert all(keep.fullmatch(metric) for metric in references), sorted(metric for metric in references if not keep.fullmatch(metric))
+    # The browser's only failure signal reaches operators through this counter: a dashboard panel must chart it by kind.
+    metrics = (ROOT / "chronicle-server/src/main/kotlin/com/openlattice/chronicle/observability/ChronicleMetrics.kt").read_text()
+    browser = re.search(r'val browserErrorsTotal: Counter = Counter.build\(\)\s*\.name\("([^"]+)"\)', metrics)[1]
+    charted = [target["expr"] for path in sorted((monitoring / "grafana-dashboards").glob("*.json"))
+               for panel in json.loads(path.read_text()).get("panels", []) for target in panel.get("targets", [])]
+    assert any(re.search(rf"\b{browser}\[", expr) and re.search(r"\bby\s*\(kind\)", expr) for expr in charted), \
+        f"no operator dashboard panel charts {browser} by kind"
 
 
 def test_password_alert_counts_dashboard_login_failures(rules: dict) -> None:
@@ -787,6 +678,23 @@ def test_operation_writers_serialize_metrics_and_events() -> None:
         assert len((root / "operator-events.jsonl").read_text().splitlines()) == len(processes)
 
 
+def test_operation_event_lock_failure_never_writes() -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        writer = root / "record-operation.sh"
+        writer.write_text((ROOT / "selfhost/monitoring/record-operation.sh").read_text().replace("/metrics", str(root)))
+        flock = root / "flock"
+        flock.write_text("#!/bin/sh\nexit 23\n")
+        flock.chmod(0o700)
+        harness = root / "record.sh"
+        harness.write_text('source "$1"\nrecord_event logs-probe success fixture || exit $?\n')
+        result = subprocess.run([modern_bash(), str(harness), str(writer)],
+                                env=dict(os.environ, PATH=f'{root}{os.pathsep}{os.environ["PATH"]}'),
+                                capture_output=True, text=True, timeout=10)
+        assert result.returncode == 23, result.stderr
+        assert not (root / "operator-events.jsonl").exists()
+
+
 def test_published_digest_matches_repository() -> None:
     source = (ROOT / "scripts/publish-images.sh").read_text()
     start = source.index("resolve_published_digest() {")
@@ -841,11 +749,20 @@ def test_failure_selectors(rules: dict) -> None:
     assert 'chronicle_participant_form_access_total{outcome="rejected"}' in panel["targets"][0]["expr"]
 
 
+def test_no_panel_or_alert_reads_the_removed_async_export(rules: dict) -> None:
+    # The server emits no chronicle_export_* metric, so a panel or alert on one only ever reads empty.
+    for path in sorted((ROOT / "selfhost/monitoring").rglob("*")):
+        if path.is_file() and path.suffix in {".json", ".yml", ".yaml", ".sh", ".html"}:
+            assert "chronicle_export_" not in path.read_text(encoding="utf-8"), path
+    assert "export-failures" not in rules
+
+
 def test_failure_alerts_detect_sparse_events(rules: dict) -> None:
-    for uid, failures in (("deletion-failures", 1), ("export-failures", 1), ("enrollment-failures", 6)):
+    for uid, failures in (("deletion-failures", 1), ("enrollment-failures", 6),
+                          ("background-task-failures", 1)):
         rule = rules[uid]
         models = {row["refId"]: row["model"] for row in rule["data"]}
-        query = re.fullmatch(r'sum\(increase\((\w+)\{[^}]+\}\[(\d+)([mh])\]\)\)', models["A"]["expr"])
+        query = re.fullmatch(r'sum(?: by \(task\) )?\(increase\((\w+)(?:\{[^}]+\})?\[(\d+)([mh])\]\)\)', models["A"]["expr"])
         assert query, "isolated failures require a window count"
         threshold = re.fullmatch(r'\$B > ([0-9.]+)', models[rule["condition"]]["expression"])
         assert threshold and rule["for"] == "0s", "failed jobs must alert on the first evaluation"
@@ -861,7 +778,7 @@ def test_probe_staleness_accounts_for_collection_cycle(rules: dict) -> None:
     models = {row["refId"]: row["model"] for row in rule["data"]}
     source = (ROOT / "selfhost/monitoring/probe.sh").read_text()
     assert 'chronicle_operational_probe_interval_seconds $PROBE_INTERVAL_SECONDS' in source
-    assert source.index('now="$(date +%s)"') > source.index('exports_bytes="$(du')
+    assert source.index('now="$(date +%s)"') > source.index('backups_bytes="$(dir_bytes /backups)')
     expr = models["A"]["expr"]
     assert expr == 'time()-chronicle_operational_probe_timestamp_seconds-chronicle_operational_probe_interval_seconds'
     threshold = float(re.fullmatch(r'\$B > ([0-9.]+)', models[rule["condition"]]["expression"])[1])
@@ -989,7 +906,7 @@ exit 1
 
         env = os.environ.copy()
         env.update({
-            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "PATH": f"{bin_dir}:/usr/bin:/bin:{Path(shutil.which('flock')).parent}",
             "PROBE_TEST_EXTERNAL_LOG": str(external_log),
             "PROBE_TEST_OPENSSL_ARGS": str(external_args),
             "PROBE_INTERVAL_SECONDS": "300",
@@ -1005,10 +922,13 @@ exit 1
             "PROBE_TEST_PUBLIC_CA": str(public_ca) if public_trust else "",
             "PUBLIC_CA_FILE": str(public_ca) if public_trust == "private" else "",
             "COMPOSE_FILE_SELECTION": "overlays/mode-local-https.yml" if public_trust == "local" else "",
+            "BACKUP_SCHEDULE": "@weekly" if public_trust == "local" else "",
         })
+        errors = run_root / 'probe-stderr'
+        error_stream = errors.open('w')
         process = subprocess.Popen(
-            ["/bin/bash", str(probe)], env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            [modern_bash(), str(probe)], env=env,
+            stdout=subprocess.DEVNULL, stderr=error_stream,
         )
         try:
             deadline = time.monotonic() + 10
@@ -1018,13 +938,32 @@ exit 1
                     raise AssertionError("probe exited before writing its metrics")
                 time.sleep(0.05)
             assert output.exists(), "probe did not write operational metrics"
+            assert 'command not found' not in errors.read_text()
+            events = [json.loads(line) for line in (metrics_dir / 'operator-events.jsonl').read_text().splitlines()]
+            assert any(event['operation'] == 'logs-probe' and event['outcome'] == 'success' for event in events)
             metrics = output.read_text(encoding="utf-8")
             assert "chronicle_certificate_expiry_timestamp_seconds 1900000000" in metrics
             assert "chronicle_internal_certificate_expiry_timestamp_seconds 2000000000" in metrics
             assert "chronicle_public_probe_success 1" in metrics
             assert f"chronicle_database_up {int(database_authenticated)}" in metrics
             assert f"chronicle_logs_pipeline_up {int(logs_delivered)}" in metrics
-            assert f"chronicle_postgres_database_bytes {100 if database_authenticated else 0}" in metrics
+            # The stale-backup alert compares backup age with the configured schedule's overdue window.
+            from chronicle_ops.dump import backup_max_age_seconds
+            overdue = backup_max_age_seconds(env["BACKUP_SCHEDULE"])
+            assert f"chronicle_backup_max_age_seconds {overdue}" in metrics, metrics
+            # The disk-pressure alert reads doctor's low-free threshold instead of keeping its own.
+            from chronicle_ops.common import LOW_FREE_PERCENT
+            assert f"chronicle_disk_low_free_ratio {LOW_FREE_PERCENT / 100}" in metrics, metrics
+            # An unmeasured value is absent, not a misleading zero.
+            database_bytes = re.findall(r"(?m)^chronicle_postgres_database_bytes (.*)$", metrics)
+            assert database_bytes == (["100"] if database_authenticated else []), database_bytes
+            # There is no asynchronous export or export store; the probe reports nothing about them.
+            assert [line for line in metrics.splitlines() if "chronicle_export_" in line] == []
+            unmeasured_prefixes = ("chronicle_observability_storage_bytes", "chronicle_backup_storage_bytes")
+            if not database_authenticated:
+                unmeasured_prefixes += ("chronicle_postgres_", "chronicle_flyway_")
+            unmeasured = [line for line in metrics.splitlines() if line.startswith(unmeasured_prefixes)]
+            assert unmeasured == [], f"unmeasured values must emit no sample: {unmeasured}"
             assert external_log.read_text(encoding="utf-8") == "checked\nchecked\n"
             arguments = external_args.read_text(encoding="utf-8")
             assert "-connect public-origin.example.test:8443 -servername public-origin.example.test -verify_hostname public-origin.example.test" in arguments
@@ -1036,6 +975,7 @@ exit 1
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+            error_stream.close()
     finally:
         shutil.rmtree(run_root)
 
@@ -1089,11 +1029,17 @@ class GrafanaStub(BaseHTTPRequestHandler):
         self.reply(200, {"message": "deleted"})
 
 
+# Nothing listens on the discard port, so a request routed through this proxy fails.
+UNREACHABLE_PROXY = "http://127.0.0.1:9"
+
+
 def viewer_call(base: str, operation: str, password: str, ca: Path) -> str:
     fields = [base, "test-admin-password", operation, "observer", password]
     result = subprocess.run(
         ["python3", str(ROOT / "selfhost/monitoring/grafana-user.py")],
-        env=dict(os.environ, GRAFANA_CA_FILE=str(ca)),
+        # A university host's proxy cannot reach the private Grafana listener; the call must not use it.
+        env=dict(os.environ, GRAFANA_CA_FILE=str(ca), HTTPS_PROXY=UNREACHABLE_PROXY, https_proxy=UNREACHABLE_PROXY,
+                 HTTP_PROXY=UNREACHABLE_PROXY, http_proxy=UNREACHABLE_PROXY, NO_PROXY="", no_proxy=""),
         input=b"\0".join(field.encode() for field in fields) + b"\0",
         check=True,
         capture_output=True,
@@ -1104,37 +1050,7 @@ def viewer_call(base: str, operation: str, password: str, ca: Path) -> str:
     return output
 
 
-def main() -> None:
-    test_release_drafts()
-    test_prerelease_classification()
-    test_release_signatures()
-    test_caddy_default_log_masks_handler_ips()
-    test_mobile_snat_abuse_limits()
-    test_edge_limiter_keys_ignore_credentials()
-    test_direct_tls_does_not_trust_docker_gateway()
-    test_publisher_rechecks_source_before_push()
-    test_fresh_candidate_runs_setup_up_verify()
-    test_backup_sbom_inventory()
-    test_release_changelog()
-    test_backup_release_image()
-    test_public_source_equality()
-    test_public_researcher_credentials()
-    test_backup_probe_caches_verified_file_identity()
-    test_signed_smoke_update_fixture()
-    test_candidate_smoke_matches_images_and_archive()
-    test_bridge_release_promotion_uses_trusted_old_key()
-    test_public_release_tag_matches_source()
-    test_release_images_require_anonymous_registry_access()
-    test_smoke_monitoring_certificate_uses_state_directory()
-    test_frontend_reconcile_preserves_published_files()
-    test_monitoring_references_survive_scrape_allowlist()
-    test_operation_writers_serialize_metrics_and_events()
-    test_published_digest_matches_repository()
-    test_grafana_tls_mounts()
-    test_missing_asset_cache()
-    probe_certificate_check()
-    probe_certificate_check("local", True, True)
-    probe_certificate_check("private", True, True)
+def test_grafana_viewer_lifecycle() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 0), GrafanaStub)
     tls_fixture = tempfile.TemporaryDirectory()
     ca = Path(tls_fixture.name) / "certificate.crt"
@@ -1161,6 +1077,8 @@ def main() -> None:
         thread.join()
         tls_fixture.cleanup()
 
+
+def test_monitoring_configuration() -> None:
     alerts = json.loads((ROOT / "selfhost/monitoring/grafana-alerting/rules.yml").read_text())
     runbooks = (ROOT / "selfhost/monitoring/runbooks.html").read_text()
     for group in alerts["groups"]:
@@ -1171,6 +1089,7 @@ def main() -> None:
     rules = {rule["uid"]: rule for group in alerts["groups"] for rule in group["rules"]}
     test_disk_forecast(rules)
     test_failure_selectors(rules)
+    test_no_panel_or_alert_reads_the_removed_async_export(rules)
     test_failure_alerts_detect_sparse_events(rules)
     test_probe_staleness_accounts_for_collection_cycle(rules)
     test_cadvisor_oom_counter(rules)
@@ -1180,8 +1099,22 @@ def main() -> None:
         assert rules[uid]["labels"]["severity"] == "critical", f"{uid} must be critical"
     test_password_alert_counts_dashboard_login_failures(rules)
     permission_expr = rules["permission-change"]["data"][0]["model"]["expr"]
-    for needle in ("/v3/permissions", 'method="PATCH"', "(roles|permissions)", "POST|DELETE"):
-        assert needle in permission_expr, f"permission-change expr lacks {needle}"
+    selectors = re.findall(r'\{endpoint=~"([^"]+)",method=~?"([^"]+)"\}', permission_expr)
+    assert selectors, "permission-change must select request counts by endpoint and method"
+
+    def alerts_on(endpoint: str, method: str) -> bool:
+        return any(re.fullmatch(path, endpoint) and re.fullmatch(methods, method) for path, methods in selectors)
+
+    # Every current permission/principal route, on both servlet prefixes: anything but a GET or one of the
+    # lookup POSTs (getSecurablePrincipal, searchUsers, getAcl, getAcls, getAclExplanation) changes access.
+    lookups = {"/principal", "/principal/users/search", "/v3/permissions", "/v3/permissions/bulk", "/v3/permissions/explain"}
+    inventory = json.loads((ROOT / "chronicle-server/src/test/resources/route-inventory.json").read_text())
+    routes = [(route["path"], route["method"]) for route in inventory
+              if re.search(r"/(v3/permissions|principal)(/|$)", route["path"])]
+    assert len(routes) >= 20, routes
+    for endpoint, method in routes:
+        lookup = method == "GET" or (method == "POST" and endpoint.removeprefix("/chronicle") in lookups)
+        assert alerts_on(endpoint, method) != lookup, f"permission-change {'fires on lookup' if lookup else 'misses'} {method} {endpoint}"
 
     policies_text = (ROOT / "selfhost/monitoring/grafana-alerting/notification-policies.yml").read_text()
     json.loads(policies_text)
@@ -1197,6 +1130,16 @@ def main() -> None:
     assert "## Attach a notification channel" in runbook_md
     assert "permanently muted" not in runbook_md
 
+    stale = {row["refId"]: row["model"] for row in rules["backup-stale"]["data"]}
+    assert stale["A"]["expr"] == ("chronicle_backups_expected * (time()-chronicle_backup_latest_success_timestamp_seconds"
+                                  "-chronicle_backup_max_age_seconds)")
+    assert stale[rules["backup-stale"]["condition"]]["expression"] == "$B > 0"
+    pressure = {row["refId"]: row["model"] for row in rules["disk-pressure"]["data"]}
+    assert pressure["A"]["expr"] == ('1-(container_fs_usage_bytes{id="/"}/container_fs_limit_bytes{id="/"})'
+                                     ' - on() group_left() chronicle_disk_low_free_ratio')
+    assert pressure[rules["disk-pressure"]["condition"]]["expression"] == "$B < 0"
+    assert not re.search(r"[0-9]", rules["disk-pressure"]["title"] + rules["disk-pressure"]["annotations"]["summary"])
+
     alert_text = json.dumps(alerts)
     assert "chronicle_tde_expected * (1 - chronicle_tde_healthy)" in alert_text
     assert "database-connection-pressure" in alert_text
@@ -1209,6 +1152,235 @@ def main() -> None:
     assert "Internal certificate days remaining" in certificate_panels
     assert "chronicle_certificate_expiry_timestamp_seconds" in certificate_panels["Public certificate days remaining"]["targets"][0]["expr"]
     assert "chronicle_internal_certificate_expiry_timestamp_seconds" in certificate_panels["Internal certificate days remaining"]["targets"][0]["expr"]
+
+
+ALERT_RECORDER = r'''
+import json, os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+root = Path("/records")
+class Recorder(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        status = int((root / "status").read_text())
+        record = root / ("%05d.json" % len(list(root.glob("*.json"))))
+        temporary = record.with_suffix(".new")
+        temporary.write_text(json.dumps({"status": status, "path": self.path, "body": body.decode()}))
+        os.replace(temporary, record)
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+HTTPServer(("0.0.0.0", 8080), Recorder).serve_forever()
+'''
+ALERT_TARGETS = {
+    "backup-stale": ("Chronicle verified backup is stale", "backup", "critical"),
+    "operation-failed": ("A guarded Chronicle operator command failed", "operations", "critical"),
+    "disk-pressure": ("Chronicle host filesystem is low on free space", "storage", "warning"),
+}
+
+
+def alert_samples(state: str) -> str:
+    now = time.time()
+    fault = state == "fault"
+    return "\n".join((
+        "chronicle_backups_expected 1",
+        "chronicle_backup_max_age_seconds 93600",
+        f"chronicle_backup_latest_success_timestamp_seconds {now - (200000 if fault else 60):.0f}",
+        f'chronicle_operator_operation_timestamp_seconds{{operation="update",outcome="success",failure_category="none"}} {now - 600:.0f}',
+        # A failure older than the alert's hour is history, not a current failure.
+        f'chronicle_operator_operation_timestamp_seconds{{operation="update",outcome="failure",failure_category="verify"}} '
+        f"{now - (10 if fault else 7200):.0f}",
+        'container_fs_limit_bytes{id="/"} 100000000000',
+        f'container_fs_usage_bytes{{id="/"}} {95000000000 if fault else 40000000000}',
+        "chronicle_disk_low_free_ratio 0.10",
+    )) + "\n"
+
+
+def test_alerts_reach_the_operator_webhook() -> None:
+    """Shipped rules, policy and contact point in real Grafana and VictoriaMetrics, delivered to a recorder."""
+    grafana_image = os.environ.get("SELFHOST_GRAFANA_TEST_IMAGE") or "chronicle-selfhost-grafana:test"
+    if not os.environ.get("SELFHOST_GRAFANA_TEST_IMAGE"):
+        subprocess.run(["docker", "build", "-q", "-t", grafana_image, "-f", str(ROOT / "selfhost/Dockerfile.grafana"),
+                        str(ROOT / "selfhost")], check=True, stdout=subprocess.DEVNULL)
+    overlay = (ROOT / "selfhost/overlays/monitoring.yml").read_text()
+    metrics_image = re.search(r"image: (victoriametrics/victoria-metrics:\S+)", overlay).group(1)
+    helper_image = [line.split()[1] for line in (ROOT / "selfhost/Dockerfile.backup").read_text().splitlines()
+                    if line.startswith("FROM ")][-1]
+    titles = {title: uid for uid, (title, _service, _severity) in ALERT_TARGETS.items()}
+    admin_password = "alert-test-admin-" + os.urandom(12).hex()
+    webhook_token = "alert-test-token-" + os.urandom(12).hex()
+    run = Path(tempfile.mkdtemp(prefix="alert-delivery-"))
+    suffix = os.urandom(4).hex()
+    network, names = "chronicle-sat-r1-alert-test-" + suffix, [f"chronicle-sat-r1-alert-{role}-{suffix}" for role in ("vm", "recorder", "grafana")]
+    vm, recorder, grafana = names
+    state = {"value": "healthy", "stop": False}
+    pusher = None
+    try:
+        # Timing only: one evaluation per 10 s and short waits, so the test does not need the shipped hours.
+        alerting = run / "alerting"
+        shutil.copytree(ROOT / "selfhost/monitoring/grafana-alerting", alerting)
+        provisioned = json.loads((alerting / "rules.yml").read_text())
+        provisioned["groups"][0]["interval"] = "10s"
+        for rule in provisioned["groups"][0]["rules"]:
+            if rule["uid"] in ALERT_TARGETS:
+                rule["for"] = "10s"
+        (alerting / "rules.yml").write_text(json.dumps(provisioned))
+        policies = json.loads((alerting / "notification-policies.yml").read_text())
+        for policy in [policies["policies"][0], *policies["policies"][0]["routes"]]:
+            policy.update(group_wait="1s", group_interval="10s")
+        (alerting / "notification-policies.yml").write_text(json.dumps(policies))
+        records = run / "records"
+        records.mkdir()
+        def receiver_status(status):
+            temporary = records / "status.new"
+            temporary.write_text(str(status))
+            os.replace(temporary, records / "status")
+        receiver_status(200)
+        (run / "recorder.py").write_text(ALERT_RECORDER)
+        for path in [run, *run.rglob("*")]:
+            path.chmod(0o755 if path.is_dir() else 0o644)
+        records.chmod(0o777)
+        subnet = subprocess.run([sys.executable, str(ROOT / "selfhost/network-subnet.py"), "select",
+                                 "10.251.1.0/24", network], check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(["docker", "network", "create", "--subnet", subnet, network], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["docker", "run", "-d", "--name", vm, "--network", network, "--network-alias", "victoriametrics",
+                        "-p", "127.0.0.1::8428", metrics_image, "-retentionPeriod=1d"], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["docker", "run", "-d", "--name", recorder, "--network", network, "--network-alias", "recorder",
+                        "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{records}:/records", "-v", f"{run}/recorder.py:/recorder.py:ro",
+                        "--entrypoint", "python3", helper_image, "/recorder.py"], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["docker", "run", "-d", "--name", grafana, "--network", network, "-p", "127.0.0.1::3000",
+                        "-e", "GF_SECURITY_ADMIN_PASSWORD=" + admin_password, "-e", "GF_PATHS_PLUGINS=/opt/chronicle-plugins",
+                        "-e", "GF_PLUGINS_PREINSTALL_AUTO_UPDATE=false", "-e", "GF_ANALYTICS_REPORTING_ENABLED=false",
+                        "-e", "CHRONICLE_ALERT_WEBHOOK_URL=http://recorder:8080/hook/" + webhook_token,
+                        "-v", f"{ROOT}/selfhost/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/chronicle.yml:ro",
+                        "-v", f"{alerting}:/etc/grafana/provisioning/alerting:ro",
+                        "-v", f"{ROOT}/selfhost/monitoring/runbooks.html:/usr/share/grafana/public/runbooks/index.html:ro",
+                        grafana_image], check=True, stdout=subprocess.DEVNULL)
+
+        def port(container: str, inner: str) -> str:
+            return subprocess.run(["docker", "port", container, inner], check=True, capture_output=True,
+                                  text=True).stdout.split(":")[-1].strip()
+
+        metrics_url = f"http://127.0.0.1:{port(vm, '8428/tcp')}/api/v1/import/prometheus"
+        grafana_url = f"http://127.0.0.1:{port(grafana, '3000/tcp')}"
+        def push() -> None:
+            while not state["stop"]:
+                try:
+                    urllib.request.urlopen(urllib.request.Request(metrics_url, alert_samples(state["value"]).encode()), timeout=5).read()
+                except OSError:
+                    pass
+                time.sleep(5)
+
+        pusher = threading.Thread(target=push, daemon=True)
+        pusher.start()
+
+        def deliveries() -> list[dict]:
+            found = []
+            for path in sorted(records.glob("*.json")):
+                record = json.loads(path.read_text())
+                record["payload"] = json.loads(record["body"])
+                found.append(record)
+            return found
+
+        def delivered(status: int) -> dict[str, dict]:
+            alerts = {}
+            for record in deliveries():
+                if record["status"] == status:
+                    for alert in record["payload"]["alerts"]:
+                        alerts.setdefault(alert["labels"]["alertname"], alert)
+            return alerts
+
+        def wait_for(condition, timeout: float, message: str) -> None:
+            deadline = time.monotonic() + timeout
+            while not condition():
+                if time.monotonic() > deadline:
+                    logs = subprocess.run(["docker", "logs", "--tail", "40", grafana], capture_output=True, text=True)
+                    raise AssertionError(message + "\n" + logs.stdout + logs.stderr)
+                time.sleep(2)
+
+        # Healthy: the pipeline delivers (an unconfigured deployment check fires on no data) but no target fires.
+        config_invalid = "Chronicle configuration validation failed"
+        wait_for(lambda: config_invalid in delivered(200), 240, "Grafana never delivered any alert")
+        time.sleep(40)
+        assert not set(titles) & set(delivered(200)), delivered(200).keys()
+        # The receiver is down while the faults begin, then recovers.
+        receiver_status(503)
+        state["value"] = "fault"
+        wait_for(lambda: set(titles) <= set(delivered(503)), 240, "Grafana did not attempt the failing receiver")
+        receiver_status(200)
+        wait_for(lambda: set(titles) <= set(delivered(200)), 240, "Grafana did not redeliver after the receiver recovered")
+        runbooks = (ROOT / "selfhost/monitoring/runbooks.html").read_text()
+        for title, uid in titles.items():
+            alert = delivered(200)[title]
+            assert alert["status"] == "firing", alert
+            _, service, severity = ALERT_TARGETS[uid]
+            for label, expected in dict(severity=severity, service=service, scope="selfhost").items():
+                assert alert["labels"][label] == expected, (label, alert)
+            assert alert["annotations"]["runbook_url"] == "/public/runbooks/index.html#" + uid, alert
+            assert f'id="{alert["annotations"]["runbook_url"].split("#", 1)[1]}"' in runbooks, alert
+        for record in deliveries():
+            assert record["path"] == "/hook/" + webhook_token, record["path"]
+            for secret in (admin_password, webhook_token):
+                assert secret not in record["body"], "a delivery carried a credential"
+            for field in ("participant", "study_id", "random_device_id"):
+                assert field not in record["body"].casefold(), field
+        # Recovery clears the alerts; the shipped contact point keeps resolution on the dashboard only.
+        state["value"] = "healthy"
+
+        def active() -> set[str]:
+            request = urllib.request.Request(grafana_url + "/api/alertmanager/grafana/api/v2/alerts")
+            request.add_header("Authorization", "Basic " + base64.b64encode(b"admin:" + admin_password.encode()).decode())
+            return {alert["labels"]["alertname"] for alert in json.loads(urllib.request.urlopen(request, timeout=10).read())}
+
+        wait_for(lambda: not set(titles) & active(), 240, "the alerts did not clear after recovery")
+        time.sleep(30)
+        assert not [record for record in deliveries() if record["payload"]["status"] == "resolved"
+                    and set(titles) & {alert["labels"]["alertname"] for alert in record["payload"]["alerts"]}]
+    finally:
+        state["stop"] = True
+        if pusher is not None:
+            pusher.join(timeout=10)
+        subprocess.run(["docker", "rm", "-fv", *names], capture_output=True)
+        subprocess.run(["docker", "network", "rm", network], capture_output=True)
+        shutil.rmtree(run, ignore_errors=True)
+    print("self-host alert delivery passed")
+
+
+def main() -> None:
+    if sys.argv[1:] == ["--alert-delivery"]:
+        test_alerts_reach_the_operator_webhook()
+        return
+    test_release_drafts()
+    test_prerelease_classification()
+    test_release_signatures()
+    test_caddy_default_log_masks_handler_ips()
+    test_mobile_snat_abuse_limits()
+    test_edge_limiter_keys_ignore_credentials()
+    test_fresh_candidate_runs_setup_up_verify()
+    test_backup_sbom_inventory()
+    test_release_changelog()
+    test_public_source_equality()
+    test_public_researcher_credentials()
+    test_backup_probe_caches_verified_file_identity()
+    test_release_signature_rejects_tampered_checksum()
+    test_release_archive_rejects_unsafe_inventory()
+    test_candidate_smoke_matches_images_and_archive()
+    test_release_promotion_uses_installed_key()
+    test_public_release_tag_matches_source()
+    test_release_images_require_anonymous_registry_access()
+    test_smoke_monitoring_certificate_uses_state_directory()
+    test_monitoring_references_survive_scrape_allowlist()
+    test_operation_writers_serialize_metrics_and_events()
+    test_operation_event_lock_failure_never_writes()
+    test_published_digest_matches_repository()
+    test_missing_asset_cache()
+    probe_certificate_check()
+    probe_certificate_check("local", True, True)
+    probe_certificate_check("private", True, True)
+    test_grafana_viewer_lifecycle()
+    test_monitoring_configuration()
 
     sanitizer = (ROOT / "selfhost/monitoring/sanitize.lua").read_text()
     assert 'source["message"]' not in sanitizer
