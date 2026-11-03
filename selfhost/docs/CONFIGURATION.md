@@ -5,15 +5,18 @@
 - [Deployment compatibility](#deployment-compatibility)
 - [Secret rotation](#secret-rotation)
 - [Data deletion and uninstall](#data-deletion-and-uninstall)
-- [Upgrading](#upgrading)
+- [Installing another release](#installing-another-release)
 
 
 ## Institutional LB and management inputs
 
 Setup asks for the canonical public HTTPS origin, explicit LB source CIDRs,
-`POOL_ALLOWED_IPS`, and the fixed pool port. With no recorded remote LB sources, defaults
-retain loopback-only trust and an unrestricted pool allowlist governed by the host firewall;
-SNAT without client XFF can start without guessing trusted CIDRs. A port conflict is refused. When providing
+`POOL_ALLOWED_IPS`, and the fixed pool port. A remote LB requires its actual source CIDRs:
+blank, loopback-only and Docker-gateway-only sources are refused, including for SNAT without
+client XFF. Obtain the source ranges from the institution's network owner before setup.
+Loopback/gateway defaults apply only to a proxy on this host. Setup enables TLS for an
+off-host pool hop unless an explicit reviewed `POOL_PLAINTEXT_WAIVER` is retained.
+A port conflict is refused. When providing
 forwarded client/protocol headers, the LB must replace them; SNAT without XFF supplies no original client
 identity. The public HTTP surface defaults disabled; enable `PUBLIC_HTTP_ENABLED` only
 when the LB exposes HTTP and redirects it to the canonical HTTPS origin.
@@ -22,7 +25,7 @@ The private researcher ACL defaults to loopback plus the selected Compose gatewa
 access and SSH tunnels work through Docker's translated TCP peer. Supply approved VPN/researcher CIDRs
 and `DASHBOARD_BASE_URL` for remote access. Setup derives its certificate SAN and browser
 Origin entry, preserving extra saved SANs/origins. New generated pairs use
-`tls/internal-ca.crt`; upgrades retain the existing dashboard trust anchor. Operator pairs
+`tls/internal-ca.crt`; retain this trust anchor for post-reset recovery. Operator pairs
 only need to cover the management identity. A deliberately excluded management host can
 establish intentional source denial; complete dashboard sign-in from an allowed researcher
 browser. A loopback dashboard must remain accessible from the operator host, and verification
@@ -34,7 +37,8 @@ interpolation, concatenated quotes, and backslash escapes are rejected before so
 single quotes preserve dollar signs literally. The launcher and Python operations use
 this same contract.
 
-The upstream contract is at least 10 MiB bodies, 16 KiB headers, and 300-second idle
+The upstream body contract is generated from `MAX_REQUEST_SIZE_BYTES` in
+[`ontology/chronicle.linkml.yaml`](../../ontology/chronicle.linkml.yaml), with 16 KiB headers and 300-second idle
 timeouts. Setup collects these values and refuses a smaller contract. Qualify actual
 slow transfers and large exports using [platform procedures](../../tests/deployment/selfhost-platform.md).
 
@@ -52,10 +56,10 @@ origin only: the SPA loads there, but the dashboard API answers 404.
 3. Add participants. Each participant gets an enrollment code / QR that encodes the
    study ID, participant ID, and your server URL.
 4. Monitor. The dashboard shows enrolled devices and last-upload times.
-5. Export. The study's Bulk Downloads tab is the single place that covers every
-   data family; a full-study background export (choose data types, Excel/CSV/JSON, and an
-   optional date range), whole-study Time Use Diary CSVs, and per-questionnaire response
-   CSVs. For a subset of people, tick rows on Participants and use *Download Data*.
+5. Download. On Participants, tick participants (or select all shown, after *Show more*)
+   and use *Download data*: one data type per download, as CSV, with optional start and
+   end days in the study time zone, streamed straight to the browser. The study's Bulk
+   Downloads tab has the whole-study Time Use Diary and per-questionnaire response CSVs.
    Output is plain and readable in R, Python, Excel; no proprietary tooling needed.
 
 Which modules a given phone actually collects is the intersection of what the study
@@ -70,7 +74,7 @@ deployment secret.
 
 ### Point the app at your server
 
-The Google Play build and the public "open" sideload build both trust any valid
+The `open` build, which Google Play ships and which you can also sideload, trusts any valid
 public-HTTPS Chronicle server:
 
 - Android from Google Play; issue a one-time enrollment link from the dashboard. The
@@ -79,17 +83,17 @@ public-HTTPS Chronicle server:
 
 - Android sideload; build the `open` product flavor:
   ```bash
-  cd chronicle           # the Android submodule
-  ./gradlew :app:assembleOpenRelease
+  (
+    set -euo pipefail
+    cd chronicle           # the Android submodule
+    ./gradlew :app:assembleOpenRelease
+  )
   ```
-  The `open` flavor sets `ALLOW_ANY_SERVER=true`, matching Play's hostname behavior. Both
-  accept only a root URL on HTTPS; plain HTTP, URL credentials, query/fragment content, and
-  path-prefixed base URLs are rejected. The minimal Play build trusts only the system
-  certificate store. The `open` build also trusts a CA the phone owner installed, which is
-  what the local trial mode relies on. The two builds also differ in which modules they
-  collect: see [Which Android build](../README.md#which-android-build). To ship the sideload
-  flavor as a distinct store app, give it its own `applicationId` and store/signing
-  configuration.
+  The `open` flavor sets `ALLOW_ANY_SERVER=true`. It accepts only a root URL on HTTPS; plain HTTP, URL credentials, query/fragment content, and
+  path-prefixed base URLs are rejected. It trusts the system certificate store and a CA the
+  phone owner installed, which is what the local trial mode relies on; see
+  [Which Android build](../README.md#which-android-build). To ship a sideload build as a
+  distinct store app, give it its own `applicationId` and store/signing configuration.
 
 - iOS; in `chronicle-ios/chronicle/Config/Chronicle.local.xcconfig` set:
   ```
@@ -100,20 +104,10 @@ public-HTTPS Chronicle server:
 
 ### Public-client credentials
 
-Never compile a deployment-wide `MOBILE_SIGNING_SECRET` into a public app. A normal public
-self-host deployment leaves `MOBILE_SIGNING_ENABLED=false`,
-`MOBILE_SIGNING_REQUIRED=false`, `MOBILE_SIGNING_SECRET=`, and
-`MOBILE_SIGNING_SECRET_PREVIOUS=`. A public client starts from a one-time enrollment link
-issued by the dashboard and, after successful exchange, stores only its returned per-device
-API key.
-
-Only a controlled legacy/research-client fleet may opt in: set both booleans to `true` and
-provide a generated 32+ character compatibility key. The configuration guard and backend
-entrypoint reject mismatched booleans, an enabled mode without a key, or keys left populated
-while the mode is disabled. Protect an opted-in value in `.env`: do not commit it or expose
-it through logs, command arguments, shell transcripts, public app packages, or support
-messages. The legacy rotation procedure is retained only for installations that explicitly
-support those controlled old clients.
+A client starts from a one-time enrollment link issued by the dashboard and, after
+successful exchange, stores only its returned per-device API key. Deployment-wide mobile
+signing keys and their rotation commands are unsupported. Setup generates only the
+credentials required by the current deployment.
 
 ### Enroll a device
 
@@ -180,40 +174,38 @@ and the exact storage combinations listed in
 ## Secret rotation
 
 Do not hand-edit one side of a shared credential and restart containers piecemeal. Use
-`./chronicle rotate-secret` for the dashboard, JWT, internal web, metrics, PostgreSQL,
-Grafana, mobile HMAC, and TDE principal keys. It keeps a private recovery transaction,
+`./chronicle rotate-secret --help` to choose the dashboard, JWT, internal web, metrics,
+PostgreSQL, Grafana, or TDE rotation command. It keeps a private recovery transaction,
 health-checks the affected services, and writes secret-free receipts. See
 [SECRET-ROTATION.md](SECRET-ROTATION.md), including the explicit forward/rollback command
 for a host crash.
 
 ## Data deletion and uninstall
 
-Deleting a participant or study is an application workflow with quarantine, verification,
+Deleting a participant or study is an application workflow with an owner-run erasure, verification,
 and durable proof. Removing containers is not data deletion, and removing Docker volumes
 does not remove bind-mounted backups. Follow
 [UNINSTALL-DATA-DELETION.md](UNINSTALL-DATA-DELETION.md) for the exact distinction and safe
 operator sequence.
 
-## Upgrading
+## Installing another release
 
-Upgrade with a newer release bundle; do not
-clone or build the source workspace on the server.
+Post-reset releases upgrade in place with `./chronicle update`; `./chronicle update --check`
+reports availability. `./chronicle update <version>` selects a published version and can
+repair the current version. The updater preserves configuration and state and automatically
+rolls back failed verification. Only pre-reset releases (2026.10.9 and earlier) require fresh
+volumes. A reviewed backup restores into the same or a newer post-reset release; a newer
+backup cannot restore into an older release. See [upgrade and rollback](UPGRADE-ROLLBACK.md).
 
-```bash
-# After downloading and checksum-verifying the new release archive:
-cd chronicle-selfhost-<new-version>/selfhost
-./chronicle upgrade --from /absolute/path/to/chronicle-selfhost-<old-version>/selfhost
-```
+## Verify the public mobile path
 
-The command preserves operator settings but takes release/version/image pins from the new
-bundle, keeps mutable backups/TLS state at its previous absolute location, validates the
-PostgreSQL major version, stops and verifies every application writer, creates and verifies a
-consistent pre-upgrade dump from that quiesced database, waits for the new stack, and writes
-an upgrade receipt. Flyway migrations are automatic.
+Routine `./chronicle verify` uses anonymous refusal and readiness probes. It does not
+create a participant or replay uploads in a research study. Its output explicitly reports
+that the mutating canary is not configured for operator verification.
 
-Read [UPGRADE-ROLLBACK.md](UPGRADE-ROLLBACK.md) before the first production upgrade. It
-contains the exact forward-recovery and tested rollback procedure. PostgreSQL major changes
-are refused and use the separate dump/restore runbook.
+The disposable release-smoke stack creates a dedicated synthetic study and exercises
+enrollment, collection acknowledgment, and upload there. Run that release check before
+publication. Never point the synthetic client at a live research study.
 
 ## Study webhook recipients
 
@@ -221,16 +213,49 @@ Study webhooks are managed through the authenticated API, not the dashboard. Inv
 registered recipients with `GET /chronicle/v3/study/{id}/webhooks` using a researcher session
 with study access. Create recipients before enrollment: adding a destination is refused
 while enrollments are active or pending. Creation, deletion and test delivery are audited. Enrollment and data-submission
-events include participant IDs, study context and record counts. Inventory every recipient,
+events include keyed participant references, study context and record counts. Raw participant labels stay inside Chronicle. Inventory every recipient,
 hosting country, transfer authorization and retention agreement before enabling delivery.
 Keep the study's participant sharing disclosure consistent with these recipients. Chronicle
 cannot erase copies already delivered: arrange and verify recipient-side deletion when a
 participant or study is erased, including the recipient's backups and downstream processors.
 
+Extend this inventory to **downloaded exports** and copies on analyst workstations, at
+collaborators, in backup storage and exposed through support access. Record each recipient's
+controller/processor role, data and subject scope, purpose, lawful basis, written or
+electronic disclosure agreement, delivery date, retention schedule row and custodian.
+Track onward recipients and evidence of correction, return or deletion; removing a local
+export does not recall a delivered copy.
+
+Assess whether each flow leaves the country, including remote access,
+off-host backups and support. Record destination countries and the onward chain, the
+adequacy decision or enforceable safeguards relied on, their evidence and approval.
+For a specific non-habitual exception, record its precise statutory ground and supporting
+facts before transfer. Keep the notice consistent with the actual flow, and record each
+disclosure and international transfer in the institution's registers.
+
 ## Upload body deadlines
 
-Every Caddy upload listener gives a request body 300 seconds to finish, even if bytes keep
-arriving. The existing 10 MiB ceiling therefore permits about 35 KiB/s for a maximum-size
-mobile batch. This total read deadline is independent of the upstream idle timeout. Keep
+Every Caddy listener keeps the generated `UPLOAD_BODY_TIMEOUT_SECONDS` whole-body deadline
+(300 seconds), even if bytes keep arriving. After a transport timeout or body-deadline
+failure, Android keeps unacknowledged rows queued and retries with a smaller batch.
+Oversized bodies and payload rejections also split down to single rows when needed.
+This total read deadline is independent of the upstream idle timeout. Keep
 both limits when replacing the supplied listeners; the topology drill checks an incomplete
-trickled body and a complete near-limit upload separately.
+trickled body and a complete upload separately. The upload-body-limit-edge job exercises the body ceiling.
+
+## Database connection roles
+
+Setup generates `POSTGRES_APP_PASSWORD` independently of the existing owner password.
+The default and `chronicle` JDBC pools log in as `chronicle_app`, a non-owner login with
+`NOSUPERUSER` and `NOBYPASSRLS`. Their table and index initializers remain disabled.
+`POSTGRES_USER` and `POSTGRES_PASSWORD` select the explicit `bootstrap` pool for framework
+schema initialization, Flyway, and protected restore authority. Missing owner configuration
+fails startup. Database backup and restore commands continue to use the owner credential.
+
+Both runtime pools retain their existing maximum of 20 and minimum idle of 5 connections.
+The new bootstrap pool has provisional maximum 2 and minimum idle 0. Retain these values:
+Flyway needs its lock/history connection alongside its migration connection. The upstream
+offline bootstrap has no owner-pool budget. The combined per-backend ceiling therefore
+increases from 40 to 42, with the minimum idle total remaining 10. Connection timeouts and
+lifetimes retain their existing values. Rotate the app login with
+`./chronicle rotate-secret postgres-app`; owner password rotation remains a separate operation.

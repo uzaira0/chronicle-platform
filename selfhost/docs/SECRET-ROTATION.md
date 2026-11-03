@@ -5,9 +5,12 @@ the deployment. They update the existing mode-`0600` `.env`; they never accept a
 a command argument and never print a generated or chosen value.
 
 ```bash
-cd /absolute/path/to/chronicle-selfhost-<version>/selfhost
-chmod 600 .env
-./chronicle rotate-secret --help
+(
+  set -euo pipefail
+  cd /absolute/path/to/chronicle-selfhost-<version>/selfhost
+  chmod 600 .env
+  ./chronicle rotate-secret --help
+)
 ```
 
 `--yes` skips the impact confirmation. It does not make a password appear in shell history:
@@ -15,34 +18,35 @@ the dashboard password is still read silently, and all other values are generate
 into `.env`. Each service reconciliation has a bounded wait (300 seconds by default, set by
 `SECRET_ROTATION_WAIT_TIMEOUT_SECONDS`).
 
-Before the first rotation after an upgrade, let the backend become healthy and run
-`./chronicle verify`. The `secret_rotation_tracking` ledger is owned by Flyway migration
-V83; the rotation command deliberately performs no runtime schema changes. A deployment
-that has not completed its release migrations therefore fails closed instead of granting
-the operator account permission to create or alter tables.
+Before the first rotation on a fresh installation, let the backend become healthy and run
+`./chronicle verify`. Setup records generation dates (no credential values) in
+`CHRONICLE_SECRET_GENERATED_AT` alongside the mode-0600 installation settings, and every
+completed rotation writes a receipt under `operator-receipts/secret-rotations/`.
+`./chronicle doctor` reports each secret's age in days from the newer of the two; the TDE key
+uses its creation date until its first rotation. Doctor reports ages only: how old a secret
+may get is your own policy.
 
 Dashboard acceptance uses `DASHBOARD_BASE_URL` and the existing dashboard trust anchor,
 with certificate verification and proxies bypassed. If a private management listener
 deliberately excludes the operator host, a 403 retains the new credential and records
 `dashboard_auth=operator_check_required`; complete sign-in from an allowed researcher
 browser at the printed URL. A loopback listener returning 403 fails rotation, since that
-would exclude the operator's SSH tunnel too. Rollback to a previous release preserves all
-credentials rotated since the upgrade.
+would exclude the operator's SSH tunnel too. For recovery, use a reviewed backup from the same or an older post-reset release;
+see [backup and restore](BACKUP-RESTORE.md).
 
 ## What each command changes
 
 | Command | Effect | Expected interruption |
 |---|---|---|
-| `./chronicle rotate-secret dashboard` | Reads a new password twice, hashes it in the digest-pinned Caddy image over stdin, recreates `web`, and proves the password opens the internal dashboard. Only the bcrypt hash is stored. | Existing dashboard connections may reconnect while `web` is recreated. |
-| `./chronicle rotate-secret jwt` | Generates a 256-bit signing value and recreates `backend`. | All researcher sessions are invalidated and must sign in again. |
+| `./chronicle rotate-secret dashboard` | Reads a new password twice, hashes it in the digest-pinned Caddy image over stdin, recreates `backend` and `web`, ends every dashboard session issued before the change, and proves the password opens the internal dashboard. Only the bcrypt hash is stored. | Every researcher signs in again with the new password. |
+| `./chronicle rotate-secret jwt` | Generates a 256-bit signing value and recreates `backend`; retains the previous key for one `DASHBOARD_SESSION_MINUTES` window, including sessions without a key ID. | Existing sessions keep their own expiry. Another routine rotation waits until this overlap ends. |
+| `./chronicle rotate-secret jwt --revoke-sessions` | Replaces the signing key and removes the previous key and its overlap. Use after a signing-key or `.env` leak. | All researcher sessions must sign in again. |
 | `./chronicle rotate-secret internal-web` | Generates the Caddy-to-backend credential and recreates `backend` and `web` together. | API/dashboard requests may briefly retry. |
 | `./chronicle rotate-secret reviewer` | Generates or rotates the reusable Play Console reviewer credential, enables its exact study-scoped route, and recreates `backend`. | The previous Console value immediately receives `401`; update Play Console in the same window. |
 | `./chronicle rotate-secret metrics` | Generates the backend metrics credential. With `overlays/monitoring.yml`, refreshes its scraper secret and config, recreates `backend` and VictoriaMetrics, then verifies the backend target is up. | Update separately configured scrapers from the protected `.env`. |
 | `./chronicle rotate-secret postgres` | Publishes a generated password, changes the live PostgreSQL role over stdin, then reconciles and health-checks the complete Compose stack. | This is the broadest restart; expect a short full-stack interruption. |
+| `./chronicle rotate-secret postgres-app` | Rotates the independent `chronicle_app` login through the owner connection and recreates the backend. The owner credential and backup/restore connections retain their current password. | Brief backend restart; failed rotation restores the previous app credential and supports the same interrupted-operation recovery. |
 | `./chronicle rotate-secret grafana` | Uses Grafana's authenticated password API, recreates Grafana, and verifies the new login. | Grafana only; requires `overlays/monitoring.yml`. The generated value remains only in `.env`. |
-| `./chronicle rotate-secret mobile begin` | For an already enabled controlled legacy fleet, generates a new HMAC compatibility key while retaining the old key as `MOBILE_SIGNING_SECRET_PREVIOUS`. Public clients use per-device keys and are unaffected. | Backend recreation; controlled legacy/research clients keep working during the overlap. |
-| `./chronicle rotate-secret mobile finalize` | Removes the previous compatibility key after every supported controlled legacy client has moved. | Backend recreation; an old controlled client still carrying the previous key receives `401`. |
-| `./chronicle rotate-secret mobile abort` | Restores the pre-rotation compatibility key and removes the overlap. | Backend recreation; use when a controlled legacy-client rollout must be abandoned. |
 | `./chronicle rotate-secret tde` | Takes and gzip-verifies a fresh plain-SQL dump, activates a timestamped pg_tde principal key online, verifies all public tables remain encrypted, and atomically refreshes the backed-up keyring. | No PostgreSQL restart; requires encryption and the backups overlay. |
 
 After any rotation, run:
@@ -52,6 +56,12 @@ After any rotation, run:
 # Internal-dashboard deployments can also prove the chosen password without shell history:
 ./chronicle verify --dashboard-password
 ```
+
+Routine JWT rotation writes `JWT_SECRET_PREVIOUS_EXPIRES_AT` as absolute Unix seconds.
+The running verifier checks it on every request; an expired key stays disabled across
+restarts. Its protected value can remain in `.env` until the next rotation or be removed
+with its expiry in a trusted editor after the overlap. Never copy either signing value
+into a log, terminal output, or support ticket.
 
 For Grafana, open `.env` only in a trusted local editor and move the new password directly
 to the password manager used by the operators. Do not use `cat .env`, paste the value into a
@@ -66,60 +76,39 @@ study plus a synthetic participant in `ENROLLED` state. Run
 invalidates the previous reusable value
 immediately and does not broaden it beyond the exact reviewer bootstrap endpoint.
 
-## Legacy mobile rotation
+## Internal dashboard CA
 
-Public app builds must not contain this key. They enroll with a one-time link and then use
-a per-device API key. The normal self-host configuration therefore keeps both legacy
-booleans false and both shared-key slots blank. This section applies only to an explicitly
-controlled legacy or research-client fleet whose `.env` already has both booleans true and
-a generated current key. For those clients, `mobile begin` creates an overlap; it does not
-update an installed app.
+`tls/internal-ca.key` signs the generated internal dashboard certificate, which also serves
+the pool listener when `POOL_LISTENER_TLS=true`. No `rotate-secret` command covers it.
+cert-init creates a CA only when both `tls/internal-ca.crt` and `tls/internal-ca.key` are
+absent, and refuses to start once the CA is within 30 days of expiry. To replace it after a
+suspected key exposure, or before that refusal:
 
-1. On the server, begin the overlap:
+Run from the active release's `selfhost/` directory. Resolve the mounted state directory
+through the launcher; updates can leave it outside this release:
 
-   ```bash
-   ./chronicle rotate-secret mobile begin
-   ```
+```bash
+(
+  set -euo pipefail
+  state_dir="$(bash -c 'source ./chronicle; need_env; printf "%s" "$STATE_ROOT"')" || exit 1
+  TLS_DIR="$state_dir/tls"
+  ca_archive="$(mktemp -d "$TLS_DIR/retired-dashboard-ca.XXXXXX")" || exit 1
+  docker compose stop web || exit 1
+  mv -- "$TLS_DIR/internal-ca.crt" "$TLS_DIR/internal-ca.key" \
+    "$TLS_DIR/internal-cert.pem" "$TLS_DIR/internal-key.pem" "$ca_archive/" || exit 1
+  ./chronicle up || exit 1
+)
+```
 
-2. Only if that controlled legacy fleet still requires a client-embedded compatibility key,
-   use its trusted build workstation to seal the new current value without displaying it.
-   Never run this for the Google Play/public build. Replace the host and release path below;
-   the secret travels only through SSH and the pipe into the age sealer:
+The archive directory is mode `0700` inside `tls/`, which the startup readability check
+leaves owner-only. Destroy the old key when your incident procedure allows; nothing deletes
+it for you. cert-init issues a new CA and a leaf with the same SANs.
+Resolve the state directory again as above for subsequent commands (the block's variables
+are local to its subshell). Replace the trusted CA using `$TLS_DIR/internal-ca.crt` on researcher machines and, with
+`POOL_LISTENER_TLS=true`, on the load balancer; remove trust in the old CA there. Then run
+`./chronicle verify`.
 
-   ```bash
-   ssh chronicle-host \
-     'cd /absolute/path/to/current/selfhost && . ./.env && printf %s "$MOBILE_SIGNING_SECRET"' \
-     | (cd chronicle-ios && scripts/seal-secret.sh mobile-signing-secret)
-   ```
-
-   Commit only `chronicle-ios/secrets/mobile-signing-secret.age`. Never commit `.env`, an
-   unencrypted secret, `local.properties`, or `Chronicle.local.xcconfig`.
-
-3. On each authorized build Mac, decrypt through the canonical generator:
-
-   ```bash
-   cd chronicle-ios
-   scripts/decrypt-ios-secret.sh
-   ```
-
-   This regenerates the ignored `chronicle/Config/Chronicle.local.xcconfig`. The Android
-   Gradle build also reads that generated file, so the same sealed value can build both iOS
-   and Android without a second plaintext authority. An explicitly supplied, untracked
-   `MOBILE_SIGNING_SECRET` environment value or Gradle property remains a supported local
-   override.
-
-4. Build, sign, distribute, and verify both supported clients. Allow enough time for every
-   installed participant device to move to the new build. The backend intentionally accepts
-   both keys during this interval.
-5. Only after no supported installed build uses the old key:
-
-   ```bash
-   ./chronicle rotate-secret mobile finalize
-   ```
-
-If deployment must be abandoned before finalization, run `mobile abort`. Do not finalize
-merely because the new build exists; old installed builds cannot discover the new key from
-the server.
+An operator-supplied `internal-cert.pem` is not signed by this CA; renew it with its issuer.
 
 ## TDE-specific recovery facts
 
@@ -153,7 +142,7 @@ TDE rotations also know how to reverse the corresponding live external change. A
 command failure triggers rollback automatically, reapplies the previous service
 configuration, and removes the transaction only after rollback succeeds.
 
-Do not run an upgrade, restore, and rotation at the same time. Each command refuses the
+Do not run restore and rotation at the same time. Each command refuses the
 other operation locks and rechecks after acquiring its own lock, closing the concurrent
 start race. A completed operation writes a private, secret-free JSON receipt under:
 
@@ -219,9 +208,10 @@ chat.
 
 ## Credentials not handled by this command
 
-- **SMTP/provider credentials:** rotate them at the provider first, update `.env` in a
-  trusted editor, then run `docker compose up -d --wait --wait-timeout 300 backend`. This is
-  not automated because provider APIs and overlap behavior differ.
+- **`CHRONICLE_ALERT_WEBHOOK_URL`:** issue a replacement webhook at the receiver, revoke
+  the old webhook, update the URL in `.env` using a trusted local editor, and run
+  `./chronicle up`. Send a Grafana contact-point test and confirm delivery. Application
+  sessions stay active; alert delivery resumes with the replacement receiver credential.
 - **TLS private keys and certificates:** use your institution/CA's issuance and revocation
   procedure. Replace the matching certificate/key pair atomically in the state-directory
   `tls/` path, preserve private-key mode `0600`, recreate `web`, and verify the served chain.

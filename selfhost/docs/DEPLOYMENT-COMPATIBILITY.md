@@ -1,6 +1,9 @@
 # Supported deployment combinations
 
-A combination is supported only when it appears below.
+Install fresh with the reset baseline. Pre-reset releases, databases, app installs, and
+backups cannot cross this reset. Starting with this release, `./chronicle update`
+upgrades supported installations in place and preserves their data. A combination
+is supported only when it appears below.
 
 ## Components and status
 
@@ -60,13 +63,9 @@ backend `CHRONICLE_TRUSTED_PROXY_CIDRS` value use the same input and are checked
 consistency at startup.
 
 Caddy separately trusts upstream load balancers through `CADDY_TRUSTED_PROXIES`, a
-space-separated list of explicit CIDRs. The default is the Compose gateway (`172.28.0.1/32`)
-for a same-host proxy. A remote F5 uses its exact SNAT source ranges; client XFF is optional.
-Upgrade migrates legacy loopback trust to the configured gateway for a loopback HTTP bind,
-or to an existing explicit `POOL_ALLOWED_IPS` for a remote bind. It also adds the gateway to
-a legacy loopback dashboard allowlist so an SSH-tunnel operator retains access.
-Without recorded remote sources, legacy trust is retained and startup warns rather than
-refusing an F5 that uses SNAT without client XFF.
+space-separated list of explicit CIDRs. Only a loopback proxy listener defaults to the Compose
+gateway. Direct TLS listeners trust loopback only. A remote F5 must use explicit SNAT source
+ranges; client XFF is optional.
 All split modes process the forwarded chain
 from right to left, so a forged leading X-Forwarded-For value does not replace the nearest
 untrusted client address. Direct clients continue to use their socket address, regardless of
@@ -114,22 +113,6 @@ COMPOSE_FILE=docker-compose.yml:overlays/mode-local-https.yml
 After editing `.env`, run `./chronicle check`; after startup, run
 `./chronicle verify --dashboard-password` and supply the password on the prompt or stdin.
 
-## Export limits
-
-The backend receives all five export limits from Compose. These defaults apply when a value is
-unset or empty; set any of them in `.env` to tune exports for the host:
-
-| Variable | Default | Meaning |
-|---|---:|---|
-| `CHRONICLE_EXPORT_MAX_ROWS` | `1000000` | Maximum rows in one export |
-| `CHRONICLE_EXPORT_MAX_BYTES` | `536870912` | Maximum bytes in one export |
-| `CHRONICLE_EXPORT_MAX_RUNTIME_SECONDS` | `1800` | Maximum runtime for one export |
-| `CHRONICLE_EXPORT_MAX_TOTAL_BYTES` | `8589934592` | Maximum managed export artifacts |
-| `CHRONICLE_EXPORT_MIN_FREE_BYTES` | `1073741824` | Free space required before a new export |
-
-Use positive decimal integers. The backend validates every supplied value and fails backend
-startup when a value is malformed, zero, negative, or outside the supported integer range.
-
 ## Researcher session idle timeout
 
 The backend expires researcher sessions after a bounded idle interval. Set
@@ -146,29 +129,16 @@ trial remains available for a private LAN address; it does not require a public 
 
 The dashboard is the frontend image of the same release; it is never mixed across releases.
 
-| Server release | Android build shipped with it | Server change the app depends on |
-|---|---|---|
-| 2026.10.9 | versionCode 69 (Play internal, open flavor) | V114/V115 keep erased device-key hashes so an offline phone can learn NOT_ENROLLED after participant or study erasure; V116/V117 preserve those markers through restore |
-| 2026.10.3 | versionCode 67 (Play internal) | as 2026.10.2 |
-| 2026.10.2 | versionCode 67 (Play internal) | V113 accepts the access-missing diagnostic; an older server rejects it and the app keeps it until the server is upgraded |
-| 2026.10.1 | versionCode 66 (Play internal); needs Android 8.0 or newer | none |
-| 2026.9.30 | versionCode 65 (not uploaded to Play; replaced by 66) | none |
-| 2026.9.29 | versionCode 64 (Play internal) | none (V108/V109 are server-side: erased diagnostics and purged data cannot be re-inserted by a device replay; new tables are encrypted automatically because self-host makes `tde_heap` the database default) |
-| 2026.9.28 | versionCode 63 (Play internal) | V107 accepts the full diagnostic catalog and keeps diagnostics for the life of the study |
-| 2026.9.27 | versionCode 62 (Play internal) | V106 accepts the discarded-data diagnostic codes |
-| 2026.9.25 | versionCode 61 (Play internal) | V104 accepts sensor dead-letter, crash and ANR diagnostic codes |
-| 2026.9.17, 2026.9.18, 2026.9.22 | versionCode 60 (Play internal); 61 carries the 2026.9.18 exact-alarm fix | none |
-| 2026.9.14 | versionCode 59 (not published) | V103 settings `ETag`/`If-Match` (optional on the server) |
+| Server release | Android app | Dashboard | Install path |
+|---|---|---|---|
+| Reset baseline (first release after 2026.10.9) and later | Minimum versionCode **80**, versionName `2026.10.31-internal.open.1`, Play **internal** track; later builds using the same enrollment contract are supported. The server checks no app version. | The frontend image of the same release | Fresh install from 2026.10.9 or earlier, with every phone enrolled again; `./chronicle update` in place between post-reset releases |
+| 2026.10.9 and earlier | The pre-reset builds of that release | The frontend image of the same release | No upgrade path to the reset baseline: fresh install, and pre-reset backups do not restore |
 
-Newer apps work against older servers: a server before V107 answers the newer diagnostic
-codes with 400, and the app parks those counts on the phone and offers them again on every
-upload, so an upgraded server receives them
-(`LocalUploadDiagnosticsStore.parkUnsupportedByLegacyServer`). Servers before V107 also delete
-diagnostics after 30 days; the phone keeps its copy and re-sends it once a day. Update the
-server first anyway.
+Use the app and server shipped with the reset baseline together. Restore backups into the
+same or a newer post-reset release. A newer backup cannot restore into an older release.
+See [upgrade and rollback](UPGRADE-ROLLBACK.md).
 
-Internal installs always use `TESTING_LOGIN_ENABLED=false` and `REQUIRE_MFA=false`. Upgrade,
-adopt and reconciliation migrate credentialless testing login when a dashboard hash exists;
-otherwise run `./chronicle setup` before retrying. Caddy retains network isolation and
+Internal installs always use `TESTING_LOGIN_ENABLED=false` and `REQUIRE_MFA=false`.
+Run `./chronicle setup` to configure the dashboard hash. Caddy retains network isolation and
 pre-auth limits; researcher data requires the app session. Sign-out and idle lock require
 password entry again, without a second Caddy Basic password prompt.

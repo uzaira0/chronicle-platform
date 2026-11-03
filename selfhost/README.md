@@ -11,13 +11,17 @@ and private researcher access during setup.
 
 ## Requirements
 
-- A Linux host with Docker and the Docker Compose plugin. The `./chronicle` script
+- A Linux host with Docker and the Docker Compose plugin **2.17 or newer**. The `./chronicle` script
   also runs on macOS for a local trial; deploy on Linux. See [Supported hosts](#supported-hosts).
+- Bash, **Python 3.9 or newer**, curl, OpenSSL, and OpenSSH tools with
+  `ssh-keygen -Y` signing/verification support. Install these before verifying the signed
+  download or running setup. The Linux recipes also use GNU coreutils, gzip, tar and
+  iproute2 (`ip` and `ss`) for address and listener checks.
 - An operator account in the `docker` group on rootful Docker. Rootless Docker and
   enforcing SELinux remain unqualified; use the [VM procedures](../tests/deployment/selfhost-platform.md) before declaring support.
   Membership of the `docker` group is **root-equivalent** on that host, so give it only to
   the people who run Chronicle. Nothing else on the normal path needs `sudo`:
-  `setup`, `check`, `up`, `verify`, `upgrade`, `restore` and `rotate-secret` run as that
+  `setup`, `check`, `up`, `verify`, `restore` and `rotate-secret` run as that
   account, and every file they create (`.env`, `backups/`, receipts) is owned by its uid.
   Installing Docker itself, and `timedatectl set-ntp`, need root once.
 - ~4 vCPU / 8 GB RAM is comfortable; a pilot with a handful of devices runs on
@@ -38,66 +42,99 @@ and private researcher access during setup.
 | Ubuntu 22.04 / 24.04, Docker CE | no | 5.1 / 5.2 | n/a (AppArmor) | Expected to work; report issues |
 | macOS with OrbStack or Docker Desktop | trial only | 3.2 (`/bin/bash`) | n/a | Deploy on Linux |
 
-SELinux: the bind mounts in `docker-compose.yml` and the overlays carry no `:z`/`:Z`
-relabel options, so the bundle has not been exercised with the Docker daemon's
-`selinux-enabled: true`. Run the daemon with SELinux support off (the RHEL default for
-Docker CE), or test the relabelling on a staging host before production.
+SELinux: the bundle and state-directory bind mounts carry the shared `z` relabel option.
+A daemon without `selinux-enabled` ignores it (checked on RHEL 9.8: file labels are
+unchanged). With `selinux-enabled: true` the daemon relabels the bundle directory and the
+`tls/` and `backups/` state directories as `container_file_t`; that path has not been run
+end to end. Run the daemon with SELinux support off (the RHEL default for Docker CE), or
+test it on a staging host before production.
 
 ## Quick start
+
+Blocks enclosed in `( ... )` stop on failure without closing your interactive shell.
+Their directory changes and variables stay inside the block.
 
 From a published release bundle (download the archive, `.sha256`, and `.sha256.sig` from the
 repository's GitHub Releases page):
 
-The `.sha256.sig` authenticates the checksum; verify it with an independently trusted
-public key as described in [Release signatures and key rotation](docs/UPGRADE-ROLLBACK.md#release-signatures-and-key-rotation).
+The public key ships in the bundle. Only its fingerprint must come separately from the
+maintainer, by email or message from your study's Chronicle contact.
 The expected Ed25519 fingerprint is
 `SHA256:PuOdejZ2d1CQgrWEF/tf95asMPC5RnsbCidg1PB6VSo`.
-Run `ssh-keygen -lf selfhost/release-signing.pub` and compare with the fingerprint received
-through your institution's independent maintainer handoff. `./chronicle setup` also prints
-the installed fingerprint. The checksum command below checks the archive's integrity.
+Replace `<version>` with the release version in the file name. Extract only the key:
 
 ```bash
-# 1. Verify and extract the bundle. It contains no source and builds nothing:
-#    `up` pulls the digest-pinned images. On macOS use:
-#    shasum -a 256 -c chronicle-selfhost-<version>.tar.gz.sha256
-sha256sum -c chronicle-selfhost-<version>.tar.gz.sha256
-tar -xzpf chronicle-selfhost-<version>.tar.gz
+(
+  set -euo pipefail
+  tar -xzOf chronicle-selfhost-<version>.tar.gz chronicle-selfhost-<version>/selfhost/release-signing.pub > release-signing.pub
+  ssh-keygen -lf release-signing.pub -E sha256
+)
+```
+
+Compare this fingerprint with the one the maintainer sent separately.
+If it differs, stop. Do not install. If it matches, verify the signature and checksum below.
+See [Release signatures and key rotation](docs/UPGRADE-ROLLBACK.md#release-signatures-and-key-rotation).
+`./chronicle setup` also prints the installed fingerprint.
+
+```bash
+(
+  # 1. Verify and extract the bundle. It contains no source and builds nothing:
+  #    `up` pulls the digest-pinned images. On macOS use:
+  #    shasum -a 256 -c chronicle-selfhost-<version>.tar.gz.sha256
+  set -euo pipefail
+  printf 'chronicle-release %s\n' "$(cat release-signing.pub)" > allowed_signers
+  ssh-keygen -Y verify -f allowed_signers -I chronicle-release -n chronicle-release \
+    -s chronicle-selfhost-<version>.tar.gz.sha256.sig < chronicle-selfhost-<version>.tar.gz.sha256
+  sha256sum -c chronicle-selfhost-<version>.tar.gz.sha256
+  tar -xzpf chronicle-selfhost-<version>.tar.gz
+  cd chronicle-selfhost-<version>/selfhost
+
+  # 2. Configure interactively. Secrets are generated and never printed.
+  ./chronicle setup
+
+  # 3. Validate the host, pull the digest-pinned images, and start.
+  ./chronicle up
+
+  # 4. Check that public routes work and the dashboard API stays private.
+  ./chronicle verify
+
+  # 5. Check backup age and service health; follow any reported recovery command.
+  ./chronicle doctor
+)
+```
+
+For subsequent commands, enter the installed bundle:
+
+```bash
 cd chronicle-selfhost-<version>/selfhost
-
-# 2. Configure interactively. Secrets are generated and never printed.
-./chronicle setup
-
-# 3. Validate the host, pull the digest-pinned images, and start.
-./chronicle up
-
-# 4. Check that public routes work and the dashboard API stays private.
-./chronicle verify
-
-# 5. Check backup age and service health; follow any reported recovery command.
-./chronicle doctor
 ```
 
 ### From a source checkout
 
 ```bash
-# 1. Clone the public repository. The operator script initializes only the server
-#    submodules it needs; chronicle-ios intentionally remains unchecked out.
-git clone https://github.com/uzaira0/methodic.git chronicle
-cd chronicle/selfhost
+(
+  set -euo pipefail
+  # 1. Clone the public repository. The operator script initializes only the server
+  #    submodules it needs; chronicle-ios intentionally remains unchecked out.
+  git clone https://github.com/uzaira0/methodic.git chronicle
+  cd chronicle/selfhost
 
-# 2. Configure interactively. Secrets are generated and never printed.
-./chronicle setup
+  # 2. Configure interactively. Secrets are generated and never printed.
+  ./chronicle setup
 
-# 3. Validate the host, pull, and start. This is the whole deployment.
-./chronicle up
+  # 3. Validate the host, pull, and start. This is the whole deployment.
+  ./chronicle up
 
-# 4. Check that public routes work and the dashboard API stays private.
-./chronicle verify
+  # 4. Check that public routes work and the dashboard API stays private.
+  ./chronicle verify
 
-# 5. Check backup age and service health; follow any reported recovery command.
-./chronicle doctor
-./chronicle monitoring status    # when monitoring was selected during setup
+  # 5. Check backup age and service health; follow any reported recovery command.
+  ./chronicle doctor
+  ./chronicle monitoring status    # when monitoring was selected during setup
+)
 ```
+
+For subsequent commands, enter `chronicle/selfhost` from the directory where you ran the block.
 
 On a source checkout the first `up` builds the images from source, so it takes longer than
 a restart.
@@ -107,20 +144,20 @@ branch and that the current deployment has a recent verified backup. Then update
 gitlinks and let the operator command build the new revision:
 
 ```bash
-cd /path/to/chronicle
-git pull --ff-only
-git submodule update --init --recursive
-cd selfhost
-./chronicle up
-./chronicle verify
-./chronicle doctor
+(
+  set -euo pipefail
+  cd /path/to/chronicle
+  git pull --ff-only
+  git submodule update --init --recursive
+  cd selfhost
+  ./chronicle up
+  ./chronicle verify
+  ./chronicle doctor
+)
 ```
 
-For a production version transition, the release-bundle `upgrade` workflow remains
-the preferred path because it quiesces writers and creates a verified rollback dump before
-allowing database migrations.
-
-To switch an existing source installation to release bundles and enable `./chronicle update`, see [Switching from a source checkout to release bundles](docs/UPGRADE-ROLLBACK.md#switching-from-a-source-checkout-to-release-bundles).
+Post-reset installations upgrade in place with `./chronicle update`. Pre-reset releases
+(2026.10.9 and earlier) require a fresh installation; see [upgrade and rollback](docs/UPGRADE-ROLLBACK.md).
 
 `./chronicle setup` is the recommended path for a first-time operator. Copying
 `.env.example` manually remains available for automation.
@@ -146,31 +183,49 @@ inside the stack and issues its own certificate for this machine's LAN address.
 
 ```bash
 ./chronicle up
-# Scan the QR code printed after the stack becomes healthy.
+# Prints an optional CA-install QR code once the stack is healthy.
 ```
 
-Each test phone installs that CA once (the QR points at `http://<lan-ip>/local-ca.crt`),
-after which it trusts the server. It is a **trial mode**: never ask study participants to
-install a CA. To move to a real deployment, rerun `./chronicle setup`, choose option 1 or 2,
+The Chronicle apps do **not** need that CA installed: in this mode the dashboard puts the CA
+root certificate in each invitation link (`serverCa` parameter), and the apps trust it as an
+extra root for that server only, with hostname checks unchanged. The phone's browser does not
+read the link's CA. It warns when it opens the invitation page, and even after you continue
+past the warning, Chrome on Android can refuse the page's own request to the server, so the
+page shows "Invitation unavailable" and never reaches the app hand-off. On a trial phone that
+opens the invitation in its browser, install the CA first (below). Android accepts a link CA for LAN IP addresses,
+`localhost`, and `.local` names only when the connected peer also has a LAN address. iOS
+accepts CA-bearing `chronicle://enroll` links for LAN IP addresses and `localhost`; use the
+server's LAN IP instead of a `.local` name on iOS. URLSession does not expose the connected
+peer during trust evaluation, so iOS cannot safely accept a name that might resolve publicly.
+The dashboard's browser hand-off currently offers Android only; iOS needs a direct
+`chronicle://enroll` invitation from the study team.
+
+Install the CA on a device (the QR printed by `./chronicle up` points at
+`http://<lan-ip>/local-ca.crt`) when a phone opens the invitation in its browser, or when
+it enrolls by typing the server address rather than from the link.
+It is a **trial mode**: never ask study participants to install a CA. To move to a real deployment, rerun `./chronicle setup`, choose option 1 or 2,
 and enter the public hostname and production TLS choice. Setup replaces the trial LAN
 `DOMAIN`, clears the private `CHRONICLE_PUBLIC_BASE_URL` override so Compose uses
 `https://DOMAIN`, and writes the production `COMPOSE_FILE`. Keep `CHRONICLE_STATE_DIR`
 pointed at the existing data directory. Then run `./chronicle check` and `./chronicle up`.
 
-> Android caveat: a user-installed CA is trusted by browsers but **not by apps**, unless the
-> app ships a `network-security-config` that opts in. The Chronicle `open` build ships that
+> Android caveat for the typed-address fallback: a user-installed CA is trusted by browsers
+> but **not by apps**, unless the app ships a `network-security-config` that opts in. The Chronicle `open` build ships that
 > entry (`app/src/open/res/xml/open_network_security_config.xml`), so use the `open` APK
-> (`:app:assembleOpenRelease`, or a Play testing track carrying the open build) for trial
-> phones. The minimal Play build and the research build stay system-CA-only; on those,
-> enrollment fails with a TLS error while the same URL loads fine in Chrome on the same phone.
+> (`:app:assembleOpenRelease`, or the Google Play build, which is the open build) for trial
+> phones. The research build stays system-CA-only; on it, enrollment fails with a TLS error
+> while the same URL loads fine in Chrome on the same phone.
 
 ### Editing .env by hand instead
 
 ```bash
-cp .env.example .env
-chmod 600 .env
-$EDITOR .env          # DOMAIN, deployment secrets, and DASHBOARD_PASSWORD_HASH
-./chronicle up
+(
+  set -euo pipefail
+  cp .env.example .env
+  chmod 600 .env
+  ${EDITOR:-vi} .env          # DOMAIN, deployment secrets, and DASHBOARD_PASSWORD_HASH
+  ./chronicle up
+)
 ```
 
 `.env` is the only file you edit. It carries `COMPOSE_FILE`, so plain `docker compose`
@@ -181,11 +236,14 @@ on). Generate the password hash without putting the cleartext in shell history o
 arguments:
 
 ```bash
-read -rsp 'Dashboard password: ' DASHBOARD_PASSWORD; echo
-CADDY_IMAGE="$(sed -n 's/^CADDY_IMAGE=//p' .env)"
-printf '%s\n' "$DASHBOARD_PASSWORD" | docker run --rm -i --network none --read-only \
-  --entrypoint caddy "$CADDY_IMAGE" hash-password
-unset DASHBOARD_PASSWORD
+(
+  set -euo pipefail
+  read -rsp 'Dashboard password: ' DASHBOARD_PASSWORD; echo
+  CADDY_IMAGE="$(sed -n 's/^CADDY_IMAGE=//p' .env)"
+  printf '%s\n' "$DASHBOARD_PASSWORD" | docker run --rm -i --network none --read-only \
+    --entrypoint caddy "$CADDY_IMAGE" hash-password
+  unset DASHBOARD_PASSWORD
+)
 ```
 
 ### Check the deployment
@@ -207,20 +265,21 @@ absent from the public listener by design, so the SPA loads on `https://<your-do
 call it makes returns 404; that domain is the participant/mobile origin only. Point a Chronicle
 app build (see [Mobile apps](#mobile-apps)) at the domain to enroll a device.
 
-Other `./chronicle` subcommands: `up` (check, then `docker compose up -d`), `upgrade`
-(validated previous-release upgrade plus automatic backup), `restore` (stop every writer,
+Other `./chronicle` subcommands: `up` (check, then `docker compose up -d`), `restore` (stop every writer,
 restore a verified dump, and restart only after health passes), `rotate-secret` (one guarded
 credential change or interrupted-operation recovery), `deletion-status`, `status`, `logs`,
 `doctor` (actionable checks, or machine-readable `--json`), `monitoring` (status and private
 Viewer accounts), `down`. Use `./chronicle up` for normal operation. Direct Compose is an
 automation-level interface only after `.env`, submodules, and images are prepared; it skips
-host-address, port-collision, and deployment-adoption checks. Restore and version
-transitions always use their guarded commands.
+host-address, port-collision, and deployment-ownership checks, and without exported
+`CHRONICLE_HOST_UID`/`CHRONICLE_HOST_GID` it runs the backup and restore containers as root,
+leaving root-owned dumps. Use the guarded restore
+for recovery into the same or a newer post-reset release; use `./chronicle update` for new releases.
 
 ## Required configuration
 
 Beyond flipping overlays on/off, these are the decisions/values the deploying team must
-set. The participant-facing override, legacy mobile compatibility, and email are optional;
+set. The participant-facing override and email are optional;
 setup supplies safe defaults or generated values for the remaining entries where possible:
 
 | # | What | Where | Notes |
@@ -229,10 +288,9 @@ setup supplies safe defaults or generated values for the remaining entries where
 | 2 | Participant-facing origin (optional) | `CHRONICLE_PUBLIC_BASE_URL` | Exact HTTPS root used in enrollment links and signed manifests when it differs from `https://DOMAIN`; no path, query, fragment, or credentials. |
 | 3 | TLS strategy | see below | The main decision on an institutional box. |
 | 4 | DB password | `POSTGRES_PASSWORD` | Any strong secret; only this stack uses it. |
-| 5 | Legacy mobile compatibility (optional) | `MOBILE_SIGNING_ENABLED`, `MOBILE_SIGNING_REQUIRED`, `MOBILE_SIGNING_SECRET` | Off and blank by default. Enable both booleans and generate the server-side key only for a controlled legacy/research-client fleet. Public clients use one-time enrollment links and per-device API keys. |
-| 6 | Dashboard access | see [Securing the dashboard](#securing-the-dashboard) | Internal listener + Caddy password, optionally behind your institution's access layer. |
+| 4 | Runtime DB password | `POSTGRES_APP_PASSWORD` | Generated independently for the restricted `chronicle_app` login. |
+| 6 | Dashboard access | see [Securing the dashboard](#securing-the-dashboard) | Internal listener + dashboard password, optionally behind your institution's access layer. |
 | 7 | **Listen address** | `HTTP_BIND`, `HTTP_PORT` | Where your proxy reaches the stack. **Must not be `127.0.0.1` if the proxy is on another host**; see below. |
-| 8 | Email (optional) | `SMTP_*` | Only if the study sends participant notification emails. |
 
 ### TLS; the institutional decision
 
@@ -245,8 +303,9 @@ infrastructure:
   `CADDY_TRUSTED_PROXIES` (the Compose gateway for a same-host proxy; explicit source CIDRs
   for a remote F5) and the pool ingress allowlist
   `POOL_ALLOWED_IPS`. When configured, only those peers may reach the public pool listener.
-  Without recorded remote sources, setup retains loopback trust and leaves pool admission
-  to the host firewall; SNAT without client XFF can start with these defaults. The LB must
+  An off-host LB requires explicit source CIDRs even when SNAT removes client XFF;
+  blank, loopback-only and Docker-gateway-only sources are refused. Setup enables TLS
+  for the off-host pool hop unless a reviewed `POOL_PLAINTEXT_WAIVER` is retained. The LB must
   overwrite `X-Forwarded-Proto` with exactly `https`. If it sends `X-Forwarded-For`, it must
   replace it with its observed client address. Do not use `private_ranges` as a trust shortcut.
 
@@ -261,13 +320,16 @@ infrastructure:
   > host reachability does not establish phone or researcher reachability.
 
   An F5 that SNATs and sends no client `X-Forwarded-For` provides only the LB address.
-  Trusting its CIDR cannot recover the original address. Device credentials separate
-  edge upload buckets. The shared aggregate ceiling rises to 20,000 per mobile window
-  only when both the socket peer and resolved client IP are trusted LB addresses. Request
+  Trusting its CIDR cannot recover the original address. Authenticated uploads have no
+  edge quota. For enrollment and public bootstrap routes, the shared ceiling rises to
+  20,000 per mobile window only when both the socket peer and resolved client IP are trusted LB addresses. Request
   LB header insertion when per-client IP behavior is required.
 
-  If your balancer re-encrypts to the pool member instead of forwarding plain HTTP,
-  this mode is wrong; use "terminate TLS on the stack" below and give Caddy a certificate.
+  With `HTTP_BIND` off loopback the LB-to-pool hop runs TLS: setup sets
+  `POOL_LISTENER_TLS=true`, the pool listener serves the generated internal certificate
+  (its SANs include `HTTP_BIND`), and the LB re-encrypts to the pool member and trusts
+  `tls/internal-ca.crt`. config-guard refuses plain HTTP off loopback unless
+  `POOL_PLAINTEXT_WAIVER` names an approved controlled-register waiver.
 - Terminate TLS on the stack with your own certificate. Drop `cert.pem` + `key.pem`
   (institution-issued or commercial) into `./tls`, then put
   `overlays/mode-own-tls-internal.yml` in `COMPOSE_FILE`. No Let's Encrypt. This adds no
@@ -275,7 +337,7 @@ infrastructure:
   the key's ownership so Caddy, which runs with every capability dropped, can read it.
 
 > If your certificate is issued by a **private/internal CA**, the mobile apps must be told
-> to trust that CA; see [Mobile apps](#mobile-apps). A publicly-trusted certificate
+> to trust that CA; see [Mobile apps](#mobile-apps). A publicly trusted certificate
 > (including most institutional certs that chain to a public root) needs no device changes.
 
 ## Architecture
@@ -287,16 +349,16 @@ infrastructure:
    │ (institutional cert)│   │     SAME web container, with your    │
    │                     │   │     cert.pem/key.pem. No ACME.       │
    └──────────┬──────────┘   └──────────────────┬──────────────────┘
-              │  http (X-Forwarded-Proto: https) │
+              │ https (X-Forwarded-Proto: https) │
               └───────────────┬──────────────────┘
                               ▼
                       ┌───────────────┐
                       │  Caddy (web)  │  serves the dashboard's static files,
                       │   :8080       │  routes /chronicle/{v2,v3,v4,api/web,study,…} → backend,
                       └───────┬───────┘  and optionally terminates TLS — one container
-                              │
+                              │ https (backend service certificate)
                       ┌───────▼───────┐        ┌──────────────┐
-                      │    backend    │───────▶│  PostgreSQL  │  plain (no TDE) → portable backups
+                      │    backend    │───────▶│  PostgreSQL  │  pg_tde tables → plain SQL dumps
                       │  (Spring)     │        └──────────────┘
                       └───────────────┘
 ```
@@ -307,7 +369,7 @@ definitions cannot drift apart:
 
 | File | Listens | Mounted by |
 |---|---|---|
-| `Caddyfile.split` | `:80` public, `:8081` internal (HTTPS) | `overlays/mode-behind-proxy-internal.yml`; the default |
+| `Caddyfile.split` | `:8080` pool (HTTPS when `POOL_LISTENER_TLS=true`), `:8081` internal (HTTPS) | `overlays/mode-behind-proxy-internal.yml`; the default |
 | `Caddyfile.split.tls` | `:443` public, `:8081` internal (HTTPS) | `overlays/mode-own-tls-internal.yml` |
 | `Caddyfile.split.local` | `:443` public (Caddy's own CA), `:80` CA download + redirect, `:8081` internal | `overlays/mode-local-https.yml`; trial only |
 
@@ -315,14 +377,14 @@ The overlay is what publishes the ports *and* what mounts the matching Caddyfile
 same file; so there is no combination of settings that mounts a config for a listener the
 stack never publishes. `verify-config.sh` checks that pairing.
 
-The base file publishes no ports. The selected mode publishes either plain HTTP to an
-upstream TLS proxy or HTTPS using your certificate/private trial CA; there is no forced
-Let's Encrypt.
+The base file publishes no ports. The selected mode publishes either the pool listener for
+an upstream TLS proxy or HTTPS using your certificate/private trial CA; there is no forced
+Let's Encrypt. Caddy reaches the backend over HTTPS, verified against the backend service
+certificate that cert-init issues.
 
 Two traffic paths share the server:
 - Mobile ingest (`/chronicle/v3/*`, `/chronicle/v4/*`); public clients authenticate
   with the per-device API key returned by one-time enrollment, never by a dashboard login.
-  Optional shared-HMAC verification exists only for an explicitly controlled legacy fleet.
   Never put a password gate in front of these paths.
 - Dashboard (`/chronicle/…`); for researchers. Protect it (see
   [Securing the dashboard](#securing-the-dashboard)).
@@ -356,7 +418,9 @@ and writes the overlay, private bind, and retention values without manual Compos
 The backup sidecar waits for both PostgreSQL and the migrated backend before taking its
 startup dump. That readiness check runs inside the container as well as through Compose,
 so a host or Docker daemon restart cannot race the dump against database startup. Tune
-`BACKUP_STARTUP_TIMEOUT_SECONDS` only when a deliberately slow migration needs longer.
+`BACKUP_STARTUP_TIMEOUT_SECONDS` when a deliberately slow migration needs longer. It defaults
+to 3600 seconds and accepts any positive integer without a one-hour maximum. Restore and
+update startup waits use the same validation; see [backup and restore](docs/BACKUP-RESTORE.md).
 
 Monitoring binds Grafana to `127.0.0.1:3000` by default. Use `GRAFANA_PORT` to avoid a
 local collision or `GRAFANA_BIND` for one reviewed private interface; startup refuses a
@@ -379,7 +443,8 @@ never appear in command arguments or receipts:
 Firing and historical alert states are visible in Grafana. By default no notification leaves
 the host; set `CHRONICLE_ALERT_WEBHOOK_URL` to deliver alerts to a person (see the runbook
 section "Attach a notification channel"). Setup calls out that delivery starts disabled, and
-`./chronicle doctor` reports `alert-route` as a warning until a destination is configured. The
+`./chronicle doctor` reports `alert-route` as a failure and exits 1 while monitoring is
+enabled without a destination; scheduled reconciliation also records this failure. The
 check confirms only that a destination is present; test delivery in Grafana using the bundled
 [monitoring runbook](docs/MONITORING-RUNBOOK.md). Each alert links to that runbook.
 
@@ -395,10 +460,6 @@ operation, UTC timestamp, release version, outcome, and finite failure category.
 passwords and deployment credentials are never included. These receipts exist whether or not
 the monitoring overlay is enabled; monitoring additionally projects the latest result into the
 Operational Events dashboard.
-
-Asynchronous export artifacts live in the dedicated `export_data` volume rather than the
-backend container filesystem, so downloads survive backend restarts and release upgrades. The
-Database and Storage dashboard shows its current size alongside database and backup storage.
 
 ## Securing the dashboard
 
@@ -438,7 +499,7 @@ Researchers enter this shared dashboard password in the application login form.
 3. TLS on the internal listener protects dashboard password entry and session cookies. The `cert-init` service
 generates a leaf certificate with the requested SANs using the stable dashboard CA
 `tls/internal-ca.crt`. Trust that CA on researcher machines; keep its private key private.
-Upgrades preserve an existing legacy dashboard certificate and its installed trust anchor.
+Keep the dashboard trust certificate with the installation recovery material.
 Setup derives SANs and allowed browser origins from `DASHBOARD_BASE_URL`; extra identities
 can be listed in `INTERNAL_CERT_SANS`. Generated leaves renew on SAN changes or within
 30 days of expiry, and `up` reloads certificate consumers when fingerprints differ from
@@ -470,14 +531,14 @@ publishes the ports, so they cannot disagree:
 ```bash
 # in .env
 COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml
-# then: docker compose up -d
+# then: ./chronicle up
 ```
 
 That serves two listeners:
 
 | | Port | Carries | Publish to |
 |---|---|---|---|
-| Public | 80 | Mobile ingest, participant forms, static SPA | Your institutional proxy / the internet |
+| Public | `HTTP_PORT` (default 8080) | Mobile ingest, participant forms, static SPA | Your institutional proxy / the internet |
 | Internal | 8081 | The above plus the researcher dashboard API | A VPN or management interface only |
 
 Set `INTERNAL_BIND` in `.env` to that interface's IPv4 address (e.g. `INTERNAL_BIND=10.0.0.5`).
@@ -495,8 +556,7 @@ password again. Caddy does not ask for the same password separately: researcher 
 paths require an app session at the backend. The source allowlist, TLS, pre-auth rate limits,
 security headers and public listener restrictions remain in place.
 
-Upgrade, adopt and scheduled reconciliation migrate older internal settings when the hash
-exists. If it is missing, the command refuses startup and asks the operator to run
+Startup requires the configured dashboard password hash. If it is missing, run
 `./chronicle setup` to choose a dashboard password.
 
 The internal listener, source-address allowlist and global password protect dashboard
@@ -507,14 +567,23 @@ The backend enforces an idle deadline for researcher sessions. Set
 the default is `15` minutes, and `./chronicle check` rejects invalid values before startup.
 Keep `TESTING_LOGIN_ENABLED=false` in every shipped installation.
 
-Verify the boundary after starting; every one of these must 404 from outside:
+Verify the boundary after starting. `./chronicle verify` is the supported check: it requests
+the dashboard and test-login routes through the configured public HTTPS origin
+(`CHRONICLE_PUBLIC_BASE_URL`) and requires 404. To repeat it by hand from a machine outside
+your network, probe that same origin; every one of these must 404:
 
 ```bash
+PUB=https://<public-host>   # your CHRONICLE_PUBLIC_BASE_URL
 for path in /chronicle/v3/auth/testing-login /chronicle/v3/auth/session \
             /chronicle/api/web/study /datastore/ /chronicle/datastore/; do
-  printf '%s %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://<public-host>:8080$path)" "$path"
+  printf '%s %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "$PUB$path")" "$path"
 done
 ```
+
+The pool listener (`HTTP_PORT`, default 8080) serves HTTPS whenever pool TLS is on, the
+default off loopback, so a plain-HTTP request to it proves nothing. Plaintext-waiver mode
+only: with a retained `POOL_PLAINTEXT_WAIVER` that listener speaks HTTP, and you may also run
+the loop from an address in `POOL_ALLOWED_IPS` with `PUB=http://<pool-address>:8080`.
 
 The receiving listener determines the public/private boundary, including when an upstream
 load balancer rewrites the source address.
@@ -532,36 +601,42 @@ curl -o /dev/null -w '%{http_code} tud-data\n'   $PUB/chronicle/v3/time-use-diar
 curl -o /dev/null -w '%{http_code} survey\n'     $PUB/chronicle/survey               # 200
 curl -o /dev/null -w '%{http_code} ingest\n'     $PUB/chronicle/v4/                  # not 404
 ./chronicle verify --dashboard-password  # silent password entry proves app login and its session
-./chronicle verify --dashboard-password  # checks backend dashboard login and issued session
 ```
 
 ## Rate limiting
 
-Caddy applies aggregate IP abuse ceilings. The backend validates credentials and applies
-device/session and per-route limits.
+Caddy applies IP quotas only to explicit login, enrollment, credential-exchange and public
+entry-page routes. Authenticated API, upload and dashboard data routes have no edge quota.
+On data routes the backend counts per IP only requests without a valid credential. A request
+with a live device key, a live participant survey session or a valid researcher session is
+never counted, so enrolled phones and survey pages behind one carrier or school NAT are not
+limited by each other; invalid, expired or revoked credentials remain limited.
 
 | Zone | Key | Default | Setting |
 |---|---|---|---|
-| Mobile abuse | resolved client IP | 200 requests/second | `RATE_LIMIT_MOBILE_ABUSE_EVENTS`, `RATE_LIMIT_MOBILE_WINDOW` |
-| Mobile abuse through trusted SNAT LB | trusted LB IP | 20,000 per mobile window | fixed ceiling; `RATE_LIMIT_MOBILE_WINDOW` |
-| Researcher abuse | resolved client IP | 200 requests/second | `RATE_LIMIT_WEB_ABUSE_EVENTS`, `RATE_LIMIT_WEB_WINDOW` |
+| Enrollment and public bootstrap | resolved client IP | 200 requests/second | `RATE_LIMIT_MOBILE_ABUSE_EVENTS`, `RATE_LIMIT_MOBILE_WINDOW` |
+| Enrollment and public bootstrap through trusted SNAT LB | trusted LB IP | 20,000 per mobile window | fixed ceiling; `RATE_LIMIT_MOBILE_WINDOW` |
+| Login and credential issue | resolved client IP | 200 requests/second | `RATE_LIMIT_WEB_ABUSE_EVENTS`, `RATE_LIMIT_WEB_WINDOW` |
+| Internal login and public entry pages | socket peer IP | 300 requests/minute | `RATE_LIMIT_GUARD_EVENTS`, `RATE_LIMIT_GUARD_WINDOW` |
 
-The backend validates device credentials and study/participant scope. Unauthenticated
-traffic shares a bucket; the aggregate IP ceiling still bounds arbitrary credential values.
+The backend validates device credentials and study/participant scope. Requests without a
+valid credential share a per-IP bucket at 10 requests/minute with burst capacity 15 (the configured
+1.5 multiplier). Enrollment preview and code exchange have their own annotated pre-authentication
+tiers of 100 and 60 requests/minute, respectively. Edge quotas never depend on a caller's claimed credential value.
 `./chronicle verify` uses a bounded anonymous burst to check that the edge or backend returns
 429, including through an F5 that SNATs without client XFF.
-The backend also limits dashboard login to 10 requests/minute. Several researchers behind
-VPN SNAT share the unauthenticated login ceiling; issued browser sessions have separate
-API buckets. Asset loading does not consume those buckets.
-Hashed JS/CSS/font assets bypass repeated password/rate checks; the researcher source ACL
+The backend also limits dashboard login to 5 requests/minute. Several researchers behind
+VPN SNAT share the unauthenticated login ceiling. Issued browser sessions do not have
+backend or edge API buckets. Asset loading does not consume the login bucket.
+Hashed JS/CSS/font assets bypass rate checks; the researcher source ACL
 still applies. `/health` is exact readiness, returns 204 only when dependencies are usable,
 and does not enter access logs.
 
 Caddy accepts client identity only from the explicit trusted LB sources, resolves the chain
 from the trusted end, and writes one normalized identity to the backend. A trusted LB with
 no client header leaves all callers at its socket address. Only that trusted SNAT population
-receives the higher aggregate mobile ceiling; anonymous uploads still share the 20-request
-ingest bucket, and other clients retain the configured IP abuse ceiling. No trust
+receives the higher enrollment/bootstrap ceiling; invalid anonymous uploads still share the
+backend pre-authentication bucket. No trust
 configuration can reconstruct missing client information. Over-limit requests return 429,
 and verification checks that ceiling.
 
@@ -574,29 +649,27 @@ durable deletion proof. See
 - Create a study, toggle which data-collection modules are required/optional, set
   sensor sampling rates.
 - Add participants (each gets an enrollment code / QR).
-- Export from the study's Bulk Downloads tab, which is the one place that covers
-  every data family:
-  - *Full study export*; every participant, run server-side as a background job. Pick
-    which data types to include, the format (Excel / CSV / JSON) and an optional date
-    range; download the artifact from the job list when it finishes.
-  - *Time Use Diary*; whole-study CSV per variant (DayTime / NightTime / Summarized).
-  - *Questionnaire responses*; every response for a questionnaire, as CSV.
+- Download collected data from the Participants tab: tick participants (or *Select all
+  participants shown*; the page shows 100 at a time, so use *Show more* first), then
+  *Download data*. Each download is one data type as CSV, with optional start and end
+  days in the study time zone and an optional filename. It streams straight to the
+  browser; the server keeps no export files and runs no export jobs. The columns are
+  described in `docs/PILOT-DATA.md` in the source repository.
+- The study's Bulk Downloads tab has the whole-study Time Use Diary CSV per variant
+  (DayTime / NightTime / Summarized) and every response for a questionnaire as CSV.
 
-  For a subset of people, tick rows on the Participants tab and use *Download Data*,
-  which takes the same data types plus a date range and filename.
+  Downloads are raw tables.
 
-  Exports are raw tables, apart from the optional `Preprocessed` usage-events type.
-
-Participant and study deletion are delayed, verified workflows rather than volume removal.
-They immediately quarantine live rows, then physically erase them after the seven-day
-window when no retention hold applies. Backups follow their own retention policy. Read
+Participant and study deletion are verified workflows rather than volume removal.
+A request immediately makes live rows inaccessible; physical erasure runs only when an owner
+presses **Erase now**, and never on a timer. Backups follow their own retention policy. Read
 [docs/UNINSTALL-DATA-DELETION.md](docs/UNINSTALL-DATA-DELETION.md) before either deleting
 product data or removing an installation; those are deliberately different operations.
 
 ## Mobile apps
 
-Participants need a Chronicle app pointed at *your* server. The Google Play build and the
-public "open" sideload build both accept any valid public-HTTPS Chronicle server:
+Participants need a Chronicle app pointed at *your* server. The `open` build, which Google
+Play ships and which you can also sideload, accepts any valid public-HTTPS Chronicle server:
 
 - Android from Google Play: open the one-time enrollment link issued by your dashboard.
   The link supplies your server URL, which remains visible on the enrollment screen for the
@@ -606,45 +679,42 @@ public "open" sideload build both accept any valid public-HTTPS Chronicle server
   `app/signing.properties.example` and point it at your keystore), then
   `cd chronicle && ./gradlew :app:assembleOpenRelease` and
   `adb install -r app/build/outputs/apk/open/release/app-open-release.apk`.
-  Like Play, it trusts any `https` server using the device system trust store
-  (`ALLOW_ANY_SERVER`).
+  It is the same build Play ships and trusts any `https` server using the device system
+  trust store (`ALLOW_ANY_SERVER`).
 - iOS: set `CHRONICLE_ALLOW_ANY_SERVER = YES` in `Chronicle.local.xcconfig` and build.
 
 ### Which Android build
 
-A Play listing can carry either build: check which one your testing track or release uses
-before designing a study.
+Google Play ships the `open` build for Android 8.0 or newer. It supports the pilot's
+app-usage, activity-class, device-lifecycle, user-identification, upload, sensor-availability
+and battery telemetry modules. Accessibility interaction, notification-listener and audio
+collectors are excluded. It trusts publicly trusted CAs plus CAs the phone owner installed
+(so the local trial CA works). The sideloaded `open` APK is the same build.
 
-| | Minimal Play build (`play` flavor) | Open build (`open` flavor; Play testing track or sideload) |
-|---|---|---|
-| Modules | Only usage events, in-app activity class, device lifecycle, user identification, upload diagnostics, battery, connectivity, device settings | Every module, including hardware sensors, interaction, audio, notifications, sleep, activity recognition, Health Connect, app network usage |
-| Study enables another module | Enrollment is refused ("not included in the minimal Google Play release"); nothing is collected | Supported |
-| Upload diagnostics module | Must be enabled, or enrollment is refused | Optional |
-| Server certificate | Publicly trusted only; the local trial CA does not work | Publicly trusted, or a CA the phone owner installed (trial mode) |
-| Battery-optimisation exemption | App opens the system list; participant finds Chronicle there | One-tap system prompt |
-| Minimum Android version | 8.0, from versionCode 66 (6.0 before) | 8.0, from versionCode 66 (6.0 before) |
+The battery dialog opens Android's general battery-optimization settings. Select **All apps**
+if necessary, choose **Chronicle**, select **Don't optimize**, and confirm. Return to Chronicle
+to check the grant; canceling or leaving optimization enabled does not grant an exemption.
+Settings labels vary by Android version and manufacturer.
 
-Both builds use the application ID `com.bcm.chronicle`. A Play update moves a phone between
-builds in place. A build signed with a different key (for example your own sideload over a
+Play and sideloaded builds use the application ID `com.bcm.chronicle`. A build signed with a different key (for example your own sideload over a
 Play install) installs only after the old app is removed, which deletes data not yet
 uploaded; the participant then enrolls again.
 
-Do not put `MOBILE_SIGNING_SECRET` in a public Android or iOS build. From the dashboard,
-issue a one-time enrollment link for the participant; the app exchanges it once and stores
-the returned per-device API key. A normal setup writes `MOBILE_SIGNING_ENABLED=false`,
-`MOBILE_SIGNING_REQUIRED=false`, and blank current/previous shared keys. Setup generates a
-compatibility key only after an explicit yes for a controlled legacy/research-client fleet;
-the startup guard rejects every partial opt-in. Details are in
+From the dashboard, issue a one-time enrollment link for the participant; the app
+exchanges it once and stores the returned per-device API key. Setup generates no
+deployment-wide mobile signing key. Details are in
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md#mobile-apps).
 
 Mobile apps and TLS trust. The apps validate the server certificate against the device
 trust store. If your server's cert chains to a public CA (most institutional and
-commercial certs do), nothing extra is needed. The minimal Play build intentionally does not
-trust private CAs or plain HTTP. The local trial mode is therefore for operator-owned test
-devices and is not compatible with the minimal Play build without a publicly trusted endpoint.
-For a private/internal CA on a development-only build, Android requires an explicit
-network-security-config that trusts user CAs;
-iOS: install + enable the CA profile (then it's system-trusted, no app change).
+commercial certs do), nothing extra is needed. In the local HTTPS trial the invitation link
+also carries the trial CA root, which Android trusts for that one LAN server; no profile
+install is needed for the dashboard's Android link or QR enrollment. iOS accepts the same
+CA parameter in a direct `chronicle://enroll` link using the server's LAN IP. The
+Play (open) build also trusts CAs the phone owner installed, the fallback for a typed server
+address; no build accepts plain HTTP. The research build trusts system CAs only. Android apps trust a
+user-installed CA only through a network-security-config that opts in, as the open build does;
+iOS without an invitation link: install + enable the CA profile (then it's system-trusted).
 
 ### Google Play reviewer access
 
@@ -711,34 +781,37 @@ it before giving the reviewer a link, or issue a fresh link afterward.
   schedules read the same clock. `./chronicle check` and `up` warn when the host clock is
   not synchronized (`timedatectl`/`chronyc`); fix with `sudo timedatectl set-ntp true`.
 - Free disk floor: `./chronicle check` and `up` refuse to start with less than
-  `MIN_FREE_DISK_GIB` (default 5) free under the state directory, because Postgres stops
-  hard on a full disk. `./chronicle doctor` also checks the running database volume and
-  reports less than 15% free space, including when monitoring is disabled.
+  `MIN_FREE_DISK_GIB` (default 5) or fewer than 10,000 inodes free on any of the state
+  directory, Docker data root and database volume filesystems, because Postgres stops
+  hard on a full disk. `./chronicle doctor` fails on the same floor, and also warns when the
+  host filesystem or the running database volume has less than 15% free, including when
+  monitoring is disabled.
 - Converge after a host or daemon restart: Docker does not restart an unhealthy
   container, and a restart after a failed start (for example a full disk) is not retried.
   Production setup installs operator crontab entries at boot and every 15 minutes.
   They run idempotent `./chronicle up` followed by `doctor`, with a private state
-  `reconcile.log` and a syslog failure notice. Upgrades refresh the launcher.
-  `./chronicle down` pauses reconciliation until a successful manual `up`. Keep cron
+  `reconcile.log` and an operator monitoring outcome for each scheduled job.
+  They keep a started stack running and never perform the first start: the first setup on
+  a host leaves them paused until your first successful `./chronicle up`.
+  Disabling reconciliation removes this project's jobs. `./chronicle down` pauses it until a successful manual `up`. Keep cron
   enabled; check `crontab -l` and test a daemon restart before enrolling participants.
 - Backups & restore: [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md)
 - Security incident: [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md)
-- Upgrades and rollback: [docs/UPGRADE-ROLLBACK.md](docs/UPGRADE-ROLLBACK.md); verify
-  and extract the new bundle, then run `./chronicle upgrade --from /path/to/old/selfhost`.
-  It validates both bundles, makes a pre-upgrade dump, waits for migrations/health, and
-  records the recovery information.
-  Use `./chronicle update --check` or `./chronicle update` for the [one-command update](docs/UPGRADE-ROLLBACK.md#one-command-update).
+- Release availability: `./chronicle update --check` selects the highest published stable version.
+  Apply it with `./chronicle update`, or select a published version with `./chronicle update <version>`.
+  See [upgrade and rollback](docs/UPGRADE-ROLLBACK.md) for the pre-reset fresh-install boundary.
 - Secret rotation and crash recovery:
   [docs/SECRET-ROTATION.md](docs/SECRET-ROTATION.md); guarded dashboard, JWT, internal,
-  metrics, PostgreSQL, Grafana, mobile-overlap, and TDE procedures with automatic rollback.
+  reviewer, metrics, PostgreSQL, Grafana and TDE procedures with automatic rollback.
+  Phones use per-device credentials; deployment-wide mobile signing-key rotation is unsupported.
 - Supported deployment combinations:
   [docs/DEPLOYMENT-COMPATIBILITY.md](docs/DEPLOYMENT-COMPATIBILITY.md).
 - Participant/study deletion and complete uninstall:
   [docs/UNINSTALL-DATA-DELETION.md](docs/UNINSTALL-DATA-DELETION.md).
 - Logs: `docker compose logs -f backend` (or any service).
 - Audit trail: structured application events, including authorization denials, are stored
-  in the append-only `audit` table. Request audit events are written to `audit_logs` and,
-  as one JSON object per line for SIEM ingestion, to `audit.log` on the `audit_logs`
+  in the append-only `audit` table together with request audit events. Request events are
+  also written, as one JSON object per line for SIEM ingestion, to `audit.log` on the `audit_logs`
   volume (`docker compose exec backend cat /var/log/chronicle/audit.log`). That volume is
   separate from the container log stream, which is capped and rotated. The backend
   refuses to start if the volume is missing or unwritable, so the trail cannot be lost
@@ -762,14 +835,14 @@ design; that is the trade for not having a passphrase you could lose.
 
 Losing the keyring makes encrypted table storage permanently unreadable. The backups cover this:
 
-- **The dumps in `./backups` need no key.** They are plain SQL and restore into any
-  PostgreSQL 18, including one without `pg_tde`. Such a restore prints errors about
-  `pg_tde` functions; they are harmless, and every table and row is restored.
+- **The dumps in `./backups` need no key.** They are plain SQL, and the guarded restore
+  loads them onto fresh volumes with a new keyring
+  ([recover onto a fresh host](docs/BACKUP-RESTORE.md#recover-onto-a-fresh-host)).
 
-  That applies to an empty target only. Restoring into a database that still has the
-  schema (the case when rolling back rather than rebuilding) skips
-  every `CREATE` and then appends every `COPY`, so tables without a primary key end up
-  holding each row twice while psql still exits 0. Use the guarded
+  Do not replay a dump by hand with psql. Dumps leave out `pgcrypto` and `pg_tde`, so a
+  replay into another PostgreSQL can miss tables and functions, and a replay into a database
+  that still has the schema skips every `CREATE` and then appends every `COPY`, so tables
+  without a primary key end up holding each row twice while psql still exits 0. Use the guarded
   `./chronicle restore --trusted-sha256=...` command only after independently reviewing the
   dump source and digest. The command verifies them before stopping application writers and
   dropping the schema. A `.sha256` sidecar shipped beside the dump is not independent
@@ -796,39 +869,44 @@ Also:
   the backend and sets the database default access method to `tde_heap`, so the tables
   Flyway creates on that first boot and on later migrations are born encrypted.
 - Query parallelism is disabled cluster-wide (`max_parallel_workers_per_gather=0`). A
-  parallel scan over an encrypted table crashes Postgres. If you set `ENABLE_ENCRYPTION=false`, you can raise it again.
+  parallel scan over an encrypted table crashes Postgres. After migrating to a plain
+  database with `ENABLE_ENCRYPTION=false`, you can raise it again.
 
-If you would rather not use database-level encryption, set `ENABLE_ENCRYPTION=false` and
-use full-disk/volume encryption at the OS level (LUKS, or your cloud provider's disk
-encryption); transparent to Chronicle, with the key managed by your platform.
+For a fresh plain database, set `ENABLE_ENCRYPTION=false` and use full-disk/volume
+encryption at the OS level (LUKS, or your cloud provider's disk encryption).
+On an existing encrypted installation, changing the flag does not decrypt tables or
+reset the database's `tde_heap` default; startup refuses that mismatch. Keep it `true`
+until completing the [TDE-to-plain database migration](docs/BACKUP-RESTORE.md#tde-to-plain-database-migration).
 
 ## Security updates
 
 - How you learn of a fix: watch the public repository on GitHub (Watch -> Custom ->
   Releases and Security advisories). Security fixes ship only as new releases; their
   `CHANGELOG.md` entry has a `### Security` heading. For release bundles, automatic
-  reconciliation installs a daily update check at 06:00; upgrades move it to the active
-  bundle. Availability and check failures are reported through `logger -t chronicle`, with details in the private
+  reconciliation installs a daily update check at 06:00. Availability and failures reach
+  operator receipts, metrics and Grafana alerts, with details in the private
   state `reconcile.update.log`. `./chronicle update --check` exits `0` when current,
   `3` when a newer release exists, and any other status indicates a check failure.
   It refuses a superseded bundle. If reconciliation is disabled, schedule the check
-  from the active bundle, move that job after each upgrade, and alert on both `3`
-  and failure statuses.
-- Applying a fix: `./chronicle update` verifies the signed checksum against the installed
-  release key, checks the archive, and takes a pre-upgrade
-  dump. Apply critical fixes within 48 hours of publication, high-severity fixes within
+  from the active bundle and alert on both `3` and failure statuses.
+- Applying a fix: run `./chronicle update` from the active post-reset release. It verifies the
+  signed release, preserves data, and automatically rolls back failed verification. Apply critical fixes within 48 hours of publication, high-severity fixes within
   7 days, medium-severity fixes within 30 days, and low-severity fixes within 90 days.
   Record the advisory, deadline, installed version and verification evidence in the
   controlled operations register. If a deadline cannot be met, record the approver,
   temporary containment and revised date. Source installations update to the fixed
   default-branch revision and exact gitlinks; release installations update to the latest
-  fixed release. The previous release is supported only as an upgrade source.
+  fixed release. Only pre-reset installations require fresh volumes.
 - If you think you were affected: follow [docs/INCIDENT-RESPONSE.md](docs/INCIDENT-RESPONSE.md).
 
 ## Support
 
-- Supported releases: the latest release, plus the previous release as an upgrade
-  source. Fixes, including security fixes, ship only as new releases; check with
+Only the latest post-reset release receives security and bug fixes. Update older post-reset
+installations in place with `./chronicle update`; pre-reset installations require a fresh install.
+
+- Install the reset baseline fresh with a new database and app install. Pre-reset releases
+  and backups cannot cross this reset. Starting with this release, updates preserve all data in place.
+  Restore backups into the same or a newer post-reset release. Security fixes ship in new releases; check with
   `./chronicle update --check`.
 - Bugs: open an issue on the public repository's GitHub issue tracker. Include
   `./chronicle doctor --json` output; it contains no secrets.
@@ -842,13 +920,10 @@ Which database? Use the pinned Percona PostgreSQL 18 image from `.env.example`. 
 Compose service preloads `pg_tde` in every mode, including when `ENABLE_ENCRYPTION=false`;
 stock `postgres:18` is not a supported replacement.
 
-I already run an older release; am I on 18? Not automatically. Your own
-`.env` sets `POSTGRES_IMAGE`, and that line wins over the compose default, so an instance
-created before this change stays on 17 silently. Postgres major version jumps also need a
-dump/restore; the data directory is not forward-compatible, and there is an ordering trap
-around `pg_tde` that will fail the restore if you get it backwards. Follow
-[`docs/POSTGRES-18-UPGRADE.md`](docs/POSTGRES-18-UPGRADE.md). A brand-new install
-needs none of it.
+I already run an older release. For a post-reset release, run `./chronicle update`; configuration,
+volumes and data stay in place. For 2026.10.9 and earlier, install fresh with fresh volumes.
+See [upgrade and rollback](docs/UPGRADE-ROLLBACK.md). Guarded restore accepts a reviewed backup
+from the same or an older post-reset release and refuses newer-release or pre-reset backups.
 
 Which languages does the Time Use Diary support? English, Spanish, German, Swedish and
 Hebrew. The diary is fully translated; every string the diary asks for exists in each of
@@ -857,8 +932,8 @@ the language per study (the study's `language` setting) or per link by appending
 to a diary link. Hebrew additionally takes `&gender=male|female`, because the questions are
 gendered in Hebrew.
 
-What is not translated is the researcher dashboard: study configuration, the participant
-table, exports and the survey/questionnaire chrome are English-only. Questionnaire and study
+The researcher dashboard and the daily app-usage survey are also available in Spanish: a
+browser set to Spanish shows them in Spanish, any other browser in English. Questionnaire and study
 text you write yourself is whatever language you type it in, so participant-facing content is
 not limited to English even where the surrounding buttons are.
 
@@ -873,30 +948,29 @@ Configured ceilings are much higher, and they sum to more than a 4 GB box has:
 |---|---|
 | `BACKEND_MEM_LIMIT` | 3 GB |
 | `POSTGRES_MEM_LIMIT` | 2 GB |
-| `FRONTEND_MEM_LIMIT` | 512 MB |
 | `BACKUP_MEM_LIMIT` | 512 MB |
 | `WEB_MEM_LIMIT` | 256 MB |
-| total | 6.25 GB |
+| total | 5.75 GB |
 
 Setup budgets the selected service ceilings plus 512 MiB of host headroom before
 publishing settings. The 4 GiB profile uses a 1.5 GiB backend/1 GiB heap, 1 GiB
-PostgreSQL, 256 MiB frontend, 256 MiB backup, and 128 MiB Caddy. Monitoring defaults
+PostgreSQL, 256 MiB backup, and 128 MiB Caddy. Monitoring defaults
 off below 10 GiB and adds its exporters, receivers, Grafana, and one-shot helpers to the
 same check. Limits are ceilings; these checks do not replace workload qualification.
 
 Disk sizing must cover the actual Docker data-root, PostgreSQL volume, and state device.
-`check` requires a 5 GiB byte reserve and 10,000 free inodes; update/upgrade also reserve
-3 GiB for downloads/extraction/pulls. PostgreSQL `max_wal_size=2GB` is a soft target;
+`check` requires a 5 GiB byte reserve and 10,000 free inodes. Budget downloads, extraction,
+and image pulls separately when preparing a fresh installation. PostgreSQL `max_wal_size=2GB` is a soft target;
 `max_slot_wal_keep_size=4GB` bounds replication-slot retention. Doctor warns when
 `pg_wal` exceeds twice the configured WAL target.
 
 Backup verification needs additional scratch space equal to twice the larger of the live
-database size and uncompressed dump size. Doctor separately projects retention from the
-fresh verified gzip size and configured daily/weekly/monthly counts, including the latest
-copy. At 20% compression, 14+8+6 retained copies plus latest can approach 5.8 times the
-live database size. Compression varies; size from measured dumps and ingestion growth.
+database size and uncompressed dump size. Setup, check and doctor project retention from the
+newest dump size and the daily/weekly/monthly counts chosen at setup, including the latest
+copy, and warn when that would not fit above `MIN_FREE_DISK_GIB`. Each retained copy costs
+about one compressed dump. Compression varies; size from measured dumps and ingestion growth.
 Monitoring adds its separate metrics/log budgets (5 GiB each by default). Reserve space
-for exports and container logs as well. Twenty GiB before study data is only a starting
+for container logs as well. Twenty GiB before study data is only a starting
 estimate, not a sustainable retention guarantee.
 
 | Scenario | Suggested |
@@ -916,6 +990,12 @@ the extra memory unused, because Postgres' own defaults are far smaller than eit
 Keep `shared_buffers + (max_connections × work_mem) + maintenance_work_mem` under the
 limit, or the kernel OOM-kills the database rather than Postgres returning an error. The
 JVM heap is separate: `BACKEND_XMX` must stay below `BACKEND_MEM_LIMIT`.
+
+The request body ceiling is generated from `MAX_REQUEST_SIZE_BYTES` in
+[`ontology/chronicle.linkml.yaml`](../ontology/chronicle.linkml.yaml). Android measures the
+final sealed JSON bytes and retries smaller batches after transport timeouts or body-deadline failures.
+The server caches whole bodies before parsing JSON. Include concurrent uploads when
+sizing the JVM heap. See [upload deadlines](docs/CONFIGURATION.md#upload-body-deadlines).
 
 Two defaults assume SSD/NVMe; `POSTGRES_RANDOM_PAGE_COST=1.1` and
 `POSTGRES_EFFECTIVE_IO_CONCURRENCY=200`. On spinning disks set them to `4` and `2`, or the
@@ -948,3 +1028,14 @@ duty cycle are per-study settings in the dashboard.
 3. Tune the documented container, PostgreSQL and JVM values together and compare the same
    dashboard window before and after.
 4. There is no multi-node or high-availability mode.
+
+### Operator overrides
+
+The bundle normally uses GitHub's signed release catalog, the host's memory probe, and
+the configured Caddy image when hashing a dashboard password. Process-environment
+overrides are unset by default: `CHRONICLE_RELEASES_URL` selects an HTTP(S) catalog
+(downloaded releases still require the installed signing key), `CHRONICLE_MEMINFO`
+selects a Linux-format meminfo file for sizing fixtures, and `CADDY_SETUP_HASH_IMAGE`
+selects the password-hash helper image. That image receives the dashboard password on
+stdin; use only a trusted, digest-pinned Caddy image. These overrides are read from the
+operator process environment, not deployment `.env` settings.

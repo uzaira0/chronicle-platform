@@ -25,7 +25,7 @@ cd "$RELEASE_SELFHOST"
 jq -e '.checks | all(.status != "fail")' doctor.json
 ```
 
-From the separate researcher/phone VM (the helper is in the source checkout):
+From the separate researcher/phone VM (the helper is shipped in the release bundle):
 
 ```bash
 python3 tests/deployment/selfhost-client.py --public "$PUBLIC_ORIGIN" \
@@ -73,8 +73,8 @@ installed schedule retains it. Record the schedule without credentials.
    Wait through a real scheduled tick (at least 16 minutes), then reboot the VM. Backend,
    web, and backup remain stopped; `state/.chronicle-stopped` persists. Resume explicitly
    with the selected launcher's `./chronicle up`, then run common acceptance.
-3. Run two successive supported upgrades via each clean new bundle's
-   `./chronicle upgrade --from "$PREVIOUS_SELFHOST"`; qualify persisted upload rows after
+3. Run two successive supported updates with the installed bundle's
+   `./chronicle update "$NEXT_VERSION"`; qualify persisted upload rows after
    every hop. Run guarded `./chronicle rollback --yes --from "$PREVIOUS_SELFHOST" \
    --trusted-sha256="$PRE_UPGRADE_SHA" "$PRE_UPGRADE_DUMP"`; rows must match the reviewed
    backup and reconciliation must name the rollback owner. Upgrade forward again.
@@ -157,7 +157,8 @@ HSTS. From the trusted pool interface, a combined `http, https` proto is not acc
 normalized HTTPS. Test normal Host and a replaced pool Host; manifests keep canonical
 public origin, including a nonstandard external port.
 
-The supported LB contract is at least 10 MiB request bodies, 16 KiB headers, and a
+The supported LB body contract comes from `MAX_REQUEST_SIZE_BYTES` in
+`ontology/chronicle.linkml.yaml`, with 16 KiB headers and a
 300-second idle timeout. Run a valid 9 MiB upload through the normal contract, then a
 smaller body limit and require 413 without persisted rows. Use `tc netem` on the separate
 client VM to model 256 kbit/s transfers and loss, and repeat upload with a lost
