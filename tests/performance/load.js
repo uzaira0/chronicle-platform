@@ -13,7 +13,7 @@ import {
   generateSensorDataBatch,
   generateAndroidDevice,
   JWT_TOKEN,
-  BASE_URL,
+  STUDY_LIST_URL,
   authHeaders,
 } from './helpers.js';
 import http from 'k6/http';
@@ -60,6 +60,7 @@ export const options = {
     { duration: '5s', target: 0 },     // Ramp down
   ],
   thresholds: {
+    checks: ['rate==1'],
     // Health endpoint
     'http_req_duration{name:health}': ['p(95)<500'],
 
@@ -89,7 +90,7 @@ export function setup() {
 
   // If no STUDY_ID provided, try to discover one
   if (!studyId) {
-    const res = http.get(`${BASE_URL}/chronicle/v3/study`, { headers: authHeaders() });
+    const res = http.get(STUDY_LIST_URL, { headers: authHeaders() });
     if (res.status === 200) {
       try {
         const studies = JSON.parse(res.body);
@@ -103,7 +104,7 @@ export function setup() {
     }
   }
 
-  return { studyId };
+  return { studyId, runId: Date.now() };
 }
 
 // ---------------------------------------------------------------------------
@@ -144,24 +145,24 @@ export default function (data) {
   // 3. Write endpoints (only if STUDY_ID was explicitly provided)
   if (STUDY_ID) {
     group('write_api', () => {
-      const participantId = `perf-vu${vuId}`;
-      const deviceId = `device-perf-vu${vuId}`;
+      const participantId = `perf-${data.runId}-vu${vuId}`;
+      const randomDeviceId = `device-perf-${data.runId}-vu${vuId}`;
 
       // Enroll on first iteration
       if (__ITER === 0) {
         const res = enrollDevice(
           STUDY_ID,
           participantId,
-          deviceId,
-          generateAndroidDevice(deviceId),
+          randomDeviceId,
+          generateAndroidDevice(randomDeviceId),
         );
         writeDuration.add(res.timings.duration);
         writeErrors.add(!(res.status >= 200 && res.status < 300));
       }
 
       // Upload usage events
-      const events = generateUsageEventBatch(10);
-      let res = uploadAndroidUsageEvents(STUDY_ID, participantId, deviceId, events);
+      const events = generateUsageEventBatch(10, data.studyId, participantId);
+      let res = uploadAndroidUsageEvents(STUDY_ID, participantId, randomDeviceId, events);
       writeDuration.add(res.timings.duration);
       const ok = res.status >= 200 && res.status < 300;
       writeErrors.add(!ok);
@@ -170,7 +171,7 @@ export default function (data) {
       // 30% chance: also upload sensor data
       if (Math.random() < 0.3) {
         const samples = generateSensorDataBatch(50);
-        res = uploadAndroidSensorData(STUDY_ID, participantId, deviceId, samples);
+        res = uploadAndroidSensorData(STUDY_ID, participantId, randomDeviceId, samples);
         writeDuration.add(res.timings.duration);
         writeErrors.add(!(res.status >= 200 && res.status < 300));
       }

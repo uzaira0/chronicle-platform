@@ -27,6 +27,8 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:40320';
 const STUDY_ID = __ENV.STUDY_ID || '00000000-0000-0000-0000-000000000000';
 const PID      = __ENV.PARTICIPANT_ID || 'test-participant';
 const AUTH_TOKEN = __ENV.AUTH_TOKEN || '';
+const UPLOAD_PROBE = JSON.parse(open('../../chronicle-server/src/test/resources/upload-probe-contract.json'));
+const MOBILE_HEADERS = JSON.parse(open('../../chronicle-web/e2e/dsl/mobile-headers.json'));
 
 // ---------------------------------------------------------------------------
 // Custom metrics
@@ -42,7 +44,7 @@ function generateNestedJSON(depth) {
   for (let i = 0; i < depth; i++) {
     obj = { nested: obj };
   }
-  return JSON.stringify(obj);
+  return JSON.stringify([{ padding: obj }]);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +117,7 @@ export const options = {
   },
 
   thresholds: {
+    checks: ['rate==1'],
     // No scenario should produce > 5% server errors (5xx)
     'server_errors': ['rate<0.05'],
 
@@ -176,16 +179,22 @@ export function paginationAbuse() {
 // ---------------------------------------------------------------------------
 // Scenario 3: JSON Depth Bomb
 //
-// POSTs a valid JSON body nested 500 levels deep. Jackson's default depth
-// limit (or explicit server validation) should reject this with 400 before
-// it causes a StackOverflowError.
+// Submit the production constraint boundary to the real list-valued sensor route.
+// Only the parser's named constraint error proves that the bound was enforced.
 // ---------------------------------------------------------------------------
 export function jsonDepthBomb() {
-  const url = `${BASE_URL}/chronicle/v3/study/${STUDY_ID}/participants/${PID}/upload`;
-  const payload = generateNestedJSON(500);
+  if (!__ENV.API_KEY || !__ENV.TEST_RANDOM_DEVICE_ID) throw new Error('An enrolled synthetic device is required');
+  const url = `${BASE_URL}/chronicle/v4/study/${STUDY_ID}/participant/${PID}/android/sensors`;
+  const deviceHeaders = { ...headers('application/json'),
+    [MOBILE_HEADERS.apiKey]: __ENV.API_KEY, [MOBILE_HEADERS.randomDeviceId]: __ENV.TEST_RANDOM_DEVICE_ID };
+  const control = http.post(url, '[]', { headers: deviceHeaders });
+  if (!check(control, { 'depth control accepted': (r) => r.status === 200 && r.json() === 0 })) {
+    throw new Error('Depth probe has no successful upload control');
+  }
+  const payload = generateNestedJSON(UPLOAD_PROBE.maxNestingDepth + 1);
 
   const res = http.post(url, payload, {
-    headers: headers('application/json'),
+    headers: deviceHeaders,
     tags: { scenario: 'json_depth_bomb' },
   });
 
@@ -194,7 +203,7 @@ export function jsonDepthBomb() {
 
   check(res, {
     'depth bomb: not a 500 server error': (r) => r.status < 500,
-    'depth bomb: rejected with 400': (r) => r.status === 400,
+    'depth bomb: named parser constraint': (r) => r.status === 400 && r.json('code') === UPLOAD_PROBE.constraintErrorCode,
   });
 
   sleep(0.5);
@@ -203,11 +212,11 @@ export function jsonDepthBomb() {
 // ---------------------------------------------------------------------------
 // Scenario 4: Concurrent Connections
 //
-// 50 VUs hit /chronicle/v3/studies simultaneously for 30s. The server must
+// 50 VUs hit /chronicle/v3/study simultaneously for 30s. The server must
 // stay responsive: error rate < 5%, p95 response time < 5s.
 // ---------------------------------------------------------------------------
 export function concurrentConnections() {
-  const url = `${BASE_URL}/chronicle/v3/studies`;
+  const url = `${BASE_URL}/chronicle/v3/study`;
 
   const res = http.get(url, { headers: headers(), tags: { scenario: 'concurrent_connections' } });
 
@@ -240,7 +249,7 @@ export function concurrentConnections() {
 // slow-read/slow-send attacks.
 // ---------------------------------------------------------------------------
 export function slowlorisStyle() {
-  const url = `${BASE_URL}/chronicle/v3/studies`;
+  const url = `${BASE_URL}/chronicle/v3/study`;
 
   // Rapid-fire: no keep-alive, force new connection each time
   const params = {

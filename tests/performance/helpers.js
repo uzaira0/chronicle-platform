@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check } from 'k6';
+import { prepareEnrollment, enrollInvitedDevice, signedMobileHeaders, uploadAcknowledged } from '../load/mobile-client.js';
 
 /**
  * Shared helpers for Chronicle k6 performance tests.
@@ -10,8 +11,11 @@ import { check } from 'k6';
 export const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:40320';
 export const JWT_TOKEN = __ENV.JWT_TOKEN || '';
 
-export const HEALTH_URL = `${BASE_URL}/actuator/health`;
-export const STUDY_LIST_URL = `${BASE_URL}/chronicle/v3/study`;
+export const HEALTH_URL = `${BASE_URL}/health`;
+export const MANAGEMENT_URL = __ENV.MANAGEMENT_URL ? `${__ENV.MANAGEMENT_URL}/chronicle/api/web` : `${BASE_URL}/chronicle/v3`;
+export const STUDY_LIST_URL = `${MANAGEMENT_URL}/study`;
+const devices = new Map();
+const deviceKey = (study, participant, device) => JSON.stringify([study, participant, device]);
 
 export function authHeaders() {
   return {
@@ -27,23 +31,14 @@ export function publicHeaders() {
 }
 
 /**
- * Hit the Spring Boot Actuator health endpoint (unauthenticated).
+ * Hit the public health endpoint (unauthenticated).
  * Returns the http response.
  */
 export function checkHealth(tags) {
   const res = http.get(HEALTH_URL, {
     tags: Object.assign({ name: 'health' }, tags),
   });
-  check(res, {
-    'health: status 200': (r) => r.status === 200,
-    'health: status is UP': (r) => {
-      try {
-        return JSON.parse(r.body).status === 'UP';
-      } catch {
-        return false;
-      }
-    },
-  });
+  check(res, { 'health: status 200 or 204': r => r.status === 200 || r.status === 204 });
   return res;
 }
 
@@ -72,7 +67,7 @@ export function listStudies(tags) {
  * Get study detail by ID (authenticated).
  */
 export function getStudy(studyId, tags) {
-  const res = http.get(`${BASE_URL}/chronicle/v3/study/${encodeURIComponent(studyId)}`, {
+  const res = http.get(`${STUDY_LIST_URL}/${encodeURIComponent(studyId)}`, {
     headers: authHeaders(),
     tags: Object.assign({ name: 'get_study' }, tags),
   });
@@ -87,7 +82,7 @@ export function getStudy(studyId, tags) {
  */
 export function getParticipants(studyId, tags) {
   const res = http.get(
-    `${BASE_URL}/chronicle/v3/study/${encodeURIComponent(studyId)}/participants`,
+    `${STUDY_LIST_URL}/${encodeURIComponent(studyId)}/participants`,
     {
       headers: authHeaders(),
       tags: Object.assign({ name: 'get_participants' }, tags),
@@ -104,7 +99,7 @@ export function getParticipants(studyId, tags) {
  */
 export function getParticipantStats(studyId, tags) {
   const res = http.get(
-    `${BASE_URL}/chronicle/v3/study/${encodeURIComponent(studyId)}/participants/stats`,
+    `${STUDY_LIST_URL}/${encodeURIComponent(studyId)}/participants/stats`,
     {
       headers: authHeaders(),
       tags: Object.assign({ name: 'get_participant_stats' }, tags),
@@ -116,124 +111,35 @@ export function getParticipantStats(studyId, tags) {
   return res;
 }
 
-/**
- * Upload Android usage events via v4 API.
- */
-export function uploadAndroidUsageEvents(studyId, participantId, sourceDeviceId, events, tags) {
-  const url = `${BASE_URL}/chronicle/v4/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/android`;
-  const payload = JSON.stringify(events);
-  const hdrs = Object.assign({}, authHeaders(), {
-    'X-Chronicle-Device-Id': sourceDeviceId,
-  });
-
-  const res = http.post(url, payload, {
-    headers: hdrs,
-    tags: Object.assign({ name: 'upload_android_usage' }, tags),
-  });
-  check(res, {
-    'upload usage: status 2xx': (r) => r.status >= 200 && r.status < 300,
-  });
+function uploadAndroid(studyId, participantId, sourceRandomDeviceId, rows, suffix, name, tags) {
+  const enrollment = devices.get(deviceKey(studyId, participantId, sourceRandomDeviceId));
+  if (!enrollment) throw new Error('device must enroll and acknowledge consent before uploading');
+  const url = `${BASE_URL}/chronicle/v4/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/android${suffix}`;
+  const data = rows;
+  const payload = JSON.stringify(data);
+  const res = http.post(url, payload, { headers: signedMobileHeaders(url, payload, enrollment.headers, __ENV.MOBILE_SIGNING_SECRET),
+    tags: Object.assign({ name }, tags) });
+  const accepted = check(res, { 'upload: every sample acknowledged': response => uploadAcknowledged(response, data, !suffix) });
+  if (!accepted) throw new Error('upload did not acknowledge every generated sample');
   return res;
 }
 
-/**
- * Upload Android sensor data via v4 API.
- */
-export function uploadAndroidSensorData(studyId, participantId, sourceDeviceId, samples, tags) {
-  const url = `${BASE_URL}/chronicle/v4/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/android/sensors`;
-  const payload = JSON.stringify(samples);
-  const hdrs = Object.assign({}, authHeaders(), {
-    'X-Chronicle-Device-Id': sourceDeviceId,
-  });
-
-  const res = http.post(url, payload, {
-    headers: hdrs,
-    tags: Object.assign({ name: 'upload_android_sensors' }, tags),
-  });
-  check(res, {
-    'upload sensors: status 2xx': (r) => r.status >= 200 && r.status < 300,
-  });
-  return res;
+export function uploadAndroidUsageEvents(studyId, participantId, device, events, tags) {
+  return uploadAndroid(studyId, participantId, device, events, '', 'upload_android_usage', tags);
 }
 
-/**
- * Enroll a participant device via v4 API.
- */
-export function enrollDevice(studyId, participantId, sourceDeviceId, deviceInfo, tags) {
-  const url = `${BASE_URL}/chronicle/v4/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/enroll`;
-  const payload = JSON.stringify(deviceInfo);
-  const hdrs = Object.assign({}, authHeaders(), {
-    'X-Chronicle-Device-Id': sourceDeviceId,
-  });
-
-  const res = http.post(url, payload, {
-    headers: hdrs,
-    tags: Object.assign({ name: 'enroll_device' }, tags),
-  });
-  check(res, {
-    'enroll: status 2xx': (r) => r.status >= 200 && r.status < 300,
-  });
-  return res;
+export function uploadAndroidSensorData(studyId, participantId, device, samples, tags) {
+  return uploadAndroid(studyId, participantId, device, samples, '/sensors', 'upload_android_sensors', tags);
 }
 
-// ---------------------------------------------------------------------------
-// Data generators
-// ---------------------------------------------------------------------------
-
-export function generateUsageEventBatch(count) {
-  const events = [];
-  const now = Date.now();
-  const packages = [
-    'com.android.chrome',
-    'com.whatsapp',
-    'com.instagram.android',
-    'com.twitter.android',
-    'com.spotify.music',
-    'com.google.android.youtube',
-  ];
-
-  for (let i = 0; i < count; i++) {
-    events.push({
-      appPackageName: packages[i % packages.length],
-      interactionType: i % 2 === 0 ? 'Foreground' : 'Background',
-      eventType: 1,
-      timestamp: new Date(now - (count - i) * 60000).toISOString(),
-      timezone: 'America/New_York',
-      user: 'user0',
-      applicationLabel: packages[i % packages.length].split('.').pop(),
-    });
-  }
-  return events;
+export function enrollDevice(studyId, participantId, device, deviceInfo) {
+  if (!__ENV.MOBILE_SIGNING_SECRET) throw new Error('MOBILE_SIGNING_SECRET is required for signed performance uploads');
+  const study = `${STUDY_LIST_URL}/${encodeURIComponent(studyId)}`;
+  const mobile = `${BASE_URL}/chronicle/v4/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}`;
+  const fixture = prepareEnrollment(study, mobile, participantId, device, authHeaders(), deviceInfo);
+  const enrolled = enrollInvitedDevice(fixture, __ENV.MOBILE_SIGNING_SECRET);
+  devices.set(deviceKey(studyId, participantId, device), enrolled);
+  return enrolled.response;
 }
 
-export function generateSensorDataBatch(count) {
-  const samples = [];
-  const now = Date.now();
-  const sensors = ['ACCELEROMETER', 'GYROSCOPE', 'LIGHT', 'PROXIMITY'];
-
-  for (let i = 0; i < count; i++) {
-    samples.push({
-      sensor: sensors[i % sensors.length],
-      timestamp: new Date(now - (count - i) * 20).toISOString(),
-      timezone: 'America/New_York',
-      x: Math.random() * 10 - 5,
-      y: Math.random() * 10 - 5,
-      z: Math.random() * 10 - 5,
-      w: null,
-      accuracy: 3,
-    });
-  }
-  return samples;
-}
-
-export function generateAndroidDevice(sourceDeviceId) {
-  return {
-    deviceId: sourceDeviceId,
-    model: 'Pixel 7',
-    brand: 'Google',
-    device: 'panther',
-    product: 'panther',
-    osVersion: '14',
-    sdkVersion: '34',
-  };
-}
+export { generateUsageEventBatch, generateSensorDataBatch, generateAndroidDevice } from '../load/mobile-client.js';

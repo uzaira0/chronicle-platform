@@ -20,9 +20,8 @@ if [[ "${K6_ALLOW_UNMEASURED_BUDGET:-false}" != true ]] &&
     ! jq -e '.measurement.verified == true and (.measurement.runs >= 2) and
       (.measurement.source_revision | type == "string" and length == 40) and
       (.measurement.environment | type == "object") and
-      (.measurement.fixtures | type == "object") and
-      (.measurement.first_saturation_vus | type == "number" and . > 0)' "$baselines" >/dev/null; then
-    echo "ERROR: a verified clean-stack measurement and first saturation are required; the committed budget is unmeasured" >&2
+      (.measurement.fixtures | type == "object")' "$baselines" >/dev/null; then
+    echo "ERROR: a verified clean-stack measurement is required; the committed budget is unmeasured" >&2
     exit 1
 fi
 

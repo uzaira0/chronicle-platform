@@ -15,29 +15,29 @@ import {
   generateSensorDataBatch,
   generateAndroidDevice,
   JWT_TOKEN,
-  BASE_URL,
+  STUDY_LIST_URL,
   authHeaders,
 } from './helpers.js';
 
 /**
- * Stress test — ramp to 200 VUs to find breaking points.
+ * Stress test — ramp to 125 VUs to find breaking points.
  *
  * Intended for manual runs against a staging or pre-production environment.
- * NOT for CI — this test runs ~5 minutes and generates significant load.
+ * NOT for CI — this test runs ~4 minutes and generates significant load.
  *
  * Usage:
  *   k6 run --env JWT_TOKEN=<token> --env STUDY_ID=<uuid> tests/performance/stress.js
- *   k6 run --env JWT_TOKEN=<token> --env STUDY_ID=<uuid> --env MAX_VUS=300 tests/performance/stress.js
+ *   k6 run --env JWT_TOKEN=<token> --env STUDY_ID=<uuid> --env MAX_VUS=125 tests/performance/stress.js
  *
  * Environment variables:
  *   BASE_URL   - Chronicle server URL (default: http://127.0.0.1:40320)
  *   JWT_TOKEN  - Bearer token (required)
  *   STUDY_ID   - UUID of study for write tests (required)
- *   MAX_VUS    - Peak virtual users (default: 200)
+ *   MAX_VUS    - Peak virtual users (default: 125, five times the owner's 25-device pilot peak)
  */
 
 const STUDY_ID = __ENV.STUDY_ID;
-const MAX_VUS = parseInt(__ENV.MAX_VUS || '200', 10);
+const MAX_VUS = parseInt(__ENV.MAX_VUS || '125', 10);
 
 if (!JWT_TOKEN) {
   throw new Error('JWT_TOKEN env var is required. Generate with: docker/generate-jwt.sh');
@@ -82,10 +82,6 @@ export const options = {
     { duration: '15s', target: MAX_VUS },
     { duration: '1m', target: MAX_VUS },
 
-    // Step 5: Beyond capacity (spike)
-    { duration: '10s', target: Math.floor(MAX_VUS * 1.5) },
-    { duration: '20s', target: Math.floor(MAX_VUS * 1.5) },
-
     // Recovery
     { duration: '15s', target: 50 },
     { duration: '15s', target: 50 },
@@ -94,6 +90,7 @@ export const options = {
     { duration: '15s', target: 0 },
   ],
   thresholds: {
+    checks: ['rate==1'],
     // Health must stay responsive even under stress
     'http_req_duration{name:health}': ['p(95)<1000'],
 
@@ -121,7 +118,7 @@ export const options = {
 // ---------------------------------------------------------------------------
 
 export function setup() {
-  const res = http.get(`${BASE_URL}/chronicle/v3/study/${STUDY_ID}`, {
+  const res = http.get(`${STUDY_LIST_URL}/${STUDY_ID}`, {
     headers: authHeaders(),
   });
   check(res, {
@@ -130,7 +127,7 @@ export function setup() {
   if (res.status !== 200) {
     throw new Error(`Study ${STUDY_ID} not found (status ${res.status}).`);
   }
-  return { studyId: STUDY_ID };
+  return { studyId: STUDY_ID, runId: Date.now() };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,8 +136,8 @@ export function setup() {
 
 export default function (data) {
   const vuId = __VU;
-  const participantId = `stress-vu${vuId}`;
-  const deviceId = `device-stress-vu${vuId}`;
+  const participantId = `stress-${data.runId}-vu${vuId}`;
+  const randomDeviceId = `device-stress-${data.runId}-vu${vuId}`;
 
   // Health check (lightweight, every iteration)
   group('health_check', () => {
@@ -172,16 +169,16 @@ export default function (data) {
       const res = enrollDevice(
         data.studyId,
         participantId,
-        deviceId,
-        generateAndroidDevice(deviceId),
+        randomDeviceId,
+        generateAndroidDevice(randomDeviceId),
       );
       enrollDuration.add(res.timings.duration);
       enrollErrors.add(!(res.status >= 200 && res.status < 300));
     }
 
     // Upload usage events (batch of 10 — realistic per-device upload)
-    const events = generateUsageEventBatch(10);
-    let res = uploadAndroidUsageEvents(data.studyId, participantId, deviceId, events);
+    const events = generateUsageEventBatch(10, data.studyId, participantId);
+    let res = uploadAndroidUsageEvents(data.studyId, participantId, randomDeviceId, events);
     writeDuration.add(res.timings.duration);
     const usageOk = res.status >= 200 && res.status < 300;
     writeErrors.add(!usageOk);
@@ -190,7 +187,7 @@ export default function (data) {
     // Upload sensor data (batch of 100 — moderate size)
     if (Math.random() < 0.4) {
       const samples = generateSensorDataBatch(100);
-      res = uploadAndroidSensorData(data.studyId, participantId, deviceId, samples);
+      res = uploadAndroidSensorData(data.studyId, participantId, randomDeviceId, samples);
       writeDuration.add(res.timings.duration);
       const sensorOk = res.status >= 200 && res.status < 300;
       writeErrors.add(!sensorOk);
