@@ -34,6 +34,19 @@ class StorageReportTests(unittest.TestCase):
                     rows = common.storage_report('/state', 'fixture')
                     self.assertEqual(case['enough'], rows[1][1])
 
+    def test_daemon_measurement_fetches_a_missing_image(self):
+        # A first `up` measures storage before Compose has pulled any image.
+        disk = SimpleNamespace(f_bavail=6, f_frsize=common.GIB, f_files=0, f_favail=0)
+        measured = SimpleNamespace(stdout='h\nd 1 0 7000000 0% /s\nh\nd 0 0 0 0% /s\n')
+        with patch.object(common, 'database_volume_path', return_value=None), \
+             patch.object(common, 'run', side_effect=[SimpleNamespace(stdout='/docker'), measured]) as run, \
+             patch.object(common.os, 'statvfs', side_effect=[disk, FileNotFoundError()]), \
+             patch.dict(common.os.environ, POSTGRES_IMAGE='fixture-image'):
+            common.storage_report('/state', 'fixture')
+        args, kwargs = run.call_args
+        self.assertEqual('missing', args[0][args[0].index('--pull') + 1])
+        self.assertEqual(common.transfer_timeout(), kwargs['timeout'])
+
     def test_malformed_daemon_capacity_is_rejected(self):
         disk = SimpleNamespace(f_bavail=6, f_frsize=common.GIB, f_files=100_000, f_favail=10_000)
         for output in ('truncated',

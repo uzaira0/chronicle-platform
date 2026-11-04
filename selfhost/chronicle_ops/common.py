@@ -82,10 +82,11 @@ def storage_report(state, project, floor_gib=5, peak_bytes=0, *, image=None):
                 raise
             from .envfile import read_env, value
             image = image or os.environ.get("POSTGRES_IMAGE") or value(read_env(Path.cwd() / ".env"), "POSTGRES_IMAGE")
-            measured = run(["docker", "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+            # A first `up` runs this before Compose pulls anything; the reference is digest-pinned.
+            measured = run(["docker", "run", "--rm", "--pull", "missing", "--network", "none", "--read-only",
                             "--cap-drop", "ALL", "--user", "0", "--mount", f"type=bind,src={path},dst=/storage,readonly",
                             "--entrypoint", "/bin/bash", image, "-ceu", "df -Pk /storage; df -Pi /storage"],
-                           capture=True, timeout=15, check=True).stdout.splitlines()
+                           capture=True, timeout=transfer_timeout(), check=True).stdout.splitlines()
             free, inodes = int(measured[1].split()[3]) * 1024, int(measured[3].split()[3])
             total_inodes = int(measured[3].split()[1])
         required = int(floor_gib) * GIB + (peak_bytes if name != "database-volume" else 0)

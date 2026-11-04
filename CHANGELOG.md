@@ -46,6 +46,7 @@ which were prepared but never published.
 
 ### Fixed
 
+- Self-host: the first `./chronicle up` on a host without the images no longer fails its storage check when Docker's data directory is not readable by the operator; the check pulls its digest-pinned PostgreSQL image first. (Rebuilt 2026.11.2 bundle, same images.)
 - Self-host: `doctor`, `verify` and the disk-pressure alert apply one disk rule: under 15% free is a warning; only free space below `MIN_FREE_DISK_GIB` on the state, Docker data or database filesystem, where `./chronicle up` refuses to start, fails. `doctor` still shows free space when Docker is down, and reports a filesystem whose capacity cannot be read instead of failing.
 - Self-host: re-running setup on a host behind an off-host load balancer turns pool listener TLS back on, unless a reviewed `POOL_PLAINTEXT_WAIVER` is kept. Before, `check` and `up` then failed.
 - Self-host: `up` records the applied certificates as soon as services are healthy. A public origin that is not reachable yet no longer makes every 15-minute reconcile recreate the whole stack.
