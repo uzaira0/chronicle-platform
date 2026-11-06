@@ -5,6 +5,57 @@ matching the `chronicle-selfhost-<version>` bundle, its image tags, and `./chron
 One bundle per calendar day: a same-day suffix such as `-2` is a semver prerelease and
 would sort below the day's release, so `./chronicle update` would refuse it.
 
+## [2026.11.5]
+
+Server, dashboard and self-host bundle, updated in place from 2026.11.2 with `./chronicle update`;
+Android open flavor (versionCode 85) on Play internal testing.
+
+### Changed
+
+- Spanish: the dashboard's notes-loading error, reviewer-secret length message, settings-audit
+  "App version" column and unavailable study end date, and ten server error messages, now have
+  Spanish; the diagnostics-history error has its full Spanish text. These drafts follow BAND's
+  wording and are listed for BAND's review in `docs/i18n-provenance-es.tsv`.
+- Translations record the English they were made from (`docs/i18n-source-es.tsv`). Local CI
+  fails when English changes under an existing translation, and the translator workbook marks
+  those rows "English changed since this was translated".
+- The Play listing has a Spanish (Latin America) translation.
+- The backend, web frontend and Grafana plugin stage now build on Alpine 3.24 (from 3.23), and
+  the Temurin JDK, Caddy and Keycloak Postgres base images are pinned to their current upstream
+  builds.
+- Publishing refuses any Chronicle image that contains an SSH server (OpenSSH or Dropbear). None
+  does; reach a container with `docker exec` from the host.
+
+### Fixed
+
+- Self-host monitoring: Grafana no longer stays unhealthy on hosts with many CPUs. Its twelve
+  unused bundled datasource plugins each ran a process with about one thread per CPU; on a
+  32-CPU host they filled 509 of Grafana's 512 process slots and its health check could not
+  run. They are now disabled (`GF_PLUGINS_DISABLE_PLUGINS`); Grafana uses about 105 slots there.
+  The Docker API proxy and metrics exporter are capped at two threads for the same reason.
+- Self-host: building the Grafana and Caddy images no longer fails at random when a build check's
+  `grep -q` closes its pipe early.
+- Self-host setup on the macOS trial (bash 3.2) accepts IPv6 addresses that start with `::`, such
+  as `::1/128`, as researcher sources; it previously stopped with "invalid researcher source CIDRs".
+- Self-host README: the battery steps name each Android version's own Settings path (Battery
+  optimization > Don't optimize on Android 8–14; App battery usage > Allow background usage >
+  Unrestricted on 15 and later).
+
+### Android (open flavor, versionCode 85)
+
+- The battery and "Keep Chronicle Active" dialogs quote the Settings labels of the participant's
+  Android version, in English and Spanish.
+- The sensor and device-user notifications appear at once, including right after notifications
+  are allowed in Chronicle or later in Android Settings.
+- No false "Action needed" right after enrollment while the sensor service is starting.
+- The device-user question is posted once per unlock, as a heads-up after unlock.
+- Device state (battery, Battery Saver, network, low memory) is sampled at boot, when Chronicle
+  opens and on each sync, without a foreground service; the ongoing notification runs only for
+  user identification and sensors.
+- The data-choice step fits on one screen and says each fact once; the "Share app usage data?"
+  dialog and Usage Access screen use the same plain list.
+- Privacy policy link: https://www.bcm.edu/privacy everywhere.
+
 ## [2026.11.2]
 
 Reset release: install fresh. Server, dashboard and self-host bundle; Android open flavor
