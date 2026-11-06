@@ -54,6 +54,16 @@ class ReleaseImageTests(unittest.TestCase):
             inputs.append(Path('LICENSE'))
         elif name == 'backup':
             inputs += list(map(Path, ('backup-image', 'chronicle_ops', 'init-tde.sh')))
+        # The release build sends the whole context (images.SourceImage.archive); include every
+        # context file the Dockerfile copies, so a new COPY (such as Caddy's patch) cannot drift.
+        for line in dockerfile.read_text().splitlines():
+            words = line.split()
+            if words[:1] == ['COPY'] and not any(word.startswith('--from') for word in words):
+                for word in words[1:-1]:
+                    path = Path(word)
+                    if (not word.startswith('--') and (source / path).exists()
+                            and not any(path == known or known in path.parents for known in inputs)):
+                        inputs.append(path)
         for relative in inputs:
             target = context / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +77,12 @@ class ReleaseImageTests(unittest.TestCase):
 
     @classmethod
     def docker(cls, *arguments):
-        output = subprocess.check_output(['docker', *arguments], stderr=subprocess.STDOUT, text=True, timeout=600)
+        try:
+            output = subprocess.check_output(['docker', *arguments], stderr=subprocess.STDOUT, text=True, timeout=600)
+        except subprocess.CalledProcessError as error:
+            # CalledProcessError's message omits the output, which is the only place Docker says why.
+            error.add_note(f"docker {' '.join(arguments)} output:\n{(error.output or '')[-4000:]}")
+            raise
         if arguments[0] == 'build':
             cls.addClassCleanup(cls.docker, 'image', 'rm', arguments[arguments.index('-t') + 1])
         return output

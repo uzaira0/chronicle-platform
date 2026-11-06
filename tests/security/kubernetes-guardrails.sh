@@ -190,7 +190,7 @@ fi
 
 if ! search_q 'name:[[:space:]]*credential-reloader' "$K8S_DIR/observability/victoria-lite/victoria-metrics.yaml" ||
    ! search_q 'http://127\.0\.0\.1:8428/-/reload' "$K8S_DIR/observability/victoria-lite/victoria-metrics.yaml" ||
-   ! search_q 'alpine:3\.23@sha256:' "$K8S_DIR/observability/victoria-lite/victoria-metrics.yaml" ||
+   ! search_q 'alpine:3\.24@sha256:' "$K8S_DIR/observability/victoria-lite/victoria-metrics.yaml" ||
    ! search_q 'runAsNonRoot:[[:space:]]*true' "$K8S_DIR/observability/victoria-lite/victoria-metrics.yaml"; then
   fail "VictoriaMetrics must securely reload its scrape configuration when the projected credential rotates"
 fi

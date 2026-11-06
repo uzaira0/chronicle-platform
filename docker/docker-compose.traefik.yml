@@ -758,7 +758,7 @@ services:
     # A pinned base image rather than the backend image, so docker-compose.production.yml
     # (which swaps the backend for a registry digest) needs no local build for this step.
     # 100:101 is the backend image's `chronicle` user, as in selfhost/docker-compose.yml.
-    image: alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+    image: alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
     restart: "no"
     user: "0:0"
     network_mode: none
@@ -1375,7 +1375,7 @@ services:
     depends_on:
       health-probe: {condition: service_completed_successfully}
   victoria-metrics-credential-reloader:
-    image: alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+    image: alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
     container_name: chronicle-victoria-metrics-credential-reloader
     restart: unless-stopped
     user: "65534:65534"

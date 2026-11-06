@@ -47,6 +47,8 @@ class PatchOverrideReviewTests(unittest.TestCase):
             (root / name).mkdir(parents=True)
         (root / "gradles/chronicle.gradle").write_text("")
         (root / "selfhost/Dockerfile.caddy").write_text("")
+        # inventory() also reads the Grafana image's go-work replaces (59abc18).
+        (root / "selfhost/Dockerfile.grafana").write_text("")
         (root / "selfhost/Dockerfile.backup").write_text("# Commit: " + "a" * 40 + "\n")
         package = {"patchedDependencies": {"@redocly/openapi-core@1.34.22": "vendor/patches/redocly.patch"}}
         (root / "chronicle-web/package.json").write_text(json.dumps(package))

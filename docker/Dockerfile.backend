@@ -65,7 +65,7 @@ RUN find /app/chronicle-server/build/install/chronicle-server/lib -name '*-test*
 
 # --- JLink stage: build a minimal custom JRE with only required modules ---
 # This cuts ~81MB compared to the full Alpine JRE (135MB -> 54MB)
-FROM eclipse-temurin:25-jdk-alpine@sha256:1e20ead9eec7234db293f1913438090d533ed47c0b9e12dc8c7627a802a44ed6 AS jlinker
+FROM eclipse-temurin:25-jdk-alpine@sha256:c7c3d0bdf7f2bbc5a05a6712ed334d198360105634ea9adf76fca94f381b1e3f AS jlinker
 
 # Create custom JRE with modules needed by Spring/Jetty/Hazelcast/JDBC stack
 # java.base: core classes; java.desktop: AWT (Hazelcast partition); java.logging: JUL
@@ -101,7 +101,7 @@ RUN printf '%s\n' \
     >> /opt/jre-minimal/lib/security/blocked.certs
 
 # Runtime stage — custom JRE on Alpine for minimal footprint
-FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
 
 ARG VCS_REF=unknown
 ARG SOURCE_REF=unknown
