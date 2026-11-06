@@ -1254,9 +1254,18 @@ def test_alerts_reach_the_operator_webhook() -> None:
         subprocess.run(["docker", "run", "-d", "--name", recorder, "--network", network, "--network-alias", "recorder",
                         "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{records}:/records", "-v", f"{run}/recorder.py:/recorder.py:ro",
                         "--entrypoint", "python3", helper_image, "/recorder.py"], check=True, stdout=subprocess.DEVNULL)
+        # The shipped plugin list and process/memory limits: without them this test ran Grafana with
+        # every bundled datasource process and no pids limit, and missed 2026.11.2 staying unhealthy
+        # on a 32-CPU host (482 of 512 pids).
+        shipped = yaml.safe_load(overlay)["services"]["grafana"]
+        disabled = shipped["environment"]["GF_PLUGINS_DISABLE_PLUGINS"]
+        pids_limit = int(shipped["pids_limit"])
+        memory_limit = re.fullmatch(r"\$\{GRAFANA_MEM_LIMIT:-(\w+)\}", shipped["mem_limit"]).group(1)
         subprocess.run(["docker", "run", "-d", "--name", grafana, "--network", network, "-p", "127.0.0.1::3000",
+                        "--pids-limit", str(pids_limit), "--memory", memory_limit,
                         "-e", "GF_SECURITY_ADMIN_PASSWORD=" + admin_password, "-e", "GF_PATHS_PLUGINS=/opt/chronicle-plugins",
                         "-e", "GF_PLUGINS_PREINSTALL_AUTO_UPDATE=false", "-e", "GF_ANALYTICS_REPORTING_ENABLED=false",
+                        "-e", "GF_PLUGINS_DISABLE_PLUGINS=" + disabled,
                         "-e", "CHRONICLE_ALERT_WEBHOOK_URL=http://recorder:8080/hook/" + webhook_token,
                         "-v", f"{ROOT}/selfhost/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/chronicle.yml:ro",
                         "-v", f"{alerting}:/etc/grafana/provisioning/alerting:ro",
@@ -1307,6 +1316,22 @@ def test_alerts_reach_the_operator_webhook() -> None:
         # Healthy: the pipeline delivers (an unconfigured deployment check fires on no data) but no target fires.
         config_invalid = "Chronicle configuration validation failed"
         wait_for(lambda: config_invalid in delivered(200), 240, "Grafana never delivered any alert")
+        # Every bundled backend datasource is either provisioned or disabled, so no unused plugin
+        # process eats the pids limit, and Grafana keeps at least half of that limit free.
+        provisioned_types = {source["type"] for source in yaml.safe_load(
+            (ROOT / "selfhost/monitoring/grafana-datasources.yml").read_text())["datasources"]}
+        manifests = subprocess.run(["docker", "exec", grafana, "find", "/usr/share/grafana/data/plugins-bundled",
+                                    "-maxdepth", "2", "-name", "plugin.json"],
+                                   check=True, capture_output=True, text=True).stdout.split()
+        plugins = [json.loads(subprocess.run(["docker", "exec", grafana, "cat", path], check=True,
+                                             capture_output=True, text=True).stdout) for path in manifests]
+        backend_ids = {plugin["id"] for plugin in plugins if plugin.get("backend") is True}
+        assert backend_ids, "found no bundled backend plugins; the image layout changed"
+        unaccounted = backend_ids - provisioned_types - set(disabled.split(","))
+        assert not unaccounted, f"bundled backend plugins neither provisioned nor disabled: {sorted(unaccounted)}"
+        pids_used = int(subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.PIDs}}", grafana],
+                                       check=True, capture_output=True, text=True).stdout.strip())
+        assert pids_used * 2 <= pids_limit, f"Grafana uses {pids_used} of its {pids_limit} pids"
         time.sleep(40)
         assert not set(titles) & set(delivered(200)), delivered(200).keys()
         # The receiver is down while the faults begin, then recovers.

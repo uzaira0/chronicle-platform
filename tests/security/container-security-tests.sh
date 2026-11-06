@@ -383,6 +383,28 @@ for container in "${CONTAINERS[@]}"; do
 done
 
 # =============================================================================
+# Test 9: Process Headroom
+# =============================================================================
+# Go runtimes and HAProxy start about one thread per host CPU. On a 32-CPU host the 2026.11.2
+# Grafana used 509 of its 512 pids, its health-check exec could not start and it stayed
+# unhealthy; a service that needs most of its pids limit at idle fails on a larger host.
+echo ""
+log "Test 9: Process Headroom"
+for container in "${CONTAINERS[@]}"; do
+  pids_limit=$(docker inspect --format '{{.HostConfig.PidsLimit}}' "$container" 2>/dev/null || echo "")
+  pids_used=$(docker stats --no-stream --format '{{.PIDs}}' "$container" 2>/dev/null || echo "")
+  if [[ ! "$pids_limit" =~ ^[0-9]+$ ]] || [ "$pids_limit" -le 0 ]; then
+    warn "$container — no pids limit set"
+  elif [[ ! "$pids_used" =~ ^[0-9]+$ ]]; then
+    fail "$container — could not read its process count"
+  elif [ $((pids_used * 2)) -gt "$pids_limit" ]; then
+    fail "$container — uses ${pids_used} of ${pids_limit} pids at idle on $(nproc 2>/dev/null || sysctl -n hw.ncpu) CPUs"
+  else
+    pass "$container — ${pids_used} of ${pids_limit} pids"
+  fi
+done
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""

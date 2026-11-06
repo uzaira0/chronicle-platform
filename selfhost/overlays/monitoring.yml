@@ -229,6 +229,10 @@ services:
     user: "10001:0"
     logging: *default-logging
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    # Go starts about one thread per host CPU: 34 of the 64-pid limit on a 32-CPU host. It serves
+    # one small text file to VictoriaMetrics.
+    environment:
+      GOMAXPROCS: "2"
     volumes:
       - ./monitoring/metrics.Caddyfile:/etc/caddy/Caddyfile:ro,z
       - monitoring_textfiles:/metrics:ro
@@ -366,6 +370,12 @@ services:
       # unregistered, and every metrics alert rule fails. The pinned image is the version.
       # https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#preinstall_auto_update
       GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+      # Every bundled backend datasource runs as its own process with about one thread per host CPU.
+      # On a 32-CPU host the twelve that Chronicle never uses took 482 of the 512 pids below and
+      # most of the 512 MiB: health-check execs failed and Grafana stayed unhealthy. Only
+      # prometheus (VictoriaMetrics) and the VictoriaLogs plugin are provisioned; keep the rest off.
+      # https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#disable_plugins
+      GF_PLUGINS_DISABLE_PLUGINS: elasticsearch,grafana-postgresql-datasource,grafana-pyroscope-datasource,influxdb,jaeger,loki,mssql,mysql,opentsdb,stackdriver,tempo,zipkin
       # Alert delivery target, read by grafana-alerting/contactpoints.yml. The default is the
       # closed discard port on loopback: alerts stay visible in Grafana only. See
       # docs/MONITORING-RUNBOOK.md "Attach a notification channel".
