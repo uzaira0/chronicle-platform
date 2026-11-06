@@ -227,8 +227,11 @@ next(image for image in SOURCE_IMAGES if image.component == sys.argv[3]).archive
 }
 # Nothing reaches the registry with a fixable HIGH or CRITICAL finding. Each image is scanned
 # right after its build, smallest first, so a finding fails the run before the next build.
+# The SSH-server check covers only images built here: third-party runtime images are not
+# pulled at publish time, and nothing we ship should add a login path inside a container.
 scan_image() {
   stamp "scan $1"
+  run bash "$root/scripts/check-image-no-ssh-server.sh" "$1"
   run bash "$root/scripts/scan-selfhost-release-images.sh" "$1"
 }
 build_component() {
