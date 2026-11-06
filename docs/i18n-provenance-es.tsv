@@ -602,3 +602,39 @@ web	chronicle-web/src/modern/i18n/en/translation.json	catalog.data_type.iosscree
 android-play	chronicle/app/src/main/res/values/strings.xml	disclosure_function_sensor_availability	drafted in BAND wording	BAND review: accuracy fix 2026-10-31
 android-play	chronicle/app/src/main/res/values/strings.xml	platform_privacy_policy_full	drafted in BAND wording	BAND review: accuracy fix 2026-10-31
 android-play	chronicle/app/src/main/res/values/strings.xml	interactivity_monitoring_notification_message	BAND text corrected by review audit	
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_device_lifecycle_label	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_device_lifecycle_collects_1	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_device_lifecycle_collects_2	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_label	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_collects_1	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_collects_2	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_collects_4	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_collects_5	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_usage_events_collects_6	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/consent_copy.xml	consent_user_identification_label	drafted in BAND wording	consent/legal: BAND review
+android-play	chronicle/app/src/main/res/values/strings.xml	cap_identify_off	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	cap_identify_paused	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	battery_optimization_exemption	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values/strings.xml	hibernation_exemption	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values-v31/strings.xml	hibernation_exemption	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values-v33/strings.xml	hibernation_exemption	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values-v35/strings.xml	battery_optimization_exemption	drafted in BAND wording	
+android-play	chronicle/app/src/main/res/values-v35/strings.xml	hibernation_exemption	drafted in BAND wording	
+web	chronicle-web/src/modern/i18n/en/translation.json	participants.diagnostics_load_failed	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	notes_editor.load_failed	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	reviewer.error_secret_length	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	settings_audit.col_app_version	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+web	chronicle-web/src/modern/i18n/en/translation.json	study_details.end_unavailable	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.auth.noPublicSigningKey	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.auth.oidcNotConfigured	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.deletion.studyBusy	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.generic	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.notification.deliveryUnsupported	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.notification.phoneVerificationUnavailable	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.request.invalidArgument	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.study.legacyCollectionSettings	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.study.unversionedSettingsLocked	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+server	chronicle-server/src/main/resources/messages.properties	error.webhook.twilioSignatureInvalid	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+play-listing	chronicle/store/play/listing.es-419.md	app_name	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+play-listing	chronicle/store/play/listing.es-419.md	short_description	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+play-listing	chronicle/store/play/listing.es-419.md	full_description	drafted in BAND wording, owner-approved 2026-11-05	BAND review

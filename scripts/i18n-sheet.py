@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
-"""Exchange Chronicle's Android, web and server translations with a human-filled XLSX."""
+"""Exchange Chronicle's Android, web and server translations with a human-filled XLSX, and track
+which English text each translation was made from.
+
+`docs/i18n-source-<lang>.tsv` records, for every translated line, a hash of the English it
+translates. `check` fails when the English has changed since (the translation is stale) or a
+translated line has no record; `stamp` records the current English for lines a person has
+reviewed; `import` stamps the rows whose translation it changes."""
 
 import argparse
-from copy import deepcopy
+import hashlib
 import json
-from pathlib import Path
 import re
 import sys
 import xml.etree.ElementTree as ET
+from copy import deepcopy
+from pathlib import Path
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Font
-
-
+ANDROID_FLAVORS = (("android-play", "main"), ("android-research", "googleServices"))
 ANDROID = [
     (surface, Path(f"chronicle/app/src/{flavor}/res/values/{name}.xml"))
-    for surface, flavor in (("android-play", "main"), ("android-research", "googleServices"))
+    for surface, flavor in ANDROID_FLAVORS
     for name in ("strings", "consent_copy")
 ]
 WEB = Path("chronicle-web/src/modern/i18n/en/translation.json")
 SERVER = Path("chronicle-server/src/main/resources/messages.properties")
 HEADERS = ("surface", "file", "key", "english", "spanish", "notes")
 TOKENS = re.compile(r"%%|%(?:\d+\$)?[sd]|\{\{[^{}]+\}\}|\{\d+\}")
+STAMP_HEADER = ("file", "key", "english_sha256")
+STALE_NOTE = "English changed since this was translated"
 
 
 def placeholders(text):
@@ -70,10 +76,14 @@ def read_json(path):
 
 
 def read_properties(path):
+    return parse_properties(path.read_text(encoding="utf-8"), path)
+
+
+def parse_properties(text, path):
     """The `key=value` lines of a Java message table. MessageFormat's doubled apostrophe on a
     `{0}` line is shown to translators as a single one and restored by `properties_line`."""
     entries = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line or line[0] in "#!":
             continue
@@ -120,8 +130,131 @@ def catalog(root, lang):
     return rows, trees, english
 
 
-def export_sheet(root, lang, output):
+def android_entries(path):
+    return {key: android_text(item)
+            for element in resources(ET.parse(path).getroot())
+            for key, item in items(element)
+            if item.get("translatable") != "false"}
+
+
+def versioned_android(root, lang):
+    """Translated lines in API-qualified folders (`values-es-v35`), each paired with the English
+    Android shows at that API level: the highest `values-vK` (K <= the folder's level) defining the
+    key, else `values`. These are the Settings labels quoted from AOSP, not workbook rows."""
+    def levels(res, prefix):
+        return {int(match[1]): path for path in res.glob(f"{prefix}-v*")
+                if (match := re.fullmatch(rf"{re.escape(prefix)}-v(\d+)", path.name))}
+
+    lines = {}
+    for _, flavor in ANDROID_FLAVORS:
+        res = root / f"chronicle/app/src/{flavor}/res"
+        english_levels = levels(res, "values")
+        for level, folder in sorted(levels(res, f"values-{lang}").items()):
+            english_folders = [english_levels[k] for k in sorted(english_levels, reverse=True) if k <= level]
+            english_folders.append(res / "values")
+            for translated_file in sorted(folder.glob("*.xml")):
+                sources = [android_entries(path / translated_file.name) for path in english_folders
+                           if (path / translated_file.name).exists()]
+                for key, text in android_entries(translated_file).items():
+                    english = next((source[key] for source in sources if key in source), None)
+                    if english is not None:
+                        lines[(translated_file.relative_to(root).as_posix(), key)] = (english, text)
+    return lines
+
+
+def translated_lines(root, lang):
+    """Every translated line keyed by (translated file, key), with the English it translates."""
     rows, _, _ = catalog(root, lang)
+    lines = {(target_path(Path(file), lang).as_posix(), key): (english, translated)
+             for (_, file, key), (english, translated) in rows.items() if translated}
+    lines.update(versioned_android(root, lang))
+    return lines
+
+
+def english_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def stamp_path(root, lang):
+    return root / f"docs/i18n-source-{lang}.tsv"
+
+
+def read_stamps(root, lang):
+    path = stamp_path(root, lang)
+    if not path.exists():
+        return {}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or tuple(lines[0].split("\t")) != STAMP_HEADER:
+        raise ValueError(f"{path}: expected header {' '.join(STAMP_HEADER)}")
+    stamps = {}
+    for number, line in enumerate(lines[1:], 2):
+        fields = line.split("\t")
+        if len(fields) != 3:
+            raise ValueError(f"{path}:{number}: expected 3 tab-separated fields")
+        stamps[(fields[0], fields[1])] = fields[2]
+    return stamps
+
+
+def write_stamps(root, lang, stamps):
+    body = "".join(f"{file}\t{key}\t{digest}\n" for (file, key), digest in sorted(stamps.items()))
+    stamp_path(root, lang).write_text("\t".join(STAMP_HEADER) + "\n" + body, encoding="utf-8")
+
+
+def source_status(root, lang):
+    """(lines, stamps, stale, unstamped, orphans): stale lines have a record of different English,
+    unstamped ones have none, orphans are records for lines that no longer exist."""
+    lines = translated_lines(root, lang)
+    stamps = read_stamps(root, lang)
+    stale = sorted(identity for identity, (english, _) in lines.items()
+                   if identity in stamps and stamps[identity] != english_hash(english))
+    unstamped = sorted(identity for identity in lines if identity not in stamps)
+    orphans = sorted(identity for identity in stamps if identity not in lines)
+    return lines, stamps, stale, unstamped, orphans
+
+
+def check_sources(root, lang):
+    lines, _, stale, unstamped, orphans = source_status(root, lang)
+    for label, identities in (("stale", stale), ("unstamped", unstamped)):
+        for file, key in identities:
+            english, translated = lines[(file, key)]
+            print(f"{label}: {file} {key}\n  English now: {english}\n  {lang} now:     {translated}")
+    for file, key in orphans:
+        print(f"orphan record: {file} {key} (the line no longer exists)")
+    print(f"{len(lines)} translated lines: {len(stale)} stale, {len(unstamped)} unstamped, "
+          f"{len(orphans)} orphan records")
+    if stale or unstamped or orphans:
+        print(f"Update each listed {lang} line (or confirm it still fits the English), then run\n"
+              f"  python3 scripts/i18n-sheet.py stamp --lang {lang} KEY ...\n"
+              "A translator workbook import stamps the rows whose translation it changes.")
+        return 1
+    return 0
+
+
+def stamp_sources(root, lang, keys):
+    """Record the current English for the named lines; drop records of lines that no longer exist."""
+    lines, stamps, _, _, orphans = source_status(root, lang)
+    chosen = set()
+    for wanted in keys:
+        file, _, key = wanted.rpartition(":")
+        matches = [identity for identity in lines if identity[1] == key and file in ("", identity[0])]
+        if len(matches) != 1:
+            found = ", ".join(f"{f}:{k}" for f, k in matches) or "no translated line"
+            raise ValueError(f"{wanted}: expected one translated line, found {found}; use FILE:KEY")
+        chosen.add(matches[0])
+    for identity in orphans:
+        del stamps[identity]
+    for identity in chosen:
+        stamps[identity] = english_hash(lines[identity][0])
+    write_stamps(root, lang, stamps)
+    print(f"Stamped {len(chosen)} lines; removed {len(orphans)} orphan records.")
+
+
+def export_sheet(root, lang, output):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    rows, _, _ = catalog(root, lang)
+    stale = set(source_status(root, lang)[2])
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Strings"
@@ -132,6 +265,8 @@ def export_sheet(root, lang, output):
         if r"\n" in english:
             notes.append(r"\n")
         notes.extend(re.findall(r"\$t\([^)]*\)", english))
+        if (target_path(Path(identity[1]), lang).as_posix(), identity[2]) in stale:
+            notes.insert(0, STALE_NOTE)
         sheet.append((*identity, english, spanish, ", ".join(notes)))
     for row in sheet:
         for cell in row:
@@ -151,6 +286,8 @@ def export_sheet(root, lang, output):
 
 
 def read_sheet(source, rows):
+    from openpyxl import load_workbook
+
     workbook = load_workbook(source, read_only=True, data_only=False)
     translations = {}
     rejected = []
@@ -229,6 +366,39 @@ def english_order(value, english):
     return value
 
 
+def web_json(value, indent=0, column=0):
+    """JSON laid out as chronicle-web's Biome formatter writes it (2-space indent, 120 columns):
+    objects one key per line, an array of plain values on one line when it fits."""
+    pad = "  " * indent
+    inner = "  " * (indent + 1)
+    if isinstance(value, dict) and value:
+        fields = []
+        for key, child in value.items():
+            prefix = inner + json.dumps(key, ensure_ascii=False) + ": "
+            fields.append(prefix + web_json(child, indent + 1, len(prefix)))
+        return "{\n" + ",\n".join(fields) + "\n" + pad + "}"
+    if isinstance(value, list) and value:
+        line = "[" + ", ".join(json.dumps(child, ensure_ascii=False) for child in value) + "]"
+        if not any(isinstance(child, (dict, list)) for child in value) and column + len(line) + 1 <= 120:
+            return line
+        return "[\n" + ",\n".join(inner + web_json(child, indent + 1, len(inner)) for child in value) + "\n" + pad + "]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def same_entries(path, content):
+    """True when `content` holds exactly the entries already in `path`, so rewriting would only
+    reorder or reformat it."""
+    if not path.exists():
+        return False
+    if path.suffix == ".json":
+        return read_json(path) == json.loads(content)
+    if path.suffix == ".xml":
+        return android_entries(path) == {key: android_text(item)
+                                         for element in resources(ET.fromstring(content))
+                                         for key, item in items(element)}
+    return read_properties(path) == parse_properties(content, path)
+
+
 def import_sheet(root, lang, source):
     rows, trees, english = catalog(root, lang)
     translations = read_sheet(source, rows)
@@ -254,7 +424,7 @@ def import_sheet(root, lang, source):
                         for key, _, path in flatten(english)
                         if ("web", WEB.as_posix(), key) in translations}
     merged = english_order(merge_web(existing, english, web_translations), english)
-    outputs[web_path] = json.dumps(merged, ensure_ascii=False, indent=2) + "\n"
+    outputs[web_path] = web_json(merged) + "\n"
     server_path = root / target_path(SERVER, lang)
     server_lines = [properties_line(identity[2], translations[identity]) for identity in rows
                     if identity[0] == "server" and identity in translations]
@@ -262,11 +432,30 @@ def import_sheet(root, lang, source):
         f"# Chronicle server message table for {lang}, written by scripts/i18n-sheet.py import.\n"
         "# Keys and {0} placeholders match messages.properties; a missing key falls back to English.\n"
         + "".join(f"{line}\n" for line in server_lines))
+    stamps = read_stamps(root, lang)
     for path, content in outputs.items():
+        if same_entries(path, content):
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"Wrote {path}")
+    # A row whose text the translator changed was written against the English in the workbook,
+    # which read_sheet checked is the current English. An unchanged row keeps its old record, so a
+    # stale translation stays stale until someone edits it or confirms it with `stamp`.
+    still_stale = []
+    for identity, translated in translations.items():
+        english, before = rows[identity]
+        line = (target_path(Path(identity[1]), lang).as_posix(), identity[2])
+        if translated != before:
+            stamps[line] = english_hash(english)
+        elif line in stamps and stamps[line] != english_hash(english):
+            still_stale.append(line)
+    # Import rewrites whole tables, so lines left empty in the workbook are gone; so are their records.
+    remaining = translated_lines(root, lang)
+    write_stamps(root, lang, {line: digest for line, digest in stamps.items() if line in remaining})
     print(f"Imported {len(translations)} filled rows (incomplete Android groups omitted).")
+    for file, key in sorted(still_stale):
+        print(f"Still stale (text unchanged): {file} {key}")
 
 
 def main():
@@ -274,19 +463,27 @@ def main():
     default_root = Path(__file__).resolve().parent.parent
     parser.add_argument("--root", type=Path, default=default_root)
     commands = parser.add_subparsers(dest="command", required=True)
-    for command, flag in (("export", "--out"), ("import", "--in")):
+    for command, flag in (("export", "--out"), ("import", "--in"), ("check", None), ("stamp", None)):
         sub = commands.add_parser(command)
         sub.add_argument("--lang", required=True)
         sub.add_argument("--root", type=Path, default=argparse.SUPPRESS)
-        sub.add_argument(flag, dest="sheet", type=Path, required=True)
+        if flag:
+            sub.add_argument(flag, dest="sheet", type=Path, required=True)
+        if command == "stamp":
+            sub.add_argument("keys", nargs="+", metavar="[FILE:]KEY",
+                             help="translated line whose English a person has reviewed")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z]{2,3}(?:-r[A-Z]{2})?", args.lang) or args.lang == "en":
         parser.error("--lang must be a non-English Android language qualifier, e.g. es or pt-rBR")
     try:
         if args.command == "export":
             export_sheet(args.root, args.lang, args.sheet)
-        else:
+        elif args.command == "import":
             import_sheet(args.root, args.lang, args.sheet)
+        elif args.command == "check":
+            sys.exit(check_sources(args.root, args.lang))
+        else:
+            stamp_sources(args.root, args.lang, args.keys)
     except (OSError, ValueError, ET.ParseError) as error:
         parser.exit(1, f"{error}\n")
 

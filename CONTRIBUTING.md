@@ -36,6 +36,13 @@ messages. Experiments, reverts, and operational detail stay private.
    translations; add the English key and leave the other languages to translators. The one
    exception is an owner-approved draft in a translator's own wording, recorded in
    `docs/i18n-provenance-<code>.tsv`.
+5. Changing English that already has a translation makes that translation stale:
+   `docs/i18n-source-<code>.tsv` records the English each translated line was made from, and
+   `make i18n-source-check LANG=es` (also run by `scripts/local-ci.sh fast`) lists the lines
+   whose English has changed. Send them to the translators; a workbook import
+   (`make i18n-sheet-import`) records the new English for the rows it changes. When the
+   translation still fits (a capitalisation change, say), confirm it with
+   `make i18n-source-stamp LANG=es KEYS="<key> ..."`.
 
 ## Working with the submodules
 

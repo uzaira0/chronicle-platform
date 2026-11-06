@@ -6,27 +6,41 @@ mkdir -p "$HOME/tmp"
 sheet_tmp=$(mktemp -d -p "$HOME/tmp" i18n-sheet-test.XXXXXX)
 trap 'rm -rf "$sheet_tmp"' EXIT
 
+translated=(
+  chronicle/app/src/main/res/values-es/strings.xml
+  chronicle/app/src/main/res/values-es/consent_copy.xml
+  chronicle/app/src/googleServices/res/values-es/strings.xml
+  chronicle/app/src/googleServices/res/values-es/consent_copy.xml
+  chronicle-web/src/modern/i18n/es/translation.json
+  chronicle-server/src/main/resources/messages_es.properties
+  docs/i18n-source-es.tsv
+)
 sources=(
+  "${translated[@]}"
   chronicle/app/src/main/res/values/strings.xml
   chronicle/app/src/main/res/values/consent_copy.xml
   chronicle/app/src/googleServices/res/values/strings.xml
   chronicle/app/src/googleServices/res/values/consent_copy.xml
   chronicle-web/src/modern/i18n/en/translation.json
-  chronicle-web/src/modern/i18n/es/translation.json
   chronicle-server/src/main/resources/messages.properties
-  chronicle-server/src/main/resources/messages_es.properties
 )
+# API-level folders: check pairs values-es-vN with the English Android shows at level N.
+for file in chronicle/app/src/main/res/values-v*/strings.xml chronicle/app/src/main/res/values-es-v*/strings.xml; do
+  sources+=("$file")
+done
 for source in "${sources[@]}"; do
   mkdir -p "$sheet_tmp/$(dirname "$source")"
   cp "$source" "$sheet_tmp/$source"
 done
 
-# An unchanged export/import must leave the server table byte-identical.
+# An unchanged export/import must leave every translated file and the English records byte-identical.
 python3 scripts/i18n-sheet.py export --root "$sheet_tmp" --lang es --out "$sheet_tmp/sheet.xlsx"
 python3 scripts/i18n-sheet.py import --root "$sheet_tmp" --lang es --in "$sheet_tmp/sheet.xlsx" >/dev/null
-cmp chronicle-server/src/main/resources/messages_es.properties \
-  "$sheet_tmp/chronicle-server/src/main/resources/messages_es.properties"
-echo "PASS: unchanged round trip keeps messages_es.properties byte-identical"
+for file in "${translated[@]}"; do
+  cmp "$file" "$sheet_tmp/$file"
+done
+python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es >/dev/null
+echo "PASS: unchanged round trip keeps all ${#translated[@]} translated files byte-identical and check passes"
 python3 - "$sheet_tmp" <<'PY'
 import json
 from pathlib import Path
@@ -122,6 +136,10 @@ workbook.save(root / "sheet.xlsx")
 workbook.close()
 PY
 
+# The import recorded the English of the four rows it changed, so nothing is stale or unstamped.
+python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es >/dev/null
+echo "PASS: import stamped the rows it changed"
+
 outputs=(
   "$sheet_tmp/chronicle/app/src/main/res/values-es/strings.xml"
   "$sheet_tmp/chronicle/app/src/main/res/values-es/consent_copy.xml"
@@ -129,6 +147,7 @@ outputs=(
   "$sheet_tmp/chronicle/app/src/googleServices/res/values-es/consent_copy.xml"
   "$sheet_tmp/chronicle-web/src/modern/i18n/es/translation.json"
   "$sheet_tmp/chronicle-server/src/main/resources/messages_es.properties"
+  "$sheet_tmp/docs/i18n-source-es.tsv"
 )
 sha256sum "${outputs[@]}" > "$sheet_tmp/before.sha256"
 if python3 scripts/i18n-sheet.py import --root "$sheet_tmp" --lang es --in "$sheet_tmp/sheet.xlsx"; then
@@ -137,4 +156,34 @@ if python3 scripts/i18n-sheet.py import --root "$sheet_tmp" --lang es --in "$she
 fi
 sha256sum "${outputs[@]}" > "$sheet_tmp/after.sha256"
 cmp "$sheet_tmp/before.sha256" "$sheet_tmp/after.sha256"
-echo "PASS: invalid placeholder rejected and all six output checksums unchanged"
+echo "PASS: invalid placeholder rejected and all ${#outputs[@]} output checksums unchanged"
+
+# Changed English makes its Spanish line stale: check fails and the workbook tells the translator.
+python3 - "$sheet_tmp" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1]) / "chronicle-web/src/modern/i18n/en/translation.json"
+english = json.loads(path.read_text(encoding="utf-8"))
+english["common"]["try_again"] = "Retry now"
+path.write_text(json.dumps(english, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es >/dev/null; then
+  echo "FAIL: check accepted a Spanish line whose English changed" >&2
+  exit 1
+fi
+python3 scripts/i18n-sheet.py export --root "$sheet_tmp" --lang es --out "$sheet_tmp/stale.xlsx" >/dev/null
+python3 - "$sheet_tmp" <<'PY'
+from pathlib import Path
+import sys
+
+from openpyxl import load_workbook
+
+workbook = load_workbook(Path(sys.argv[1]) / "stale.xlsx", read_only=True)
+notes = {row[2]: row[5] or "" for row in workbook["Strings"].iter_rows(min_row=2, values_only=True)}
+workbook.close()
+assert notes["common.try_again"].startswith("English changed since this was translated"), notes["common.try_again"]
+assert sum(note.startswith("English changed") for note in notes.values()) == 1
+PY
+echo "PASS: changed English fails check and is flagged in the exported workbook"
