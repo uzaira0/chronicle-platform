@@ -61,6 +61,12 @@ def documented_lines(document):
 
 class DocumentedCommandTests(unittest.TestCase):
     def validate(self, arguments):
+        if arguments and arguments[0] in ('help', '-h', '--help'):
+            # The launcher answers help before validate_command_arguments (selfhost/chronicle, "help"
+            # branch), so run that entry; COMMAND in `./chronicle help COMMAND` stands for any command.
+            return subprocess.run(['bash', str(ROOT / 'selfhost/chronicle'),
+                                   *('update' if argument == 'COMMAND' else argument for argument in arguments)],
+                                  env=dict(os.environ), capture_output=True, text=True, timeout=10)
         return subprocess.run(['bash', '-c', 'source "$1"; validate_command_arguments "${@:2}"; printf parsed',
                                'fixture', str(ROOT / 'selfhost/chronicle'), *arguments],
                               env=dict(os.environ), capture_output=True, text=True, timeout=10)
@@ -297,6 +303,7 @@ class OperatorDocTruthTests(unittest.TestCase):
         self.assertEqual('false', direct)  # Play policy: the open build only opens the settings list.
         self.assertNotIn('one-tap', build)
         self.assertIn("select **Don't optimize**", build)
+        self.assertIn("select **Unrestricted**", build)  # Android 15+ App battery usage
 
     def test_rate_limit_section_describes_only_the_shipped_pre_authentication_quotas(self):
         import yaml

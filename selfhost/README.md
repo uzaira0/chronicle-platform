@@ -691,10 +691,12 @@ and battery telemetry modules. Accessibility interaction, notification-listener 
 collectors are excluded. It trusts publicly trusted CAs plus CAs the phone owner installed
 (so the local trial CA works). The sideloaded `open` APK is the same build.
 
-The battery dialog opens Android's general battery-optimization settings. Select **All apps**
-if necessary, choose **Chronicle**, select **Don't optimize**, and confirm. Return to Chronicle
+The battery dialog opens Android's general battery settings list. On Android 8 to 14 that is
+**Battery optimization**: select **All apps** if necessary, choose **Chronicle**, select
+**Don't optimize**, and confirm. On Android 15 and newer it is **App battery usage**: choose
+**Chronicle**, tap **Allow background usage**, and select **Unrestricted**. Return to Chronicle
 to check the grant; canceling or leaving optimization enabled does not grant an exemption.
-Settings labels vary by Android version and manufacturer.
+The dialog quotes the labels of the phone's Android version; manufacturers may rename them.
 
 Play and sideloaded builds use the application ID `com.bcm.chronicle`. A build signed with a different key (for example your own sideload over a
 Play install) installs only after the old app is removed, which deletes data not yet
