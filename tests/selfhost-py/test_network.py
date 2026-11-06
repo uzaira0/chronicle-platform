@@ -1,9 +1,13 @@
 from pathlib import Path
+import shutil
 import subprocess
 import unittest
 
 
 SELFHOST = Path(__file__).resolve().parents[2] / "selfhost"
+# The macOS trial runs on /bin/bash 3.2 (selfhost/README.md, Supported hosts), where "${empty[@]}"
+# under set -u is an unbound-variable error; Linux hosts run a current bash. Test every one present.
+SHELLS = sorted({path for path in (shutil.which("bash"), "/bin/bash") if path and Path(path).exists()})
 
 
 class NetworkPolicyTests(unittest.TestCase):
@@ -17,11 +21,12 @@ class NetworkPolicyTests(unittest.TestCase):
             ("2001:::1234", False, False), ("2001:12345::1", False, False),
             ("::ffff:127.0.0.1", False, False),
         ):
-            with self.subTest(address=address):
-                result = subprocess.run(["bash", str(SELFHOST / "guard-config.sh"),
-                                         "--validate-public-host", "[" + address + "]" if ":" in address else address],
-                                        capture_output=True)
-                self.assertEqual(result.returncode == 0, public)
-                result = subprocess.run(["bash", "-c", 'source "$1"; specific_private_bind "$2"',
-                                         "policy", str(SELFHOST / "network-policy.sh"), address], capture_output=True)
-                self.assertEqual(result.returncode == 0, private)
+            for shell in SHELLS:
+                with self.subTest(address=address, shell=shell):
+                    result = subprocess.run([shell, str(SELFHOST / "guard-config.sh"),
+                                             "--validate-public-host", "[" + address + "]" if ":" in address else address],
+                                            capture_output=True)
+                    self.assertEqual(result.returncode == 0, public, result.stderr)
+                    result = subprocess.run([shell, "-c", 'set -u; source "$1"; specific_private_bind "$2"',
+                                             "policy", str(SELFHOST / "network-policy.sh"), address], capture_output=True)
+                    self.assertEqual(result.returncode == 0, private, result.stderr)

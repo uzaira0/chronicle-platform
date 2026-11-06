@@ -22,9 +22,10 @@ address_bits() {
       [[ -z "$left" ]] || IFS=: read -r -a before <<< "$left"
       [[ -z "$right" ]] || IFS=: read -r -a after <<< "$right"
       zeros=$((8 - ${#before[@]} - ${#after[@]})); ((zeros > 0)) || return 1
-      parts=("${before[@]}")
+      # ${a[@]+...}: bash 3.2 (the macOS trial shell) treats "${a[@]}" of an empty array as unbound under set -u.
+      parts=(${before[@]+"${before[@]}"})
       for ((word=0; word<zeros; word++)); do parts+=(0); done
-      parts+=("${after[@]}")
+      parts+=(${after[@]+"${after[@]}"})
     else
       [[ "$address" != :* && "$address" != *: ]] || return 1
       IFS=: read -r -a parts <<< "$address"
