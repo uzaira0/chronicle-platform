@@ -332,6 +332,18 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
             stack.enter_context(patch('chronicle_ops.upgrade.compose_release', self.compose))
             stack.enter_context(patch('chronicle_ops.restore.compose', lambda *a, **k: self.compose(None, None, None, *a, **k)))
             stack.enter_context(patch('chronicle_ops.upgrade.run', self.command))
+            docker_root = subprocess.run(['docker', 'info', '--format', '{{.DockerRootDir}}'],
+                                         capture_output=True, text=True, check=True).stdout.strip()
+            if not Path(docker_root).exists():
+                # Docker Desktop keeps its data root inside its VM, so storage_report would measure it
+                # by running the bundle's PostgreSQL image, which in this drill is an unpullable
+                # fixture digest. test_storage_report covers that path; Linux hosts, where the data
+                # root is a host directory, still run the real check here.
+                def host_storage(state, project, floor_gib=5, peak_bytes=0, *, image=None):
+                    disk = os.statvfs(state)
+                    return [(name, True, disk.f_bavail * disk.f_frsize, disk.f_favail, 0)
+                            for name in ('state', 'docker-data')]
+                stack.enter_context(patch('chronicle_ops.common.storage_report', host_storage))
 
             for module in ('upgrade', 'restore'):
                 stack.enter_context(patch('chronicle_ops.' + module + '.finish_operation'))
@@ -373,7 +385,7 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         self.assertEqual(0, rollback(host, '/backups/' + backup.name, file_sha256(backup), True))
         self.fail_version = second
         self.assertEqual(1, self.invoke(host, second))
-        self.assertEqual(str(host), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
+        self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
         self.assertEqual(self.shipped_version, self.schema_version())
         self.assertEqual('0', self.sql("SELECT count(*) FROM information_schema.columns WHERE "
                                        "table_name='forward_drill_data' AND column_name='migrated';"))
@@ -397,7 +409,7 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         self.assert_fenced(abandoned)  # Caddy restart after updater death still refuses participants.
         self.assertEqual(0, self.invoke(host))  # SIGKILL left the durable fence and safety dump.
         self.assertFalse(marker.exists())
-        self.assertEqual(str(host), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
+        self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
         self.assertEqual(self.shipped_version, self.schema_version())
 
         from chronicle_ops.restore import ROLLBACK_PHASES
