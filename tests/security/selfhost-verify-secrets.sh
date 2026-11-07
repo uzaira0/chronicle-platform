@@ -57,6 +57,7 @@ cat >"${FIXTURE_SELFHOST}/.env" <<'EOF'
 DOMAIN=chronicle.example.test
 COMPOSE_PROJECT_NAME=chronicle-selfhost-verify-fixture
 CHRONICLE_STATE_DIR=.
+CHRONICLE_CORE_PREFIX=10.252.7
 COMPOSE_FILE=docker-compose.yml:overlays/mode-behind-proxy-internal.yml
 HTTP_BIND=127.0.0.1
 HTTP_PORT=18080
@@ -302,6 +303,10 @@ if [[ "${1:-}" == exec && "${2:-}" == -i && "${3:-}" == "$SELFHOST_VERIFY_TEST_P
   exit 0
 fi
 
+if [[ "$*" == 'network inspect chronicle-selfhost-verify-fixture_core chronicle-selfhost-verify-fixture_ingress' ]]; then
+  printf '%s\n' '[{"Name":"chronicle-selfhost-verify-fixture_core","IPAM":{"Config":[{"Subnet":"10.252.7.0/25"}]},"Containers":{"fixture-web":{"IPv4Address":"10.252.7.2/25"}}},{"Name":"chronicle-selfhost-verify-fixture_ingress","IPAM":{"Config":[{"Subnet":"10.252.7.128/26"}]},"Containers":{"fixture-web-forward":{"IPv4Address":"10.252.7.130/26"},"fixture-web":{"IPv4Address":"10.252.7.160/26"}}}]'
+  exit 0
+fi
 if [[ "${1:-}" == ps || "${1:-} ${2:-}" == 'volume ls' ]]; then exit 0; fi
 if [[ "$*" == 'info --format {{.DockerRootDir}}' ]]; then
   printf '%s\n' /fixture/docker
@@ -313,6 +318,14 @@ shift
 shift 2
 if [[ "$*" == 'ps -q postgres' ]]; then
   printf '%s\n' "$SELFHOST_VERIFY_TEST_POSTGRES_CONTAINER_ID"
+  exit 0
+fi
+if [[ "$*" == 'ps -q web' ]]; then
+  printf '%s\n' fixture-web
+  exit 0
+fi
+if [[ "$*" == 'ps -q web-forward' ]]; then
+  printf '%s\n' fixture-web-forward
   exit 0
 fi
 [[ "${1:-}" == exec ]] || exit 105

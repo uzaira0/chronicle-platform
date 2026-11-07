@@ -75,12 +75,12 @@ def check_w12() -> None:
 
 
 def check_w49() -> None:
-    expected = "oven/bun:1.3.12-alpine@sha256:26d8996560ca94eab9ce48afc0c7443825553c9a851f40ae574d47d20906826d"
+    expected = "oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a"
     assert f"FROM {expected} AS builder" in read("selfhost/Dockerfile.frontend")
     package = json.loads(read("chronicle-web/package.json"))
-    assert package.get("engines", {}).get("bun") == "1.3.12"
-    assert package.get("devDependencies", {}).get("bun-types") == "1.3.12"
-    assert package.get("devDependencies", {}).get("bun") == "1.3.12"
+    assert package.get("engines", {}).get("bun") == "1.4.4"
+    assert package.get("devDependencies", {}).get("bun-types") == "1.4.4"
+    assert "bun" not in package.get("devDependencies", {}), "the bun npm placeholder would shadow the runtime"
 
 
 def check_w47() -> None:
@@ -155,12 +155,16 @@ def check_w50() -> None:
 def check_w51() -> None:
     compose = yaml.safe_load(read("selfhost/docker-compose.yml"))
     subnet = "${CHRONICLE_SUBNET:-172.28.0.0/16}"
+    # The backend trusts forwarded client addresses only from web's fixed address on core.
+    web = "${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.2"
     backend = compose["services"]["backend"]["environment"]
     guard = compose["services"]["config-guard"]["environment"]
-    assert backend["CHRONICLE_TRUSTED_PROXY_CIDRS"] == subnet
+    assert backend["CHRONICLE_TRUSTED_PROXY_CIDRS"] == web + "/32"
     assert guard["CHRONICLE_SUBNET"] == subnet
-    assert guard["CHRONICLE_TRUSTED_PROXY_CIDRS"] == subnet
+    assert "CHRONICLE_TRUSTED_PROXY_CIDRS" not in guard  # the guard checks the prefix only
+    assert compose["services"]["web"]["networks"]["core"]["ipv4_address"] == web
     assert compose["networks"]["default"]["ipam"]["config"][0]["subnet"] == subnet
+    assert compose["networks"]["core"]["internal"] is True
 
     validator = ROOT / "selfhost" / "guard-config.sh"
 
@@ -178,8 +182,12 @@ def check_w51() -> None:
     assert not accepted("192.168.240.0/24", "172.28.0.0/16")
     assert not accepted("8.8.8.0/24", "8.8.8.0/24")
     assert not accepted("192.168.240.1/24", "192.168.240.1/24")
+    assert subprocess.run(["bash", str(validator), "--validate-core-prefix", "10.252.3"],
+                          check=False, capture_output=True).returncode == 0
+    assert subprocess.run(["bash", str(validator), "--validate-core-prefix", "8.8.8"],
+                          check=False, capture_output=True).returncode != 0
     docs = read("selfhost/docs/DEPLOYMENT-COMPATIBILITY.md")
-    assert "CHRONICLE_SUBNET" in docs and "CHRONICLE_TRUSTED_PROXY_CIDRS" in docs
+    assert "CHRONICLE_SUBNET" in docs and "CHRONICLE_TRUSTED_PROXY_CIDRS" in docs and "CHRONICLE_CORE_PREFIX" in docs
 
 
 def check_w52() -> None:
@@ -293,7 +301,16 @@ def check_w56() -> None:
 def check_w61() -> None:
     socket_proxy = yaml.safe_load(read("selfhost/overlays/monitoring.yml"))["services"]["docker-socket-proxy"]
     assert 1 <= socket_proxy["pids_limit"] <= 128
-    assert str(socket_proxy["environment"]["POST"]) == "0"
+    # Since c34f742c the proxy runs HAProxy on Chronicle's own config instead of the image's
+    # environment-driven template (POST=0 and friends no longer exist): only GET on the listed
+    # read paths passes, so no write (POST, PUT, DELETE) reaches the socket.
+    assert socket_proxy["entrypoint"] == ["haproxy"]
+    assert "/etc/haproxy/chronicle.cfg" in socket_proxy["command"]
+    assert "./monitoring/docker-api.cfg:/etc/haproxy/chronicle.cfg:ro,z" in socket_proxy["volumes"]
+    assert "environment" not in socket_proxy, "the image's env template is unused; settings there do nothing"
+    config = read("selfhost/monitoring/docker-api.cfg")
+    assert re.search(r"(?m)^\s*acl read_method method GET\s*$", config)
+    assert re.search(r"(?m)^\s*http-request deny deny_status 403 unless read_method allowed_path\s*$", config)
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in socket_proxy["volumes"]
 
 
@@ -309,8 +326,33 @@ def check_w67() -> None:
     pushes = [index for index, line in enumerate(plan) if line.startswith('docker push ')]
     assert len(scans) == len(SOURCE_IMAGES) + 1
     assert len(pushes) == len(SOURCE_IMAGES) and max(scans) < min(pushes)
+    # Container-infra I1-I3 and B8: every built image passes the image policy, the third-party images get
+    # the SSH, listener and policy checks too, and an ignore entry that suppressed nothing fails the run;
+    # all before anything is pushed.
+    policies = [line for line in plan if 'scripts/check-image-policy.py' in line]
+    assert sorted(line.split()[-1].split('=', 1)[0] for line in policies) == sorted(image.component for image in SOURCE_IMAGES)
+    runtime = [index for index, line in enumerate(plan) if 'scripts/check-runtime-images.py' in line]
+    stale = [index for index, line in enumerate(plan) if 'check-trivy-waivers.py' in line and '--reports' in line]
+    assert len(runtime) == 1 and len(stale) == 1 and max(scans) < stale[0] < min(pushes) and runtime[0] < min(pushes)
+    assert all('CHRONICLE_TRIVY_REPORT_DIR=' in plan[index] for index in scans)
+    # Container-infra I6 / audit AF-T8: every pushed digest is signed and its BuildKit provenance attested
+    # with the image-signing key while still logged in, both verified against the shipped public key, and
+    # the Sigstore bundles go into the release.
+    assert all('BUILDX_METADATA_PROVENANCE=max' in line and '--metadata-file' in line for line in plan if ' docker build ' in line)
+    logout = next(index for index, line in enumerate(plan) if line.startswith('docker logout ghcr.io'))
+    for command in ('cosign sign ', 'cosign attest ', 'cosign verify ', 'cosign verify-attestation '):
+        calls = [index for index, line in enumerate(plan) if line.startswith(command)]
+        assert len(calls) == len(SOURCE_IMAGES) and max(pushes) < min(calls) and max(calls) < logout, command
+    assert all('--signing-config' in line and '--bundle' in line for line in plan if line.startswith(('cosign sign ', 'cosign attest ')))
+    assert any('build-selfhost-release.py' in line and '--image-signatures' in line for line in plan)
 
+    # Images are built and scanned for the platform the ignore-file purls name; an unpinned build on
+    # an arm64 host made arm64 images whose findings no x86_64 entry matched (2026.11.6).
+    builds = [line for line in plan if ' docker build ' in line]
+    assert builds and all('docker build --platform linux/amd64 ' in line for line in builds), builds
     ignore = yaml.safe_load(read(".trivyignore.yaml"))["vulnerabilities"]
+    assert all('arch=x86_64' in purl or 'arch=noarch' in purl for item in ignore for purl in item.get("purls", [])
+               if purl.startswith("pkg:rpm/")), "rpm ignore entries must name the release platform"
     assert ignore and all((item.get("paths") or item.get("purls")) and item.get("statement") and item.get("expired_at") for item in ignore)
 
     helper = ROOT / "scripts" / "scan-selfhost-release-images.sh"
@@ -336,15 +378,16 @@ def check_w67() -> None:
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["TRIVY_LOG"] = str(log)
         explicit = ["ghcr.io/example/backend:v1.2.3", "ghcr.io/example/frontend:v1.2.3"]
-        for command, inventory in ((["bash", str(helper)], sorted(expected)),
-                                   (["bash", str(helper), *explicit], explicit)):
+        for command, inventory, source in ((["bash", str(helper)], sorted(expected), ["--image-src", "remote"]),
+                                           (["bash", str(helper), *explicit], explicit, [])):
             env.pop("TRIVY_FAIL_IMAGE", None)
             passed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
             assert passed.returncode == 0, passed.stderr
             scans = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
             assert [args[-1] for args in scans] == inventory
             for args in scans:
-                assert args[:-1] == ["image", "--quiet", "--scanners", "vuln", "--severity", "HIGH,CRITICAL",
+                # Secrets too (container-infra I8): a key copied into a layer and deleted later still ships.
+                assert args[:-1] == ["image", "--quiet", "--platform", "linux/amd64", *source, "--scanners", "vuln,secret", "--severity", "HIGH,CRITICAL",
                                     "--exit-code", "1", "--skip-db-update", "--skip-java-db-update",
                                     "--ignorefile", str(ROOT / ".trivyignore.yaml")], args
             log.unlink()
@@ -353,6 +396,19 @@ def check_w67() -> None:
             assert failed.returncode != 0, "a HIGH/CRITICAL scanner failure must stop release scanning"
             assert len(log.read_text(encoding="utf-8").splitlines()) == 1
             log.unlink()
+        # With a report directory each image also gets a JSON report of its waived findings, which
+        # tests/security/check-trivy-waivers.py --reports reads to find ignore entries that match nothing.
+        env.pop("TRIVY_FAIL_IMAGE", None)
+        env["CHRONICLE_TRIVY_REPORT_DIR"] = str(fixture / "reports")
+        reported = subprocess.run(["bash", str(helper), *explicit], cwd=ROOT, env=env, capture_output=True, text=True)
+        assert reported.returncode == 0, reported.stderr
+        calls = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+        assert [args[-1] for args in calls] == [image for image in explicit for _ in (0, 1)]
+        for args in calls[1::2]:
+            assert "--show-suppressed" in args and args[args.index("--format") + 1] == "json"
+            assert "--exit-code" not in args and args[args.index("--output") + 1].startswith(str(fixture / "reports") + "/")
+        log.unlink()
+        del env["CHRONICLE_TRIVY_REPORT_DIR"]
         for invalid in ("", "--download-db-only", "image:tag\nanother:tag"):
             rejected = subprocess.run(["bash", str(helper), invalid], env=env, capture_output=True)
             assert rejected.returncode != 0 and not log.exists()

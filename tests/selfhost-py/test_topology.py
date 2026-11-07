@@ -29,6 +29,24 @@ POSTGRES_INSPECTION = {'Config': {'Env': ['PGDATA=/data/db']},
                                   {'Destination': '/var/lib/postgresql/tde-keyring', 'Source': '/keyring'}]}
 
 
+def rendered_shipped_services(monitoring=False):
+    """The shipped Compose files rendered by docker compose with .env.example as setup fills it."""
+    settings = dict(envfile.read_env(ROOT / 'selfhost/.env.example'), CHRONICLE_CORE_PREFIX='10.252.3',
+                    CHRONICLE_HOST_UID='1000', CHRONICLE_HOST_GID='1000', BACKUP_KEEP_DAYS='7',
+                    BACKUP_KEEP_WEEKS='4', BACKUP_KEEP_MONTHS='6', PRE_OP_BACKUP_KEEP_DAYS='14')
+    compose_file = 'docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml'
+    compose_file += ':overlays/monitoring.yml' if monitoring else ''
+    origin = Path.cwd()
+    os.chdir(ROOT / 'selfhost')
+    try:
+        services = host_memory.rendered_services(settings, compose_file)
+    finally:
+        os.chdir(origin)
+    if services is None:
+        raise AssertionError('docker compose could not render the shipped configuration')
+    return services
+
+
 class TopologyTests(unittest.TestCase):
     def test_webhook_runbook_describes_the_authenticated_api_and_enrollment_fence(self):
         section = (ROOT / 'selfhost/docs/CONFIGURATION.md').read_text().split('## Study webhook recipients', 1)[1].split('\n## ', 1)[0]
@@ -193,7 +211,8 @@ class TopologyTests(unittest.TestCase):
             result = subprocess.run(['docker', 'run', '--rm', '--name', 'chronicle-sat-r1-render-' + work.name,
                 '--network', 'none', '--memory', '256m', '--memory-swap', '256m',
                 '--read-only', '--user', '0', '--entrypoint', 'bash',
-                *[argument for directory in ('monitoring-secrets', 'metrics', 'vmdata', 'vldata', 'fluent-bit/state')
+                *[argument for directory in ('monitoring-secrets', 'grafana-secrets', 'metrics', 'vmdata', 'vldata',
+                                             'fluent-bit/state')
                   for argument in ('--tmpfs', '/' + directory)],
                 '-v', f'{ROOT / "selfhost"}:/selfhost:ro', '-v', f'{backend_tls}:/backend-tls:ro',
                 '-v', f'{rendered}:/monitoring-config', '-e', 'METRICS_PASSWORD=' + 'm' * 32,
@@ -205,29 +224,35 @@ class TopologyTests(unittest.TestCase):
             backend_scrape = next(job for job in scrape['scrape_configs'] if job['job_name'] == 'chronicle-backend')
             self.assertEqual([{'targets': ['web:9091']}], backend_scrape['static_configs'])
 
+    def run_backend_entrypoint(self, work, **environment):
+        """Run the shipped backend-entrypoint.sh in the backend image with java replaced by a recorder."""
+        for directory in ('capture', 'rendered', 'audit'):
+            (work / directory).mkdir(mode=0o777)
+            (work / directory).chmod(0o777)
+        java = work / 'capture/java'
+        # shortcut: fixed fixture arguments contain no newlines, use JSON if arbitrary arguments are exercised.
+        java.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > /capture/argv\n')
+        java.chmod(0o755)
+        settings = [argument for key, value in environment.items() for argument in ('-e', f'{key}={value}')]
+        result = subprocess.run(['docker', 'run', '--rm', '--name', 'chronicle-sat-r1-backend-args-' + work.name,
+            '--network', 'none', '--memory', '256m', '--memory-swap', '256m',
+            '--read-only', '--entrypoint', '/bin/sh', '-v', f'{work / "capture"}:/capture',
+            '-v', f'{work / "rendered"}:/server/rendered-config', '-v', f'{work / "audit"}:/var/log/chronicle',
+            '-v', f'{ROOT / "selfhost/config"}:/server/config:ro',
+            '-v', f'{ROOT / "selfhost/backend-entrypoint.sh"}:/server/backend-entrypoint.sh:ro',
+            '-e', 'PATH=/capture:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+            '-e', 'POSTGRES_APP_PASSWORD=synthetic-app-password', '-e', 'JWT_SECRET=synthetic-jwt-secret',
+            '-e', 'CHRONICLE_INTERNAL_WEB_SECRET=synthetic-internal-web-secret', *settings,
+            'chronicle-backend:test', '/server/backend-entrypoint.sh'],
+            check=False, capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return result
+
     def test_backend_jvm_binds_only_configured_hazelcast_interfaces(self):
         # The member binds only these interfaces: rhizome HazelcastNetworkInterfacesTest builds the network config.
         with tempfile.TemporaryDirectory() as folder:
             work = Path(folder)
-            for directory in ('capture', 'rendered', 'audit'):
-                (work / directory).mkdir(mode=0o777)
-                (work / directory).chmod(0o777)
-            java = work / 'capture/java'
-            # shortcut: fixed fixture arguments contain no newlines, use JSON if arbitrary arguments are exercised.
-            java.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > /capture/argv\n')
-            java.chmod(0o755)
-            result = subprocess.run(['docker', 'run', '--rm', '--name', 'chronicle-sat-r1-backend-args-' + work.name,
-                '--network', 'none', '--memory', '256m', '--memory-swap', '256m',
-                '--read-only', '--entrypoint', '/bin/sh', '-v', f'{work / "capture"}:/capture',
-                '-v', f'{work / "rendered"}:/server/rendered-config', '-v', f'{work / "audit"}:/var/log/chronicle',
-                '-v', f'{ROOT / "selfhost/config"}:/server/config:ro',
-                '-v', f'{ROOT / "selfhost/backend-entrypoint.sh"}:/server/backend-entrypoint.sh:ro',
-                '-e', 'PATH=/capture:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-                '-e', 'POSTGRES_APP_PASSWORD=synthetic-app-password', '-e', 'JWT_SECRET=synthetic-jwt-secret',
-                '-e', 'CHRONICLE_INTERNAL_WEB_SECRET=synthetic-internal-web-secret',
-                'chronicle-backend:test', '/server/backend-entrypoint.sh'],
-                check=False, capture_output=True, text=True, timeout=60)
-            self.assertEqual(0, result.returncode, result.stderr)
+            self.run_backend_entrypoint(work)
             arguments = (work / 'capture/argv').read_text().splitlines()
             self.assertEqual(['-Dhazelcast.socket.bind.any=false'],
                              [argument for argument in arguments if argument.startswith('-Dhazelcast.socket.bind.any=')])
@@ -515,19 +540,14 @@ class TopologyTests(unittest.TestCase):
                 common.release_operation_lock(descriptor)
 
     def test_startup_lock_works_without_shell_flock(self):
-        source = (ROOT / 'selfhost/chronicle').read_text()
-        function = re.search(r'^lock_operation\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder)
             script = state / 'operation.sh'
             script.write_text('''#!/usr/bin/env bash
 set -eu
-SCRIPT_PATH="$0"
+source "$2"
 STATE_ROOT="$1"
-ops_python() { case "$1" in -c) python3 "$@" ;; *) python3 -m chronicle_ops "$@" ;; esac; }
-die() { exit 1; }
 flock() { exit 99; }
-''' + function + '''
 lock_operation
 python3 -c 'from chronicle_ops.common import acquire_operation_lock; import sys; assert acquire_operation_lock(sys.argv[1]) is None' "$STATE_ROOT"
 # The shell itself holds the lock after the helper exits: an unrelated process is refused.
@@ -537,8 +557,9 @@ except BlockingIOError: sys.exit(0)
 sys.exit(3)' "$STATE_ROOT" 9<&-
 ''')
             script.chmod(0o700)
-            result = subprocess.run(['bash', str(script), folder], env=dict(os.environ, PYTHONPATH=str(ROOT / 'selfhost'),
-                                    CHRONICLE_OPS_STATE=folder), capture_output=True, timeout=10)
+            result = subprocess.run(['bash', str(script), folder, str(ROOT / 'selfhost/chronicle')],
+                                    env=dict(os.environ, PYTHONPATH=str(ROOT / 'selfhost'), CHRONICLE_OPS_STATE=folder),
+                                    capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_recovery_verification_and_completion_hold_the_same_lock(self):
@@ -573,14 +594,15 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
                     verify.curl(settings['DASHBOARD_BASE_URL'] + '/health')
                     self.assertIn(str(tls / expected), curl.call_args.args[0])
                     self.assertIn(str(tls / 'internal-cert.pem'), openssl.call_args.args[0])
-            self.assertIn('dashboard_ca("/tls")', (ROOT / 'selfhost/monitoring/probe.sh').read_text())
+        # probe.sh's use of dashboard_ca runs in tests/security/selfhost-monitoring.py probe_certificate_check.
 
     def test_monitoring_healthcheck_uses_its_mounted_certificate(self):
         import yaml
         grafana = yaml.safe_load((ROOT / 'selfhost/overlays/monitoring.yml').read_text())['services']['grafana']
         certificate = grafana['environment']['GF_SERVER_CERT_FILE']
         # The image's wget is BusyBox, which has no CA option; curl verifies against the mount.
-        self.assertIn('curl -fsS -o /dev/null --cacert ' + certificate, grafana['healthcheck']['test'][1])
+        # Exec form (["CMD", "curl", ...]) or shell form (["CMD-SHELL", "curl ..."]): the command is the rest.
+        self.assertIn('curl -fsS -o /dev/null --cacert ' + certificate, ' '.join(grafana['healthcheck']['test'][1:]))
         self.assertTrue(any(mount.endswith(':' + certificate + ':ro') or
                             mount.endswith(':' + str(Path(certificate).parent) + ':ro') for mount in grafana['volumes']))
         # On a read-only root Grafana must keep its bundled datasources rather than replace them.
@@ -653,17 +675,17 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
 
 
     def test_ipv6_host_sockets_and_backend_origin_use_native_shell_syntax(self):
-        source=(ROOT/'selfhost/chronicle').read_text()
-        start=source.index('host_listening() {'); end=source.index('\n}\n',start)+2
-        shell=source[start:end]+'\nss() { printf "Header\\nLISTEN 0 0 [fd42::1]:8081 [::]:*\\n"; }; host_listening'
-        result=shell_probe(shell)
-        self.assertEqual(result.stdout,'fd42::1:8081\n')
-        source=(ROOT/'selfhost/backend-entrypoint.sh').read_text()
-        start=source.index('case "$INTERNAL_BIND" in'); end=source.index('\nesac',start)+len('\nesac')
-        for address in ('fd42::1','[fd42::1]','127.0.0.1'):
-            result=shell_probe(source[start:end]+'\nprintf "%s" "$INTERNAL_BIND"', shell='sh',
-                                  env=dict(os.environ,INTERNAL_BIND=address))
-            self.assertEqual(result.stdout,'127.0.0.1' if address=='127.0.0.1' else '[fd42::1]')
+        shell = ('source "$1"\nss() { printf "Header\\nLISTEN 0 0 [fd42::1]:8081 [::]:*\\n"; }; host_listening')
+        result = shell_probe(shell, str(ROOT / 'selfhost/chronicle'), cwd=ROOT / 'selfhost')
+        self.assertEqual(result.stdout, 'fd42::1:8081\n')
+        for address, origin in (('fd42::1', 'https://[fd42::1]:8081'), ('[fd42::1]', 'https://[fd42::1]:8081'),
+                                ('127.0.0.1', 'https://127.0.0.1:8081')):
+            with self.subTest(address=address), tempfile.TemporaryDirectory() as folder:
+                work = Path(folder)
+                self.run_backend_entrypoint(work, INTERNAL_BIND=address)
+                cors = (work / 'rendered/cors.yaml').read_text()
+                self.assertIn(f'"{origin}"', cors)
+                self.assertNotIn('https://fd42::1:', cors)
 
     def test_backend_refuses_a_public_base_url_that_is_not_an_https_root_origin(self):
         base = {key: value for key, value in os.environ.items() if not key.startswith(('CHRONICLE_', 'POSTGRES_', 'JWT_'))}
@@ -851,6 +873,22 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
             self.assertEqual(len(files), 7)
             self.assertEqual(sum(json.loads(path.read_text())['operation'] == 'up' for path in files), 3)
 
+    def test_scheduled_receipts_are_bounded_like_routine_ones(self):
+        # PR-O12 / AF-P8: cron writes a reconcile receipt every 15 minutes (35,040 a year) and an
+        # update-check receipt daily; neither may grow without bound.
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.dict(os.environ, CHRONICLE_OPS_STATE=folder), patch.object(receipts, 'ROUTINE_RECEIPT_KEEP', 3):
+            for operation in reconcile.SCHEDULED_OPERATIONS:
+                for _ in range(6):
+                    receipts.write_operation_receipt(operation, 'success')
+                    receipts.write_operation_receipt(operation, 'failure', operation.replace('-', '_') + '_failed')
+            files = list((Path(folder) / 'operator-receipts/operations').glob('*.json'))
+            for operation in reconcile.SCHEDULED_OPERATIONS:
+                for outcome in ('success', 'failure'):
+                    with self.subTest(operation=operation, outcome=outcome):
+                        self.assertEqual(3, sum(1 for path in files if json.loads(path.read_text())['operation'] == operation
+                                                and json.loads(path.read_text())['outcome'] == outcome))
+
     def test_session_rejects_html_and_requires_cookie_follow_up(self):
         for response in ('<html>success</html>\n200', '{"authenticated": false}\n200'):
             with patch('chronicle_ops.verify.curl', return_value=(0, response)) as curl:
@@ -875,9 +913,22 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
                 self.assertEqual(verify.dashboard_session('https://management.example.org', 'synthetic'), (expected, '200'))
 
     def test_monitoring_budget_includes_core_and_host_headroom(self):
-        settings = envfile.read_env(ROOT / 'selfhost/.env.example')
-        with self.assertRaises(ValueError): host_memory.require_memory(settings, 4 * 1024 ** 2, True)
-        self.assertLess(host_memory.require_memory(settings, 10 * 1024 ** 2, True), 10 * common.GIB)
+        services = rendered_shipped_services(monitoring=True)
+        with self.assertRaises(ValueError): host_memory.require_memory(services, 4 * 1024 ** 2)
+        self.assertLess(host_memory.require_memory(services, 10 * 1024 ** 2), 10 * common.GIB)
+
+    def test_memory_ceilings_come_from_the_rendered_services_not_a_list(self):
+        # AF-P7: the old budget named eight monitoring services and added a fixed 128+64 MiB, so
+        # web-forward and monitoring-forward (64 MiB each) were never counted.
+        services = rendered_shipped_services(monitoring=True)
+        total = host_memory.memory_ceilings(services)
+        for name in ('web-forward', 'monitoring-forward', 'docker-socket-proxy'):
+            with self.subTest(service=name):
+                without = {key: service for key, service in services.items() if key != name}
+                self.assertEqual(host_memory.memory_bytes(services[name]['mem_limit']), total - host_memory.memory_ceilings(without))
+        # One-shot jobs (migrate holds the backend's 3 GiB) finish before what they gate starts.
+        self.assertNotIn(host_memory.memory_bytes(services['migrate']['mem_limit']),
+                         [total - host_memory.memory_ceilings({k: v for k, v in services.items() if k != 'migrate'})])
 
     def test_rollback_transfers_schedule_and_only_resumes_after_acceptance(self):
         from chronicle_ops.restore import rollback
@@ -897,9 +948,10 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
             def start(args, **kwargs):
                 events.append(args[-1])
                 self.assertTrue((state/reconcile.STOP_MARKER).exists())
-                return SimpleNamespace(returncode=0)
+                return SimpleNamespace(returncode=0, stdout='')
             with patch.object(Path,'cwd',return_value=current), patch('chronicle_ops.restore.Restore.execute',return_value=0), \
-                 patch('chronicle_ops.restore.compose'), patch('chronicle_ops.common.run',side_effect=start), \
+                 patch('chronicle_ops.restore.compose'), patch('chronicle_ops.common.run',side_effect=start), patch('chronicle_ops.upgrade.run',side_effect=start), \
+                 patch('chronicle_ops.restore.database_moved', return_value=False), \
                  patch('chronicle_ops.upgrade.start_release', side_effect=startup), \
                  patch('chronicle_ops.reconcile.install') as install, patch.dict(os.environ, clear=True):
                 self.assertEqual(rollback(old,'/backups/reviewed.sql.gz','a'*64,True),0)
@@ -939,6 +991,8 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
             with patch.object(Path, 'cwd', return_value=current), \
                  patch('chronicle_ops.restore.Restore.execute', return_value=0), \
                  patch('chronicle_ops.restore.compose'), patch('chronicle_ops.common.run', return_value=SimpleNamespace(returncode=0)), \
+                 patch('chronicle_ops.upgrade.run', return_value=SimpleNamespace(returncode=0, stdout='')), \
+                 patch('chronicle_ops.restore.database_moved', return_value=False), \
                  patch('chronicle_ops.upgrade.start_release'), \
                  patch('chronicle_ops.release.compose_projects', return_value=[{'Name': 'fixture', 'ConfigFiles': str(current / 'docker-compose.yml')}]), \
                  patch('chronicle_ops.reconcile.install'), patch.dict(os.environ, clear=True):
@@ -976,11 +1030,17 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
             with patch.object(Path, 'cwd', return_value=active), \
                  patch('chronicle_ops.release.compose_projects', return_value=[]), \
                  patch('chronicle_ops.restore.Restore.execute', return_value=1), \
+                 patch('chronicle_ops.restore.database_moved', return_value=False), \
                  self.assertRaisesRegex(ValueError, 'automatic rollback restore failed'):
                 rollback(old, '/backups/reviewed.sql.gz', 'a' * 64, True)
             self.assertTrue((active / '.env').exists())
             self.assertEqual(list((state / receipts.OPERATOR_RECEIPTS_DIR).glob('.env.rollback-*')), [])
-            self.assertTrue((state / reconcile.STOP_MARKER).exists())
+            # The failed restore keeps its journal; reconciliation resumes and its `up` refuses that
+            # journal, while ingress stays closed because resuming replays the dump.
+            from chronicle_ops.ingress import fence_path
+            self.assertTrue((state / reconcile.UPGRADE_LOCK / reconcile.RECOVERY_FILE).is_file())
+            self.assertFalse((state / reconcile.STOP_MARKER).exists())
+            self.assertTrue(fence_path(state).exists())
 
     def test_host_routes_force_safe_subnet_selection_without_docker_conflicts(self):
         spec=importlib.util.spec_from_file_location('topology_subnet',ROOT/'selfhost/network-subnet.py')
@@ -1008,7 +1068,7 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
             item.start(); self.addCleanup(item.stop)
         return subnet
 
-    def test_up_refuses_a_subnet_another_network_or_vpn_route_already_uses(self):
+    def test_up_warns_about_a_subnet_another_network_or_vpn_route_already_uses(self):
         own_labels = {'com.docker.compose.project': 'fixture', 'com.docker.compose.network': 'default'}
         own = {'Id': 'aaaaaaaaaaaa1', 'Name': 'fixture_default', 'Labels': own_labels, 'Options': {},
                'IPAM': {'Config': [{'Subnet': '10.40.0.0/24'}]}}
@@ -1027,14 +1087,14 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
             with self.subTest(case):
                 subnet = self.subnet_module(networks, routes)
                 config = {'name': 'fixture', 'networks': {'default': {'ipam': {'config': [{'subnet': '10.40.0.0/24'}]}}}}
-                with patch('sys.stdin', io.StringIO(json.dumps(config))):
-                    if conflict is None:
-                        self.assertIsNone(subnet.check())
-                    else:
-                        with self.assertRaises(SystemExit) as refused:
-                            subnet.check()
-                        self.assertEqual('CHRONICLE_SUBNET 10.40.0.0/24 ' + conflict
-                                         + '; set CHRONICLE_SUBNET in .env to a free private range', str(refused.exception))
+                with patch('sys.stdin', io.StringIO(json.dumps(config))), \
+                     patch('sys.stderr', new_callable=io.StringIO) as errors:
+                    self.assertIsNone(subnet.check())  # never refuses
+                if conflict is None:
+                    self.assertEqual('', errors.getvalue())
+                else:
+                    self.assertEqual('warning: CHRONICLE_SUBNET 10.40.0.0/24 ' + conflict
+                                     + '; set CHRONICLE_SUBNET in .env to a free private range\n', errors.getvalue())
         subnet = self.subnet_module([lab])
         with patch('sys.stdin', io.StringIO(json.dumps({'name': 'fixture', 'networks': {'default': {}}}))):
             self.assertIsNone(subnet.check())  # Compose chooses the subnet; nothing to compare
@@ -1069,18 +1129,19 @@ sys.exit(3)' "$STATE_ROOT" 9<&-
         self.assertEqual(['10.0.0.0/8', '172.16.0.0/16', '192.168.1.0/24', '192.168.1.0/25', 'fe80::%lo0/64'],
                          [route['IPAM']['Config'][0]['Subnet'] for route in routes])
 
-    def test_subnet_helper_command_line_fails_with_one_operator_message(self):
+    def test_subnet_helper_command_line_warns_or_fails_with_one_operator_message(self):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / 'docker').write_text('#!/bin/sh\necho "Cannot connect to the Docker daemon" >&2\nexit 1\n')
             (Path(folder) / 'docker').chmod(0o755)
             environment = dict(os.environ, PATH=folder + os.pathsep + os.environ['PATH'], PYTHONDONTWRITEBYTECODE='1')
             config = json.dumps({'networks': {'default': {'ipam': {'config': [{'subnet': '10.40.0.0/24'}]}}}})
-            for args, stdin, message in ((['check'], config, 'could not check CHRONICLE_SUBNET against Docker networks: Command '),
-                                         (['select', '172.28.0.0/16'], '', 'usage: network-subnet.py check | select DEFAULT PROJECT')):
+            for args, stdin, status, message in (
+                    (['check'], config, 0, 'warning: could not check CHRONICLE_SUBNET against Docker networks: Command '),
+                    (['select', '172.28.0.0/16'], '', 1, 'usage: network-subnet.py check | select DEFAULT PROJECT')):
                 with self.subTest(args=args):
                     result = subprocess.run([sys.executable, '-s', str(ROOT / 'selfhost/network-subnet.py'), *args], input=stdin,
                                             env=environment, capture_output=True, text=True, timeout=30)
-                    self.assertEqual((1, ''), (result.returncode, result.stdout))
+                    self.assertEqual((status, ''), (result.returncode, result.stdout))
                     self.assertTrue(result.stderr.startswith(message), result.stderr)
 
     def test_remote_tls_does_not_disable_trust_and_ipv6_authority_is_valid(self):
@@ -1293,6 +1354,8 @@ fi
                             {'previous': str(old), 'owner': str(current), 'phase': reconcile.RECOVERY_PHASE})
         with patch.object(Path, 'cwd', return_value=current), patch('chronicle_ops.restore.Restore.execute', return_value=0), \
              patch('chronicle_ops.restore.compose'), patch('chronicle_ops.common.run', return_value=SimpleNamespace(returncode=0)), \
+                 patch('chronicle_ops.upgrade.run', return_value=SimpleNamespace(returncode=0, stdout='')), \
+                 patch('chronicle_ops.restore.database_moved', return_value=False), \
              patch('chronicle_ops.upgrade.start_release'), patch('chronicle_ops.reconcile.install'), \
              patch.dict(os.environ, clear=True):
             self.assertEqual(rollback(old, '/backups/reviewed.sql.gz', 'a' * 64, True), 0)

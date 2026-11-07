@@ -449,6 +449,12 @@ grep -Fqx "CHRONICLE_REVIEWER_ACCESS_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env"
   || fail "reviewer rotation did not publish the generated credential"
 grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend' "$ARGS_LOG" \
   || fail "reviewer rotation did not recreate only the backend"
+# The backend reads its credentials from files (secrets-init.sh); --no-deps skips that job, so
+# rotation must rewrite them before the recreate or the backend starts with the old secret.
+secrets_line="$(grep -n -m1 -F 'compose-run:run --rm --no-deps secrets-init' "$ARGS_LOG" | cut -d: -f1)" ||
+  fail "reviewer rotation did not rewrite the credential files"
+recreate_line="$(grep -n -m1 -F -- '--force-recreate backend' "$ARGS_LOG" | cut -d: -f1)"
+(( secrets_line < recreate_line )) || fail "credential files were rewritten after the backend was recreated"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
 setup_case postgres

@@ -91,24 +91,27 @@ EOF
 }
 
 write_env ''
-status=0
-PATH="$RUN_DIR/bin:$PATH" bash "$RUN_DIR/selfhost/chronicle" doctor --json >"$RUN_DIR/empty.json" || status=$?
-[[ $status -eq 1 ]] || { cat "$RUN_DIR/empty.json" >&2; fail "doctor must fail when the alert destination is absent"; }
+PATH="$RUN_DIR/bin:$PATH" bash "$RUN_DIR/selfhost/chronicle" doctor --json >"$RUN_DIR/empty.json" || true
+# No webhook is the default install (AF-P2, PR-O3): no alert row fails, and alert-route says where
+# firing alerts go: the host system log when scheduled reconciliation can run, otherwise nowhere.
+# doctor's exit status is not asserted: this fixture has no encrypted storage or disk reserve to
+# measure, which are separate failing rows.
 python3 - "$RUN_DIR/empty.json" <<'PY'
 import json
 import sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 row = next(item for item in payload["checks"] if item["check"] == "alert-route")
-assert row["status"] == "fail", row
-assert payload["overall"] == "fail", payload
-assert "CHRONICLE_ALERT_WEBHOOK_URL" in row["recoveryCommand"], row
-assert "webhook" not in row["likelyCause"].lower() or "unset" in row["likelyCause"].lower(), row
+if row["status"] == "ok":
+    assert "system log" in row["likelyCause"], row
+else:
+    assert row["status"] == "warn", row
+    assert "CHRONICLE_ALERT_WEBHOOK_URL" in row["recoveryCommand"] and "cron" in row["recoveryCommand"], row
+firing = next(item for item in payload["checks"] if item["check"] == "alerts-firing")
+assert firing["status"] in ("ok", "warn"), firing
 PY
 
 write_env 'https://alerts.invalid/fixture'
-status=0
-PATH="$RUN_DIR/bin:$PATH" bash "$RUN_DIR/selfhost/chronicle" doctor --json >"$RUN_DIR/configured.json" || status=$?
-[[ $status -eq 0 ]] || { cat "$RUN_DIR/configured.json" >&2; fail "configured doctor exited $status with the synthetic stack healthy"; }
+PATH="$RUN_DIR/bin:$PATH" bash "$RUN_DIR/selfhost/chronicle" doctor --json >"$RUN_DIR/configured.json" || true
 python3 - "$RUN_DIR/configured.json" <<'PY'
 import json
 import sys

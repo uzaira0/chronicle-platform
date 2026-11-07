@@ -498,7 +498,14 @@ def test_release_promotion_uses_installed_key() -> None:
             executable = bin_dir / name
             executable.write_text(command)
             executable.chmod(0o755)
-        env = dict(os.environ, ASSETS=str(root), RELEASE_CATALOG="[[]]",
+        def catalog_row(tag, draft):
+            names = [f"chronicle-selfhost-{tag}.tar.gz" + suffix for suffix in ("", ".sha256", ".sha256.sig")]
+            return dict(tag_name=tag, draft=draft, prerelease=False, assets=[
+                dict(name=name, browser_download_url=f"https://example.invalid/{tag}/{name}") for name in names])
+        # Promotion publishes the draft only when installed servers would discover it in the
+        # resulting catalog (scripts/check-release-discovery.py, UPD-N2).
+        draft = catalog_row(RELEASE_FIXTURE_VERSION, True)
+        env = dict(os.environ, ASSETS=str(root), RELEASE_CATALOG=json.dumps([[draft]]),
                    PROMOTED=str(root / "promoted"), PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
         def promote():
             return subprocess.run(["bash", str(ROOT / "scripts/publish-images.sh"), RELEASE_FIXTURE_VERSION, '--promote', str(result)],
@@ -510,10 +517,13 @@ def test_release_promotion_uses_installed_key() -> None:
         arguments = (root / "promoted").read_text().splitlines()
         assert arguments[2] == RELEASE_FIXTURE_VERSION and '--latest=true' in arguments
         from chronicle_ops.update import version_key
+        # With a newer release published, installed servers select that one, so this draft stays a draft.
         newer = str(version_key(RELEASE_FIXTURE_VERSION)[0] + 1) + '.0.0'
-        env['RELEASE_CATALOG'] = json.dumps([[dict(tag_name=newer, draft=False, prerelease=False)]])
-        assert promote().returncode == 0
-        assert '--latest=false' in (root / "promoted").read_text().splitlines()
+        env['RELEASE_CATALOG'] = json.dumps([[draft, catalog_row(newer, False)]])
+        (root / "promoted").unlink()
+        refused = promote()
+        assert refused.returncode != 0 and "would not discover this release" in refused.stderr, refused.stderr
+        assert not (root / "promoted").exists()
         with patch.dict(os.environ, CHRONICLE_RELEASE_VERIFY_KEY=str(old_key) + ".pub"):
             output = publisher_dry_run(RELEASE_FIXTURE_VERSION)
         assert f"ssh-keygen -lf {old_key}.pub -E sha256" in output
@@ -782,7 +792,9 @@ def test_probe_staleness_accounts_for_collection_cycle(rules: dict) -> None:
     models = {row["refId"]: row["model"] for row in rule["data"]}
     source = (ROOT / "selfhost/monitoring/probe.sh").read_text()
     assert 'chronicle_operational_probe_interval_seconds $PROBE_INTERVAL_SECONDS' in source
-    assert source.index('now="$(date +%s)"') > source.index('backups_bytes="$(dir_bytes /backups)')
+    # collect() stamps its sample after the slow disk walks; collect_public() has its own clock.
+    collect = source[source.index("\ncollect() {"):]
+    assert collect.index('now="$(date +%s)"') > collect.index('backups_bytes="$(dir_bytes /backups)')
     expr = models["A"]["expr"]
     assert expr == 'time()-chronicle_operational_probe_timestamp_seconds-chronicle_operational_probe_interval_seconds'
     threshold = float(re.fullmatch(r'\$B > ([0-9.]+)', models[rule["condition"]]["expression"])[1])
@@ -827,9 +839,15 @@ def probe_certificate_check(public_trust: str = "", database_authenticated: bool
         public_ca.write_text("fixture public CA")
         external_log = run_root / "external-check.log"
         external_args = run_root / "external-openssl-args.log"
+        # operational-probe copies the public CA here; public-probe reads only this copy.
+        shared_trust = run_root / "public-trust"
+        shared_trust.mkdir()
+        public_metrics_dir = run_root / "public-metrics"
+        public_metrics_dir.mkdir()
 
         probe_source = (ROOT / "selfhost/monitoring/probe.sh").read_text(encoding="utf-8")
         probe_source = probe_source.replace('dashboard_ca("/tls")', 'dashboard_ca(' + json.dumps(str(tls_dir)) + ')')
+        probe_source = probe_source.replace("/public-trust", str(shared_trust))
         probe_source = probe_source.replace("/metrics", str(metrics_dir))
         probe_source = probe_source.replace('logs_probe_category=""', 'logs_probe_category="probe_previous"')
         probe_source = probe_source.replace("/tls/local-ca.crt", str(tls_dir / "local-ca.crt"))
@@ -868,6 +886,11 @@ fi
 if [[ "$*" == *public-origin.example.test* && -n "$PROBE_TEST_PUBLIC_CA" ]]; then
   [[ "$*" == *"--cacert $PROBE_TEST_PUBLIC_CA"* ]] || exit 60
 fi
+# The internal readiness check crosses the TLS listener verified against the dashboard's issuer
+# (dashboard_ca), never with -k; anything else is the 000 of a refused handshake.
+if [[ "$*" == *"--connect-to "* && "$*" == */health* ]]; then
+  [[ " $* " != *" -k "* && " $* " != *" --insecure "* && "$*" == *"--cacert $PROBE_TEST_INTERNAL_CA "* ]] || { printf '000'; exit 60; }
+fi
 printf '204'
 ''',
             "wget": "#!/usr/bin/env bash\nexit 0\n",
@@ -888,6 +911,11 @@ if [[ ${1:-} == s_client ]]; then
       printf 'served-public\\n' ;;
     *) exit 1 ;;
   esac
+  exit 0
+fi
+if [[ ${1:-} == x509 && ${2:-} == -in && ${4:-} == -out ]]; then
+  [[ -s "$3" ]] || exit 1
+  cp "$3" "$5"
   exit 0
 fi
 if [[ ${1:-} == x509 ]]; then
@@ -924,6 +952,7 @@ exit 1
             "PROBE_TEST_DB_AUTH": str(database_authenticated).lower(),
             "PROBE_TEST_LOGS_DELIVERED": str(logs_delivered).lower(),
             "PROBE_TEST_PUBLIC_CA": str(public_ca) if public_trust else "",
+            "PROBE_TEST_INTERNAL_CA": str(tls_dir / "internal-cert.pem"),
             "PUBLIC_CA_FILE": str(public_ca) if public_trust == "private" else "",
             "COMPOSE_FILE_SELECTION": "overlays/mode-local-https.yml" if public_trust == "local" else "",
             "BACKUP_SCHEDULE": "@weekly" if public_trust == "local" else "",
@@ -946,9 +975,13 @@ exit 1
             events = [json.loads(line) for line in (metrics_dir / 'operator-events.jsonl').read_text().splitlines()]
             assert any(event['operation'] == 'logs-probe' and event['outcome'] == 'success' for event in events)
             metrics = output.read_text(encoding="utf-8")
-            assert "chronicle_certificate_expiry_timestamp_seconds 1900000000" in metrics
+            # The public endpoint is measured only by public-probe, below.
+            assert "chronicle_certificate_expiry_timestamp_seconds" not in metrics
+            assert "chronicle_public_probe_success" not in metrics
             assert "chronicle_internal_certificate_expiry_timestamp_seconds 2000000000" in metrics
-            assert "chronicle_public_probe_success 1" in metrics
+            assert "chronicle_web_up 1" in metrics, metrics
+            shared = shared_trust / "public-ca.crt"
+            assert shared.is_file() == bool(public_trust), list(shared_trust.iterdir())
             assert f"chronicle_database_up {int(database_authenticated)}" in metrics
             assert f"chronicle_logs_pipeline_up {int(logs_delivered)}" in metrics
             # The stale-backup alert compares backup age with the configured schedule's overdue window.
@@ -968,9 +1001,9 @@ exit 1
                 unmeasured_prefixes += ("chronicle_postgres_", "chronicle_flyway_")
             unmeasured = [line for line in metrics.splitlines() if line.startswith(unmeasured_prefixes)]
             assert unmeasured == [], f"unmeasured values must emit no sample: {unmeasured}"
-            assert external_log.read_text(encoding="utf-8") == "checked\nchecked\n"
+            assert external_log.read_text(encoding="utf-8") == "checked\n"
             arguments = external_args.read_text(encoding="utf-8")
-            assert "-connect public-origin.example.test:8443 -servername public-origin.example.test -verify_hostname public-origin.example.test" in arguments
+            assert "public-origin.example.test" not in arguments
             assert "-connect web:8081 -servername management.example.test -verify_hostname management.example.test -partial_chain -CAfile " + str(tls_dir / "internal-cert.pem") in arguments
         finally:
             process.terminate()
@@ -980,6 +1013,39 @@ exit 1
                 process.kill()
                 process.wait(timeout=5)
             error_stream.close()
+
+        # public-probe: no database password, no /tls; it trusts only the shared copy of the CA.
+        public_env = {key: val for key, val in env.items() if key not in ("POSTGRES_PASSWORD", "PUBLIC_CA_FILE")}
+        public_env.update(PROBE_SCOPE="public",
+                          PROBE_TEST_PUBLIC_CA=str(shared_trust / "public-ca.crt") if public_trust else "")
+        external_args.write_text("")
+        public_probe = run_root / "public-probe.sh"
+        public_probe.write_text(probe.read_text(encoding="utf-8").replace(str(metrics_dir), str(public_metrics_dir)))
+        public_probe.chmod(0o700)
+        process = subprocess.Popen([modern_bash(), str(public_probe)], env=public_env, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.PIPE, text=True)
+        try:
+            output = public_metrics_dir / "public.prom"
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not output.exists():
+                if process.poll() is not None:
+                    raise AssertionError("public probe exited before writing its metrics: " + process.stderr.read())
+                time.sleep(0.05)
+            metrics = output.read_text(encoding="utf-8")
+            assert "chronicle_public_probe_success 1" in metrics, metrics
+            assert "chronicle_certificate_expiry_timestamp_seconds 1900000000" in metrics, metrics
+            assert "chronicle_public_probe_timestamp_seconds 1800000000" in metrics, metrics
+            assert not (public_metrics_dir / "operational.prom").exists()
+            arguments = external_args.read_text(encoding="utf-8")
+            assert "-connect public-origin.example.test:8443 -servername public-origin.example.test -verify_hostname public-origin.example.test" in arguments
+            assert "web:8081" not in arguments
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
     finally:
         shutil.rmtree(run_root)
 
@@ -1261,16 +1327,23 @@ def test_alerts_reach_the_operator_webhook() -> None:
         disabled = shipped["environment"]["GF_PLUGINS_DISABLE_PLUGINS"]
         pids_limit = int(shipped["pids_limit"])
         memory_limit = re.fullmatch(r"\$\{GRAFANA_MEM_LIMIT:-(\w+)\}", shipped["mem_limit"]).group(1)
+        # Every file the shipped overlay mounts (datasources, dashboard provider, dashboards, alerting,
+        # runbooks), so a dashboard Grafana cannot load fails here (AF-P9). Only the alerting folder is
+        # the timing-shortened copy.
+        mounts = []
+        for bind in shipped["volumes"]:
+            source, target = bind.split(":")[:2]
+            if source.startswith("./monitoring/"):
+                path = alerting if target == "/etc/grafana/provisioning/alerting" else ROOT / "selfhost" / source[2:]
+                mounts += ["-v", f"{path}:{target}:ro"]
+        assert any(target.endswith(":/etc/grafana/dashboards:ro") for target in mounts), mounts
         subprocess.run(["docker", "run", "-d", "--name", grafana, "--network", network, "-p", "127.0.0.1::3000",
                         "--pids-limit", str(pids_limit), "--memory", memory_limit,
                         "-e", "GF_SECURITY_ADMIN_PASSWORD=" + admin_password, "-e", "GF_PATHS_PLUGINS=/opt/chronicle-plugins",
                         "-e", "GF_PLUGINS_PREINSTALL_AUTO_UPDATE=false", "-e", "GF_ANALYTICS_REPORTING_ENABLED=false",
                         "-e", "GF_PLUGINS_DISABLE_PLUGINS=" + disabled,
                         "-e", "CHRONICLE_ALERT_WEBHOOK_URL=http://recorder:8080/hook/" + webhook_token,
-                        "-v", f"{ROOT}/selfhost/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/chronicle.yml:ro",
-                        "-v", f"{alerting}:/etc/grafana/provisioning/alerting:ro",
-                        "-v", f"{ROOT}/selfhost/monitoring/runbooks.html:/usr/share/grafana/public/runbooks/index.html:ro",
-                        grafana_image], check=True, stdout=subprocess.DEVNULL)
+                        *mounts, grafana_image], check=True, stdout=subprocess.DEVNULL)
 
         def port(container: str, inner: str) -> str:
             return subprocess.run(["docker", "port", container, inner], check=True, capture_output=True,
@@ -1316,8 +1389,28 @@ def test_alerts_reach_the_operator_webhook() -> None:
         # Healthy: the pipeline delivers (an unconfigured deployment check fires on no data) but no target fires.
         config_invalid = "Chronicle configuration validation failed"
         wait_for(lambda: config_invalid in delivered(200), 240, "Grafana never delivered any alert")
-        # Every bundled backend datasource is either provisioned or disabled, so no unused plugin
-        # process eats the pids limit, and Grafana keeps at least half of that limit free.
+        # Every shipped dashboard is provisioned and opens, with each panel's datasource one Grafana has.
+        def grafana_get(path: str):
+            request = urllib.request.Request(grafana_url + path)
+            request.add_header("Authorization", "Basic " + base64.b64encode(b"admin:" + admin_password.encode()).decode())
+            return json.loads(urllib.request.urlopen(request, timeout=10).read())
+        shipped_dashboards = {json.loads(path.read_text())["uid"]: path.name
+                              for path in sorted((ROOT / "selfhost/monitoring/grafana-dashboards").glob("*.json"))}
+        assert len(shipped_dashboards) >= 6, shipped_dashboards
+        loaded = {row["uid"] for row in grafana_get("/api/search?type=dash-db&limit=5000")}
+        assert set(shipped_dashboards) <= loaded, sorted(set(shipped_dashboards) - loaded)
+        datasources = {source["uid"] for source in grafana_get("/api/datasources")}
+        for uid, name in shipped_dashboards.items():
+            dashboard = grafana_get("/api/dashboards/uid/" + uid)["dashboard"]
+            panels = [panel for row in dashboard.get("panels", []) for panel in [row, *row.get("panels", [])]]
+            assert panels, name
+            for panel in panels:
+                source = panel.get("datasource")
+                if isinstance(source, dict) and source.get("uid") and not source["uid"].startswith(("$", "-- ")):
+                    assert source["uid"] in datasources, (name, panel.get("title"), source)
+        # The image bundles only provisioned backend datasources (Dockerfile.grafana deletes the rest, whose
+        # binaries carried unfixed Go findings), so no unused plugin process eats the pids limit, and Grafana
+        # keeps at least half of that limit free.
         provisioned_types = {source["type"] for source in yaml.safe_load(
             (ROOT / "selfhost/monitoring/grafana-datasources.yml").read_text())["datasources"]}
         manifests = subprocess.run(["docker", "exec", grafana, "find", "/usr/share/grafana/data/plugins-bundled",
@@ -1327,8 +1420,8 @@ def test_alerts_reach_the_operator_webhook() -> None:
                                              capture_output=True, text=True).stdout) for path in manifests]
         backend_ids = {plugin["id"] for plugin in plugins if plugin.get("backend") is True}
         assert backend_ids, "found no bundled backend plugins; the image layout changed"
-        unaccounted = backend_ids - provisioned_types - set(disabled.split(","))
-        assert not unaccounted, f"bundled backend plugins neither provisioned nor disabled: {sorted(unaccounted)}"
+        unaccounted = backend_ids - provisioned_types
+        assert not unaccounted, f"bundled backend plugins that no datasource provisions: {sorted(unaccounted)}"
         pids_used = int(subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.PIDs}}", grafana],
                                        check=True, capture_output=True, text=True).stdout.strip())
         assert pids_used * 2 <= pids_limit, f"Grafana uses {pids_used} of its {pids_limit} pids"

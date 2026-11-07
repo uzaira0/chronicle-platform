@@ -190,7 +190,7 @@ PY
 run_bun_frozen_install() {
   command -v bun >/dev/null 2>&1 || return 127
   [ -f "$ROOT_DIR/chronicle-web/package.json" ] || return 2
-  (cd "$ROOT_DIR/chronicle-web" && bun install --frozen-lockfile)
+  (cd "$ROOT_DIR/chronicle-web" && bun install --frozen-lockfile --ignore-scripts)
 }
 
 run_bun_audit() {
@@ -267,7 +267,9 @@ run_compliance_scan() {
   [ -d "$ROOT_DIR/tests/security/policies" ] || return 2
   conftest verify --policy "$ROOT_DIR/tests/security/policies/" \
     >"$REPORT_DIR/compliance-policy-tests.log" 2>&1 || return $?
+  # selfhost/monitoring/docker-compose.*.yml are the Grafana network fragments monitoring.yml extends.
   conftest test "$ROOT_DIR/selfhost/docker-compose.yml" "$ROOT_DIR"/selfhost/overlays/*.yml \
+    "$ROOT_DIR"/selfhost/monitoring/docker-compose.*.yml \
     --policy "$ROOT_DIR/tests/security/policies/" \
     --output json >"$report" 2>&1 || status=$?
   python3 - "$report" <<'PY' || return 2

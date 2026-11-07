@@ -68,7 +68,7 @@ class GateEvidenceTests(unittest.TestCase):
             events = (Path(directory) / 'calls.log').read_text().splitlines()
             self.assertIn('bun test --coverage --coverage-reporter=text --coverage-reporter=lcov src/modern scripts', events)
             self.assertIn('bun test src/modern/state/contract-drift.test.ts', events)
-            self.assertEqual(['guardrails', 'bun install --frozen-lockfile', 'bun audit --audit-level=high --json'],
+            self.assertEqual(['guardrails', 'bun install --frozen-lockfile --ignore-scripts', 'bun audit --audit-level=high --json'],
                              [event for event in events if event == 'guardrails' or event.startswith(('bun install', 'bun audit'))])
 
     def test_supply_chain_leaves_gate_evidence_to_engineering(self):

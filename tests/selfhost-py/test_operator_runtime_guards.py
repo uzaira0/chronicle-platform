@@ -136,7 +136,7 @@ class OperatorRuntimeGuardTests(unittest.TestCase):
                 if paused:
                     self.assertIn('./chronicle up', (state / reconcile.STOP_MARKER).read_text())
 
-    def test_schedule_install_refuses_hosts_and_paths_cron_cannot_run(self):
+    def test_schedule_install_skips_hosts_and_paths_cron_cannot_run(self):
         # cron reads % in a command as a newline; macOS has no operator crontab reconciliation.
         for case, system, missing, directory, error in (
                 ('macOS', 'Darwin', None, 'active', 'requires a Linux operator crontab'),
@@ -151,9 +151,12 @@ class OperatorRuntimeGuardTests(unittest.TestCase):
                 with patch.dict(os.environ, {reconcile.ENABLED_ENV: 'true', 'HOME': folder}), \
                      patch('chronicle_ops.reconcile.platform.system', return_value=system), \
                      patch('chronicle_ops.reconcile.shutil.which', side_effect=lambda tool: None if tool == missing else '/usr/bin/' + tool), \
-                     patch('chronicle_ops.reconcile.run') as cron:
-                    with self.assertRaisesRegex(ValueError, error):
-                        reconcile.install(active / 'chronicle', state, 'fixture')
+                     patch('chronicle_ops.reconcile.run') as cron, \
+                     patch('sys.stderr', new_callable=io.StringIO) as errors:
+                    reconcile.install(active / 'chronicle', state, 'fixture')  # warns; never refuses
+                self.assertIn(error, errors.getvalue())
+                from chronicle_ops.release import OWNER_FILE
+                self.assertEqual(active.resolve(), Path((state / OWNER_FILE).read_text().strip()))
                 self.assertEqual([], cron.call_args_list)  # the operator crontab is untouched
                 self.assertFalse((state / reconcile.STOP_MARKER).exists())
                 self.assertEqual(case == 'symlinked launcher', os.path.lexists(state / 'reconcile.sh'))
@@ -359,6 +362,40 @@ dc() {
             self.assertIn('--progress quiet up', calls.read_text())
             self.assertTrue((state / reconcile.STOP_MARKER).exists())
 
+    def test_a_scheduled_up_that_finds_reconciliation_paused_records_success(self):
+        # AF-P5: the reconcile run's early return (paused or disabled) exited 0 but left the
+        # operation outcome at failure, so every paused 15-minute run wrote a failure receipt.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); host = root / 'host'; host.mkdir()
+            calls = root / 'calls'
+            script = '''set -eu
+fixture_host="$PWD"
+source "$OPS_PACKAGE/chronicle"
+cd "$fixture_host"
+die() { echo "$*" >&2; exit 1; }
+need_env() { :; }
+lock_operation() { :; }
+record_operation() { :; }
+write_operation_receipt() { printf '%s %s %s\\n' "$1" "$2" "$3" >>"$CALLS"; }
+ops_python() {
+  case "$1 ${2:-}" in
+    "owner-check ") return 0 ;;
+    "reconcile stopped") [[ "$PAUSED" == true ]] ;;
+    *) echo "unexpected ops_python $*" >&2; exit 9 ;;
+  esac
+}
+STATE_ROOT="$PWD" PROJECT=fixture
+cmd_up up
+'''
+            for enabled, paused in (('false', 'false'), ('true', 'true')):
+                with self.subTest(enabled=enabled, paused=paused):
+                    calls.unlink(missing_ok=True)
+                    result = subprocess.run(['bash', '-c', script], cwd=host, capture_output=True, text=True, timeout=10, check=False,
+                                            env=dict(os.environ, OPS_PACKAGE=str(ROOT / 'selfhost'), CALLS=str(calls), PAUSED=paused,
+                                                     CHRONICLE_RECONCILE_ENABLED=enabled, CHRONICLE_RECONCILE_RUN='true'))
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual('up success none\n', calls.read_text())
+
     def test_up_reloads_locked_settings_and_rejects_changed_lock_identity(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -422,7 +459,8 @@ dc() {
                     env=dict(os.environ, CHECK_STATUS=str(code), LOGGER_CALLS=str(log)), capture_output=True, timeout=10)
                 self.assertEqual(result.returncode, int(code == 1), result.stderr)
                 details = root / reconcile.UPDATE_LOG
-                self.assertEqual(details.read_text().strip(), str(active))
+                # The check runs in the active release; the update-reserve step appends its own lines.
+                self.assertEqual(details.read_text().splitlines()[0], str(active))
                 self.assertEqual(details.stat().st_mode & 0o777, 0o600)
                 if message:
                     self.assertIn(message, log.read_text())

@@ -12,6 +12,8 @@ import uuid
 
 import yaml
 
+from selfhost_fixture import context_sources
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -36,7 +38,11 @@ class ReleaseImageTests(unittest.TestCase):
                 continue
             target = frontend / 'chronicle-web' / relative
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, target)
-        shutil.copy2(ROOT / 'LICENSE', frontend / 'LICENSE')
+        # The rest of what the Dockerfile reads from the root context (LICENSE, the OS-package helper).
+        for relative in map(Path, context_sources(ROOT / 'selfhost/Dockerfile.frontend')):
+            if relative.parts[0] != 'chronicle-web':
+                (frontend / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / relative, frontend / relative)
         shutil.copy2(ROOT / 'selfhost/Dockerfile.frontend', frontend / 'Dockerfile')
         cls.docker('build', '-q', '-t', cls.images['frontend'], str(frontend))
         for name in ('caddy', 'grafana', 'backup'):
@@ -55,15 +61,11 @@ class ReleaseImageTests(unittest.TestCase):
         elif name == 'backup':
             inputs += list(map(Path, ('backup-image', 'chronicle_ops', 'init-tde.sh')))
         # The release build sends the whole context (images.SourceImage.archive); include every
-        # context file the Dockerfile copies, so a new COPY (such as Caddy's patch) cannot drift.
-        for line in dockerfile.read_text().splitlines():
-            words = line.split()
-            if words[:1] == ['COPY'] and not any(word.startswith('--from') for word in words):
-                for word in words[1:-1]:
-                    path = Path(word)
-                    if (not word.startswith('--') and (source / path).exists()
-                            and not any(path == known or known in path.parents for known in inputs)):
-                        inputs.append(path)
+        # context file the Dockerfile copies or bind-mounts, so a new COPY (such as Caddy's patch) or a
+        # new helper mount (selfhost/os-packages) cannot drift.
+        for path in map(Path, context_sources(dockerfile)):
+            if (source / path).exists() and not any(path == known or known in path.parents for known in inputs):
+                inputs.append(path)
         for relative in inputs:
             target = context / relative
             target.parent.mkdir(parents=True, exist_ok=True)

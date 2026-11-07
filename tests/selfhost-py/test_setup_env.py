@@ -129,23 +129,30 @@ cmd_setup setup
         from chronicle_ops.envfile import parse_env_text, value
         from chronicle_ops.host_memory import SMALL_HOST_LIMITS
         from chronicle_ops.setup_env import apply_setup_memory
-        shipped = ''.join(f'{service}_MEM_LIMIT={limit}\n' for service, limit in (
-            ('POSTGRES', '2g'), ('BACKEND', '3g'), ('WEB', '256m'), ('BACKUP', '512m'))) + 'BACKEND_XMX=-Xmx2g\n'
+        root = Path(__file__).resolve().parents[2]
+        # What setup has written by this point: the release template plus the operator's answers.
+        shipped = set_env_values((root / 'selfhost/.env.example').read_text(), {
+            'CHRONICLE_CORE_PREFIX': '10.252.3', 'BACKUP_KEEP_DAYS': '7', 'BACKUP_KEEP_WEEKS': '4',
+            'BACKUP_KEEP_MONTHS': '6', 'PRE_OP_BACKUP_KEEP_DAYS': '14'}, require_existing=False)
+        core = 'docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml'
+        origin = Path.cwd()
+        self.addCleanup(os.chdir, origin)
+        os.chdir(root / 'selfhost')
         with tempfile.TemporaryDirectory() as folder:
             meminfo = Path(folder) / 'meminfo'
-            with patch.dict(os.environ, CHRONICLE_MEMINFO=str(meminfo)):
+            with patch.dict(os.environ, CHRONICLE_MEMINFO=str(meminfo), CHRONICLE_HOST_UID='1000', CHRONICLE_HOST_GID='1000'):
                 meminfo.write_text('MemTotal: 4026500 kB\n')
                 with redirect_stdout(io.StringIO()) as output:
-                    sized = apply_setup_memory(shipped, {}, 'docker-compose.yml:overlays/backups.yml')
+                    sized = apply_setup_memory(shipped, {}, core)
                 self.assertEqual('Host has 3932 MiB of memory; sized backend/Postgres limits for a 4 GB host (see README Sizing).\n',
                                  output.getvalue())
                 self.assertEqual(SMALL_HOST_LIMITS, {key: value(parse_env_text(sized), key) for key in SMALL_HOST_LIMITS})
                 with self.assertRaisesRegex(ValueError, 'selected service ceilings plus host headroom need .* MiB; host has 3932'):
-                    apply_setup_memory(shipped, {'DOMAIN': 'estudio.example.cl'}, 'docker-compose.yml')
+                    apply_setup_memory(shipped, {'DOMAIN': 'estudio.example.cl'}, core)
                 meminfo.write_text('MemTotal: 16000000 kB\n')
-                self.assertEqual(shipped, apply_setup_memory(shipped, {}, 'docker-compose.yml'))
+                self.assertEqual(shipped, apply_setup_memory(shipped, {}, core + ':overlays/monitoring.yml'))
                 meminfo.unlink()
-                self.assertEqual(shipped, apply_setup_memory(shipped, {}, 'docker-compose.yml:overlays/monitoring.yml'))
+                self.assertEqual(shipped, apply_setup_memory(shipped, {}, core + ':overlays/monitoring.yml'))
 
     def test_setup_storage_skips_the_waiver_prompt_on_encrypted_disks(self):
         import json
@@ -226,3 +233,44 @@ cmd_setup setup
             with self.subTest(text=text), self.assertRaises(ValueError) as failure:
                 set_env_values(text, updates, require_existing=True)
             self.assertNotIn('private-sentinel', str(failure.exception))
+
+
+class SetupPromptAnswerTests(unittest.TestCase):
+    """RD-N1: setup's yes/no prompts read words, not only single letters."""
+
+    SCRIPT = '''set -eu
+source "$OPS_PACKAGE/chronicle"
+die() { echo "$*" >&2; exit 1; }
+ops_python() { [[ "$1 $2" == "host-memory monitoring-default" ]] && echo Y; }
+ask_bind_addr() { echo 127.0.0.1; }
+tls_mode=behind-proxy exposure=internal env_snapshot="" internal_bind=127.0.0.1 keep_alert_webhook=""
+setup_monitoring </dev/stdin >/dev/null
+printf '%s %s\\n' "$monitoring_enabled" "$compose_file"
+'''
+
+    def setup_monitoring(self, answers):
+        root = Path(__file__).resolve().parents[2]
+        return subprocess.run(['bash', '-c', self.SCRIPT], input=answers, capture_output=True, text=True, timeout=10, check=False,
+                              env=dict(os.environ, OPS_PACKAGE=str(root / 'selfhost')))
+
+    def test_no_in_any_spelling_disables_monitoring(self):
+        for answer in ('n', 'N', 'no', 'No', 'NO', ' no '):
+            with self.subTest(answer=answer):
+                result = self.setup_monitoring(answer + '\n')
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual('false docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml\n', result.stdout)
+
+    def test_yes_or_the_default_enables_monitoring(self):
+        for answer in ('', 'y', 'Yes', 'YES'):
+            with self.subTest(answer=answer):
+                result = self.setup_monitoring(answer + '\n\n\n\n')
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue(result.stdout.startswith('true ') and result.stdout.rstrip().endswith(':overlays/monitoring.yml'),
+                                result.stdout)
+
+    def test_an_answer_that_is_neither_refuses_instead_of_guessing(self):
+        for answer in ('nope', 'maybe', '0'):
+            with self.subTest(answer=answer):
+                result = self.setup_monitoring(answer + '\n')
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn('answer yes or no', result.stderr)

@@ -195,12 +195,14 @@ wait_for all 1 100
 # Past the storage budget: storage stays bounded, the loss is reported, and the writer never blocks.
 # Same option, scaled from 128M so the test writes megabytes, not hundreds of them.
 grep -Eq '^ +storage\.total_limit_size +128M$' "${outage_dir}/etc/fluent-bit.conf" || fail "shipped storage budget changed"
-sed -i 's/^\( *storage\.total_limit_size *\)128M$/\12M/' "${outage_dir}/etc/fluent-bit.conf"
+# perl -pi: GNU and BSD sed disagree on -i.
+perl -pi -e 's/^( *storage\.total_limit_size *)128M$/${1}2M/' "${outage_dir}/etc/fluent-bit.conf"
 docker stop "${outage}-sink" >/dev/null
 start_collector
 emit 101 60100 padpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpadpad
 wait_for_collector_log 'fail to drop enough chunks|could not ingest|dropping chunk'
-stored=$(du -sb "${outage_dir}/state/forward.0" | cut -f1)
+# Apparent bytes of the buffer files (du -b is GNU-only).
+stored=$(python3 -c 'import os, sys; print(sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(sys.argv[1]) for f in fs))' "${outage_dir}/state/forward.0")
 (( stored <= 2 * 2 * 1024 * 1024 )) || fail "filesystem buffer grew to ${stored} bytes past its 2M budget"
 [[ "$(docker inspect --format '{{.State.Running}} {{.State.OOMKilled}}' "${outage}-fluent-bit")" == 'true false' ]] ||
   fail "the collector did not survive the overflow"

@@ -1,9 +1,8 @@
-"""Release downloads ignore inherited proxy routing, using the real curl transport."""
+"""Release downloads use the operator's inherited proxy and its no_proxy list, through the real curl."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import shutil
-import subprocess
 import tempfile
 import threading
 import unittest
@@ -13,7 +12,7 @@ from chronicle_ops.update import curl
 
 
 class UpdateProxyIsolationTests(unittest.TestCase):
-    def test_release_download_bypasses_a_working_inherited_proxy(self):
+    def test_release_download_goes_through_the_inherited_proxy_and_honours_no_proxy(self):
         class Endpoint(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.server.requests.append(self.path)
@@ -37,19 +36,18 @@ class UpdateProxyIsolationTests(unittest.TestCase):
         proxy, proxy_url = endpoint(b'proxy-catalog')
         real_curl = shutil.which('curl')
         self.assertIsNotNone(real_curl, 'curl is required by the release downloader')
+        proxied = {'http_proxy': proxy_url, 'https_proxy': proxy_url, 'HTTPS_PROXY': proxy_url}
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
-            'HOME': folder, 'CURL_HOME': folder, 'XDG_CONFIG_HOME': folder,
-            'http_proxy': proxy_url, 'https_proxy': proxy_url, 'all_proxy': proxy_url,
-            'HTTP_PROXY': proxy_url, 'HTTPS_PROXY': proxy_url, 'ALL_PROXY': proxy_url,
-            'NO_PROXY': '', 'no_proxy': '',
-        }):
-            control = subprocess.run([real_curl, '-q', '--noproxy', '', '--proxy', proxy_url,
-                                      '--max-time', '5', '--silent', '--show-error', target_url + '/catalog'],
-                                     capture_output=True, check=True, timeout=10)
-            self.assertEqual(b'proxy-catalog', control.stdout)
+            'HOME': folder, 'CURL_HOME': folder, 'XDG_CONFIG_HOME': folder, **proxied,
+            'all_proxy': '', 'ALL_PROXY': '', 'NO_PROXY': '', 'no_proxy': ''}):
+            # A plain-HTTP fixture stands in for HTTPS: curl reads http_proxy for it as it reads
+            # https_proxy/HTTPS_PROXY for the real https:// release URLs.
+            self.assertEqual(b'proxy-catalog', curl(target_url + '/catalog'))
             self.assertEqual([target_url + '/catalog'], proxy.requests)
+            self.assertEqual([], target.requests)
             proxy.requests.clear()
-            self.assertEqual(b'direct-catalog', curl(target_url + '/catalog'))
+            with patch.dict(os.environ, {'no_proxy': '127.0.0.1'}):
+                self.assertEqual(b'direct-catalog', curl(target_url + '/catalog'))
             self.assertEqual(['/catalog'], target.requests)
             self.assertEqual([], proxy.requests)
 

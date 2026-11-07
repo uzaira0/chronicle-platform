@@ -19,6 +19,58 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReleaseSupplyRuntimeTests(unittest.TestCase):
+    def test_no_chronicle_service_waits_on_a_monitoring_service(self):
+        """Monitoring is optional: with every overlay selected, the dependency closure of Chronicle's
+        own services contains none of the services overlays/monitoring.yml adds."""
+        documents = [yaml.safe_load((ROOT / 'selfhost' / name).read_text()) or {} for name in
+                     ('docker-compose.yml', 'overlays/mode-own-tls-internal.yml', 'overlays/backups.yml', 'overlays/monitoring.yml')]
+        services = {}
+        for document in documents:
+            for name, service in (document.get('services') or {}).items():
+                merged = services.setdefault(name, {'depends_on': {}})
+                depends = service.get('depends_on') or {}
+                merged['depends_on'].update(dict.fromkeys(depends) if isinstance(depends, list) else depends)
+        monitoring = set(documents[-1]['services']) - {name for document in documents[:-1] for name in document.get('services') or {}}
+        self.assertIn('monitoring-cert-init', monitoring)
+        for core in set(services) - monitoring:
+            pending, closure = [core], set()
+            while pending:
+                name = pending.pop()
+                for dependency in services.get(name, {}).get('depends_on', {}):
+                    if dependency not in closure:
+                        closure.add(dependency)
+                        pending.append(dependency)
+            with self.subTest(service=core):
+                self.assertEqual(set(), closure & monitoring)
+
+    def test_both_certificate_initializers_at_once_leave_one_matching_backend_pair(self):
+        """cert-init and monitoring-cert-init serialize on the backend_tls volume instead of in Compose."""
+        overlay = yaml.safe_load((ROOT / 'selfhost/overlays/monitoring.yml').read_text())['services']
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'chown').write_text('#!/bin/sh\nexit 0\n')
+            (bin_dir / 'chown').chmod(0o700)
+            for attempt in range(4):
+                backend, runs = root / f'backend-tls-{attempt}', []
+                for index, environment in enumerate(({}, overlay['monitoring-cert-init']['environment'])):
+                    tls = root / f'tls-{attempt}-{index}'
+                    tls.mkdir()
+                    env = dict(os.environ, **{key: str(value) for key, value in environment.items()})
+                    env.update(PATH=f"{bin_dir}:{os.environ['PATH']}", TLS_DIR=str(tls), TLS_MODE='behind-proxy',
+                               DASHBOARD_EXPOSURE='public', BACKEND_TLS_DIR=str(backend), POSTGRES_TLS_DIR='',
+                               MONITORING_TLS_DIR=str(root / f'monitoring-{attempt}'),
+                               SERVICE_CERTIFICATE_DIGEST_FILE=str(tls / 'digest.sha256'), GRAFANA_BIND='127.0.0.1')
+                    runs.append(subprocess.Popen(['bash', str(ROOT / 'selfhost/cert-init.sh')], env=env,
+                                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True))
+                for run in runs:
+                    self.assertEqual(0, run.wait(timeout=60), run.stderr.read())
+                    run.stderr.close()
+                cert = subprocess.check_output(['openssl', 'x509', '-in', str(backend / 'backend.crt'), '-noout', '-pubkey'])
+                key = subprocess.check_output(['openssl', 'pkey', '-in', str(backend / 'backend.key'), '-pubout'])
+                self.assertEqual(cert, key)
+
     def test_monitoring_certificates_start_without_application_dependencies(self):
         base = yaml.safe_load((ROOT / 'selfhost/docker-compose.yml').read_text())['services']
         overlay = yaml.safe_load((ROOT / 'selfhost/overlays/monitoring.yml').read_text())['services']

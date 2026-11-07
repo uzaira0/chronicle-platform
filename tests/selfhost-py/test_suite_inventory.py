@@ -92,3 +92,21 @@ print(json.dumps({'suites':[{'file':name}]}))
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SubmodulePreflightTests(unittest.TestCase):
+    """RD-N2: without the chronicle-server and chronicle-api submodules, 41 forward-update and 2
+    topology tests failed on missing files. The runner now stops first and says what to run."""
+
+    def test_missing_submodule_inputs_stop_the_run_with_the_command_to_fix_it(self):
+        import run_suite
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = run_suite.missing_inputs(root)
+            self.assertEqual({'chronicle-server', 'chronicle-api'}, {name for name, _ in missing})
+            for name, inputs in run_suite.REQUIRED_SUBMODULE_INPUTS.items():
+                for relative in inputs:
+                    (root / name / relative).mkdir(parents=True)
+            self.assertEqual([], run_suite.missing_inputs(root))
+        self.assertEqual([], run_suite.missing_inputs(ROOT))
+        self.assertIn('git submodule update --init', run_suite.preflight_message([('chronicle-server', 'src')]))

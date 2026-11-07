@@ -1,0 +1,32 @@
+[
+  {
+    "annotations": {
+      "__alert_rule_namespace_uid__": "fixf",
+      "__orgId__": "1",
+      "__value_string__": "[ var='A' labels={} type='math' value=1 ]",
+      "__values__": "{\"A\":1}",
+      "summary": "Free disk is below the reserve"
+    },
+    "endsAt": "2026-11-06T23:11:20.000Z",
+    "fingerprint": "76bcbd33825c000f",
+    "receivers": [{"name": "empty"}],
+    "startsAt": "2026-11-06T23:09:20.000Z",
+    "status": {"inhibitedBy": [], "silencedBy": [], "state": "active"},
+    "updatedAt": "2026-11-06T23:09:20.042Z",
+    "generatorURL": "http://localhost:3000/alerting/grafana/bg3iz7rmk36kgd/view",
+    "labels": {
+      "__alert_rule_uid__": "bg3iz7rmk36kgd",
+      "alertname": "DiskAlmostFull",
+      "grafana_folder": "fixture",
+      "scope": "selfhost",
+      "severity": "critical"
+    }
+  },
+  {
+    "annotations": {"summary": "A silenced alert"},
+    "fingerprint": "00000000000000aa",
+    "startsAt": "2026-11-06T22:00:00.000Z",
+    "status": {"inhibitedBy": [], "silencedBy": ["s1"], "state": "suppressed"},
+    "labels": {"alertname": "Silenced", "severity": "warning", "scope": "selfhost"}
+  }
+]

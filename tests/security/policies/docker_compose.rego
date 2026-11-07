@@ -174,6 +174,12 @@ _is_accepted_secret_env_value(key, val) if {
 	startswith(trim_space(val), "/run/secrets/")
 }
 
+# A directory of secret files (CHRONICLE_SECRETS_DIR), mounted from a credential volume.
+_is_accepted_secret_env_value(key, val) if {
+	endswith(key, "_secrets_dir")
+	startswith(trim_space(val), "/run/secrets/")
+}
+
 # Grafana names its TLS private-key file setting without a _FILE suffix.
 _is_accepted_secret_env_value(key, val) if {
 	key == "gf_server_cert_key"
@@ -307,7 +313,6 @@ root_user_reasons := {
 	"postgres": "Percona prepares volumes before dropping to postgres",
 	"postgres-replica": "Percona prepares replica volumes before dropping to postgres",
 	"db-backup": "Backup bind mounts use the configured host UID, which may be root",
-	"cadvisor": "Reads root-owned cgroups and Docker storage",
 	"operational-probe": "Reads the private database and monitoring credential mounts",
 	# The monitoring overlay's fragment of the one-shot base service (restart "no" lives in
 	# selfhost/docker-compose.yml, which conftest scans separately).
@@ -390,4 +395,196 @@ deny contains msg if {
 	complete_service(service)
 	not _has_pid_limit(service)
 	msg := sprintf("Service '%s' must have a positive PID limit.", [name])
+}
+
+# ---------------------------------------------------------------------------
+# 9. Published ports bind loopback unless the operator says otherwise
+#
+# A published port must name its host address as a variable whose default is
+# loopback (`${GRAFANA_BIND:-127.0.0.1}`), or loopback itself. The public HTTPS
+# and HTTP-redirect listeners (own-tls and local-https) are the one exception: they
+# exist to be reached from the network. web-forward holds them, on its unprivileged
+# container ports 8443 and 8880, and copies them to web's 443 and 80.
+# ---------------------------------------------------------------------------
+loopback_host_ip_pattern := `^(\$\{[A-Za-z_][A-Za-z0-9_]*:-(127\.0\.0\.1|::1|\[::1\])\}|127\.0\.0\.1|::1|\[::1\])$`
+
+public_listener_ports := {"8443", "8880"}
+
+public_listener_services := {"web-forward"}
+
+_short_port_loopback(port) if {
+	regex.match(`^(\$\{[A-Za-z_][A-Za-z0-9_]*:-(127\.0\.0\.1|\[::1\])\}|127\.0\.0\.1|\[::1\]):(\$\{[^}]*\}|[0-9]+):[0-9]+(/(tcp|udp))?$`, port)
+}
+
+# "${HTTPS_PORT:-443}:443" -- host port, container port, no address.
+_short_port_target(port) := target if {
+	parts := regex.find_all_string_submatch_n(`^(\$\{[^}]*\}|[0-9]+):([0-9]+)(/(tcp|udp))?$`, port, 1)
+	count(parts) == 1
+	target := parts[0][2]
+}
+
+deny contains msg if {
+	service := input.services[name]
+	port := service.ports[_]
+	is_string(port)
+	not _short_port_loopback(port)
+	not _public_short_port(name, port)
+	msg := sprintf("Service '%s' publishes '%s' on every interface. Bind it to a variable that defaults to loopback, e.g. \"${%s_BIND:-127.0.0.1}:...\".", [name, port, upper(replace(name, "-", "_"))])
+}
+
+deny contains msg if {
+	service := input.services[name]
+	port := service.ports[_]
+	is_object(port)
+	not regex.match(loopback_host_ip_pattern, object.get(port, "host_ip", ""))
+	not _public_listener(name, sprintf("%v", [object.get(port, "target", "")]))
+	msg := sprintf("Service '%s' publishes container port %v with host_ip '%s'. Use a variable that defaults to loopback, e.g. ${%s_BIND:-127.0.0.1}.", [name, object.get(port, "target", "?"), object.get(port, "host_ip", ""), upper(replace(name, "-", "_"))])
+}
+
+# Wrapped so an unparsable port string counts as not exempt: OPA hoists a nested call out of
+# `not`, so `not _public_listener(name, _short_port_target(port))` would be undefined instead.
+_public_short_port(name, port) if _public_listener(name, _short_port_target(port))
+
+_public_listener(name, target) if {
+	name in public_listener_services
+	target in public_listener_ports
+}
+
+# ---------------------------------------------------------------------------
+# 10. Only edge services may join a network with a way off the host
+#
+# A Compose network is internal (no route off the host) only when it says so.
+# The networks below must always be internal; every other network, and the
+# implicit default network of a service that names none, can reach the host's
+# interfaces, so only the services listed here with a reason may join one.
+# ---------------------------------------------------------------------------
+# internal_network_names, edge_service_reasons and blackhole_resolver are generated from
+# selfhost/chronicle_ops/services.py into egress_services.rego (scripts/generate-egress-rego.py).
+
+deny contains msg if {
+	network := input.networks[network_name]
+	network_name in internal_network_names
+	object.get(object.union({"internal": false}, _object_or_empty(network)), "internal", false) != true
+	msg := sprintf("Network '%s' must be internal: true; containers on it hold data or credentials.", [network_name])
+}
+
+_object_or_empty(value) := value if is_object(value)
+
+_object_or_empty(value) := {} if not is_object(value)
+
+_service_networks(service) := {name | some name in service.networks} if is_array(service.networks)
+
+_service_networks(service) := object.keys(service.networks) if is_object(service.networks)
+
+# A complete service that names no network and no network_mode is on "default".
+_service_networks(service) := {"default"} if {
+	complete_service(service)
+	not service.networks
+	not service.network_mode
+	not service.extends
+}
+
+deny contains msg if {
+	service := input.services[name]
+	network := _service_networks(service)[_]
+	not network in internal_network_names
+	not edge_service_reasons[name]
+	msg := sprintf("Service '%s' joins network '%s', which can reach beyond the host. Put it on an internal network, set network_mode: none, or record why it is an edge service.", [name, network])
+}
+
+# Before Docker Engine 25.0.5 an internal network's embedded resolver forwarded external names
+# through the host (CVE-2024-29018). Every non-edge service with a network names the blackhole
+# resolver, so no engine version resolves an external name for it.
+deny contains msg if {
+	service := input.services[name]
+	complete_service(service)
+	not service.network_mode == "none"
+	not edge_service_reasons[name]
+	object.get(service, "dns", null) != [blackhole_resolver]
+	msg := sprintf("Service '%s' has a network but not dns: [\"%s\"]; external names must not resolve for it on any Docker Engine.", [name, blackhole_resolver])
+}
+
+# ---------------------------------------------------------------------------
+# 11. The default seccomp profile stays on
+# ---------------------------------------------------------------------------
+deny contains msg if {
+	service := input.services[name]
+	opt := service.security_opt[_]
+	regex.match(`^seccomp[:=]\s*unconfined$`, lower(trim_space(opt)))
+	msg := sprintf("Service '%s' turns seccomp off (%s).", [name, opt])
+}
+
+# ---------------------------------------------------------------------------
+# 12. A secret's substitution carries no literal default
+#
+# ${POSTGRES_PASSWORD:-hunter2} passes rule 5's substitution check but ships the
+# secret in the file. A literal default is allowed only when it is empty,
+# a number or a boolean (an expiry, a port, a switch).
+# ---------------------------------------------------------------------------
+deny contains msg if {
+	service := input.services[name]
+	value := service.environment[env_key]
+	is_string(value)
+	_is_secret_key(lower(env_key))
+	not lower(env_key) in non_secret_selector_keys
+	fallback := _literal_default(value)[_]
+	msg := sprintf("Service '%s' gives secret variable '%s' a literal default '%s'. Leave it empty or require it with :?.", [name, env_key, fallback])
+}
+
+_literal_default(value) := {fallback |
+	match := regex.find_all_string_submatch_n(`\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}]*)\}`, value, -1)[_]
+	fallback := match[1]
+	fallback != ""
+	not regex.match(`^([0-9]+|true|false)$`, lower(fallback))
+}
+
+# ---------------------------------------------------------------------------
+# 13. Credentials reach a container's environment only in the secret writers
+#
+# Every other service reads its credentials from the files secrets-init and monitoring-config write
+# (secret_writer_names, generated from chronicle_ops/services.py), so `docker inspect` and anything
+# that reads container configurations shows none. Rule 5 accepts ${VAR} substitution; this rule
+# refuses one that carries a credential setting into any other service.
+# ---------------------------------------------------------------------------
+# Settings whose names contain a secret word but carry no credential, each with its reason.
+non_credential_settings := {
+	"jwt_secret_previous_expires_at": "an expiry timestamp",
+	"dashboard_password_hash": "the bcrypt verifier the backend checks the dashboard password against; the password itself is never stored",
+}
+
+_substituted_credentials(value) := {variable |
+	match := regex.find_all_string_submatch_n(`\$\{([A-Za-z_][A-Za-z0-9_]*)`, value, -1)[_]
+	variable := lower(match[1])
+	_is_secret_key(variable)
+	not non_credential_settings[variable]
+	not variable in non_secret_selector_keys
+}
+
+deny contains msg if {
+	service := input.services[name]
+	not name in secret_writer_names
+	value := service.environment[key]
+	is_string(value)
+	variable := _substituted_credentials(value)[_]
+	msg := sprintf("Service '%s' receives credential setting '%s' in its environment ('%s'). Read it from a secrets-init file instead; only %v copy credentials from .env.", [name, upper(variable), key, secret_writer_names])
+}
+
+# ---------------------------------------------------------------------------
+# 14. Every service has a CPU ceiling Docker accepts on any host
+#
+# `cpus` (and deploy.resources.limits.cpus) above the host's CPU count is refused when the
+# container is created ("range of CPUs is from 0.01 to N"), which would stop a small host. A CFS
+# quota is accepted everywhere and binds only where the host has more CPUs.
+# ---------------------------------------------------------------------------
+deny contains msg if {
+	service := input.services[name]
+	complete_service(service)
+	not to_number(object.get(service, "cpu_quota", 0)) > 0
+	msg := sprintf("Service '%s' has no CPU ceiling: set cpu_period: 100000 and cpu_quota (CPUs x 100000).", [name])
+}
+
+deny contains msg if {
+	service := input.services[name]
+	object.get(service, "cpus", null) != null
+	msg := sprintf("Service '%s' sets cpus, which Docker refuses on a host with fewer CPUs; use cpu_quota.", [name])
 }

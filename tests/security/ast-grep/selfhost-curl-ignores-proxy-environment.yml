@@ -1,0 +1,25 @@
+id: selfhost-curl-ignores-proxy-environment
+language: Python
+note: |
+  Blind spots: Checks literal curl argv only; dynamically built argv and interprocedural data flow are not resolved. The release fetcher and the host destination probe (egress.first_unreachable, which update --check runs to name the first host it cannot reach) are exempt because config_inventory.PROXY_USERS (verify-config.sh) requires both to honour HTTPS_PROXY and owns that exception; tests/selfhost-py/test_egress.py ProxyRuleTests and tests/quality/test_selfhost_python_proxy_rules.py keep the two lists equal.
+severity: error
+message: Operator curl in selfhost/ reaches private local listeners, which an inherited HTTPS_PROXY cannot reach. Pass --noproxy '*'; only the release download (chronicle_ops/update.py) and the destination probe (chronicle_ops/egress.py) go through HTTPS_PROXY.
+files:
+  - "selfhost/**/*.py"
+ignores:
+  - selfhost/chronicle_ops/egress.py
+  - selfhost/chronicle_ops/update.py
+rule:
+  all:
+    - kind: call
+    - has:
+        kind: argument_list
+        has:
+          kind: list
+          regex: '^\[\s*["'']curl["'']\s*[,\]]'
+    - not:
+        has:
+          kind: argument_list
+          has:
+            kind: list
+            regex: '["'']--noproxy["'']\s*,\s*["'']\*["'']'

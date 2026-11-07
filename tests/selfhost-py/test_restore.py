@@ -149,7 +149,7 @@ class FakeRunner:
         self.ps_count = 0
         self.hook = None
 
-    def compose(self, *args, capture=False, quiet=False):
+    def compose(self, *args, capture=False, quiet=False, **_options):  # check/env: the caller reads returncode.
         status, output = self(["dc", *args], capture=capture, quiet=quiet)
         return SimpleNamespace(returncode=status, stdout=output)
 

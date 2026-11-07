@@ -231,7 +231,9 @@ class DeploymentCatalogTests(PgTdeFixture):
         init.write_text(f'''allprojects {{
     plugins.withId('java') {{
         tasks.register('{CLASSPATH_TASK}') {{
-            dependsOn testClasses
+            // The runtime classpaths name other builds' jars; depending on them builds those jars
+            // (testClasses alone leaves them missing in a fresh checkout).
+            dependsOn testClasses, sourceSets.test.runtimeClasspath, sourceSets.main.runtimeClasspath
             doLast {{
                 def output = System.getProperty('{CLASSPATH_OUTPUT_PROPERTY}')
                 file(output).text = sourceSets.test.runtimeClasspath.asPath

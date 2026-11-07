@@ -154,6 +154,7 @@ class VerifyCredentialsTests(unittest.TestCase):
                     stack.enter_context(patch('chronicle_ops.verify.verify_database_privileges', return_value=(0, 'ok')))
                     stack.enter_context(patch('chronicle_ops.verify.verify_backup_storage', return_value=0))
                     stack.enter_context(patch('chronicle_ops.verify.verify_database_storage', return_value=0))
+                    stack.enter_context(patch('chronicle_ops.verify.verify_core_network'))
                     stack.enter_context(patch('chronicle_ops.verify.os.access', side_effect=lambda directory, _: writable or directory != child))
                     output = stack.enter_context(patch('sys.stdout', io.StringIO()))
                     self.assertEqual(expected, verify([]), output.getvalue())
@@ -196,7 +197,11 @@ class VerifyCredentialsTests(unittest.TestCase):
         result = subprocess.run(["bash", "-eu", "-c", 'fail() { echo "$*" >&2; exit 1; };\n' + guard],
                                 env=dict(os.environ, ROOT_DIR=str(root)), capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        with tempfile.TemporaryDirectory() as folder:
+        # The script refuses a run parent in the system temporary directory, which is where
+        # tempfile puts one unless an earlier test in the process moved tempfile.tempdir.
+        runs = root / "build/operator-test-runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=runs) as folder:
             result = subprocess.run(["bash", str(root / "tests/security/selfhost-verify-secrets.sh")],
                 env=dict(os.environ, SELFHOST_VERIFY_TEST_ROOT=str(Path(folder) / "runs")),
                 capture_output=True, timeout=30)
@@ -303,7 +308,7 @@ class VerifyCredentialsTests(unittest.TestCase):
                  patch("chronicle_ops.verify.verify_backup", return_value=0), \
                  patch("chronicle_ops.verify.verify_database_privileges", return_value=(0, "Privileges verified")), \
                  patch("chronicle_ops.verify.verify_backup_storage", return_value=0), patch("chronicle_ops.verify.time.sleep"), \
-                 patch("chronicle_ops.verify.verify_database_storage", return_value=0), \
+                 patch("chronicle_ops.verify.verify_database_storage", return_value=0), patch("chronicle_ops.verify.verify_core_network"), \
                  patch.object(Path, "is_dir", return_value=True), patch.object(Path, "is_file", return_value=True), \
                  patch.object(Path, "iterdir", return_value=[]), patch("chronicle_ops.verify.os.access", return_value=True), patch.object(Path, "stat", lambda path, *a, **kw: original_stat(path, *a, **kw) if path == canary.path else SimpleNamespace(st_mode=0o700, st_size=1)), \
                  patch("sys.stdout", new_callable=io.StringIO) as output:
@@ -478,6 +483,7 @@ class VerifyMessagesTests(unittest.TestCase):
              patch('chronicle_ops.verify.verify_mobile_bootstrap'), \
              patch('chronicle_ops.verify.verify_backup_storage', return_value=backup_storage_status), \
              patch('chronicle_ops.verify.verify_database_storage', return_value=database_storage_status), \
+             patch('chronicle_ops.verify.verify_core_network'), \
              patch.object(Path, 'is_dir', return_value=False), patch.object(Path, 'is_file', return_value=keyring), \
              patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=keyring_size)), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
@@ -836,3 +842,50 @@ class OperatorProbeTests(unittest.TestCase):
                 with self.subTest(answer=answer), patch('chronicle_ops.verify.sys.platform', 'darwin'), \
                      patch('chronicle_ops.verify.run', side_effect=macos), patch('sys.stdout', io.StringIO()):
                     self.assertEqual(expected, verify_backup_storage(existing))
+
+
+class CoreNetworkTests(unittest.TestCase):
+    """verify compares the live networks CHRONICLE_CORE_PREFIX derives (network-subnet.py
+    core_layout) with .env (the guard only checks the prefix's form): a core or ingress network
+    left on another range, or a moved web or web-forward, leaves a trust rule naming nobody."""
+
+    def run_check(self, prefix, core, ingress, web, forwarder):
+        import subprocess
+        from chronicle_ops.verify import verify_core_network
+        ids = {'web': 'a' * 64, 'web-forward': 'b' * 64}
+        networks = [{'Name': 'fixture_core', 'IPAM': {'Config': [{'Subnet': core}]},
+                     'Containers': {ids['web']: {'Name': 'fixture-web-1', 'IPv4Address': web + '/25'}}},
+                    {'Name': 'fixture_ingress', 'IPAM': {'Config': [{'Subnet': ingress}]},
+                     'Containers': {ids['web-forward']: {'IPv4Address': forwarder + '/26'},
+                                    ids['web']: {'IPv4Address': ingress.rsplit('.', 1)[0] + '.161/26'}}}]
+        results = []
+        with patch('chronicle_ops.verify.compose',
+                   side_effect=lambda *args, **_: subprocess.CompletedProcess([], 0, ids[args[-1]] + '\n')), \
+             patch('chronicle_ops.verify.run', return_value=subprocess.CompletedProcess([], 0, json.dumps(networks))) as inspect, \
+             patch.dict(os.environ, CHRONICLE_OPS_PROJECT='fixture'):
+            verify_core_network({'CHRONICLE_CORE_PREFIX': prefix}, lambda ok, message: results.append((ok, message)))
+        self.assertEqual(['docker', 'network', 'inspect', 'fixture_core', 'fixture_ingress'], inspect.call_args.args[0])
+        return results
+
+    def test_networks_that_match_the_prefix_pass(self):
+        [(ok, message)] = self.run_check('10.252.3', '10.252.3.0/25', '10.252.3.128/26', '10.252.3.2', '10.252.3.130')
+        self.assertTrue(ok, message)
+
+    def test_a_network_on_another_range_or_a_moved_trusted_address_fails(self):
+        [(ok, message)] = self.run_check('10.252.0', '10.252.3.0/25', '10.252.3.128/26', '10.252.3.2', '10.252.3.130')
+        self.assertFalse(ok)
+        self.assertIn('the running core network is 10.252.3.0/25, but CHRONICLE_CORE_PREFIX selects 10.252.0.0/25', message)
+        self.assertIn('the running ingress network is 10.252.3.128/26, but CHRONICLE_CORE_PREFIX selects 10.252.0.128/26', message)
+        self.assertIn('backend trusts forwarded client addresses only from 10.252.0.2', message)
+        [(ok, message)] = self.run_check('10.252.3', '10.252.3.0/24', '10.252.3.128/26', '10.252.3.2', '10.252.3.130')
+        self.assertFalse(ok)  # a core network still on the pre-split /24
+        self.assertIn('the running core network is 10.252.3.0/24', message)
+        [(ok, message)] = self.run_check('10.252.3', '10.252.3.0/25', '10.252.3.128/26', '10.252.3.66', '10.252.3.130')
+        self.assertFalse(ok)
+        self.assertNotIn('running core network is', message)
+        self.assertIn('web holds 10.252.3.66 on the core network', message)
+        [(ok, message)] = self.run_check('10.252.3', '10.252.3.0/25', '10.252.3.128/26', '10.252.3.2', '10.252.3.161')
+        self.assertFalse(ok)
+        self.assertIn('web-forward holds 10.252.3.161 on the ingress network, but Caddy accepts client addresses '
+                      '(PROXY protocol) only from 10.252.3.130', message)
+

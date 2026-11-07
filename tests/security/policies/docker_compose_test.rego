@@ -8,11 +8,14 @@ base_service := {
 	"read_only": true,
 	"cap_drop": ["ALL"],
 	"pids_limit": 64,
+	"cpu_period": 100000,
+	"cpu_quota": 100000,
 	"user": "10001:0",
 	"healthcheck": {"test": ["CMD", "true"]},
 	"security_opt": ["no-new-privileges:true"],
 	"environment": {},
 	"volumes": [],
+	"network_mode": "none",
 }
 
 test_mutable_tag_is_denied if {
@@ -115,7 +118,10 @@ test_overlay_fragment_inherits_required_fields if {
 test_built_service_still_needs_required_fields if {
 	service := {"build": {"context": "."}}
 	findings := deny with input as {"services": {"app": service}}
-	count(findings) == 6
+
+	# Six hardening fields, the CPU ceiling, the implicit default network it would join, and no
+	# blackhole resolver.
+	count(findings) == 9
 }
 
 test_overlay_fragment_secrets_still_checked if {
@@ -249,4 +255,147 @@ test_every_capability_reason_is_written if {
 			capability == upper(capability)
 		}
 	}
+}
+
+# --- 9. published ports bind loopback --------------------------------------
+
+test_port_bound_to_a_loopback_default_variable_is_accepted if {
+	every port in ["${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000", "127.0.0.1:${FLUENT_BIT_FORWARD_PORT:-24224}:24224", {"target": 8080, "published": "${HTTP_PORT:-8080}", "host_ip": "${HTTP_BIND:-127.0.0.1}"}] {
+		service := object.union(base_service, {"ports": [port]})
+		findings := deny with input as {"services": {"app": service}}
+		count(findings) == 0
+	}
+}
+
+test_port_on_every_interface_is_denied if {
+	every port in ["${GRAFANA_PORT:-3000}:3000", "0.0.0.0:3000:3000", "${GRAFANA_BIND:-0.0.0.0}:3000:3000", "${GRAFANA_BIND}:3000:3000", {"target": 8081, "published": "8081"}, {"target": 8081, "published": "8081", "host_ip": "${INTERNAL_BIND:-0.0.0.0}"}] {
+		service := object.union(base_service, {"ports": [port]})
+		findings := deny with input as {"services": {"app": service}}
+		count(findings) == 1
+	}
+}
+
+test_web_public_listeners_are_the_only_exemption if {
+	forward := object.union(base_service, {"ports": ["${HTTPS_PORT:-443}:8443", "${TLS_HTTP_PORT:-80}:8880"]})
+	count(deny) == 0 with input as {"services": {"web-forward": forward}}
+	other := object.union(base_service, {"ports": ["${HTTPS_PORT:-443}:8443"]})
+	count(deny) == 1 with input as {"services": {"app": other}}
+	forward_8081 := object.union(base_service, {"ports": ["8081:8081"]})
+	count(deny) == 1 with input as {"services": {"web-forward": forward_8081}}
+	# web holds no published port any more; a public bind on it is not exempt.
+	web := object.union(base_service, {"ports": ["${HTTPS_PORT:-443}:443"]})
+	count(deny) == 1 with input as {"services": {"web": web}}
+}
+
+# --- 10. only edge services reach beyond the host ---------------------------
+
+test_service_on_an_internal_network_is_accepted if {
+	service := object.union(object.remove(base_service, {"network_mode"}), {"networks": ["core"], "dns": [blackhole_resolver]})
+	findings := deny with input as {"services": {"backend": service}, "networks": {"core": {"internal": true}}}
+	count(findings) == 0
+}
+
+test_non_edge_service_on_an_outbound_network_is_denied if {
+	every networks in [["core", "egress"], {"default": {}}, ["monitoring-ports"]] {
+		service := object.union(object.remove(base_service, {"network_mode"}), {"networks": networks, "dns": [blackhole_resolver]})
+		findings := deny with input as {"services": {"backend": service}}
+		count(findings) == 1
+	}
+}
+
+test_service_with_no_network_is_on_the_default_network if {
+	service := object.union(object.remove(base_service, {"network_mode"}), {"dns": [blackhole_resolver]})
+	count(deny) == 1 with input as {"services": {"backend": service}}
+	count(deny) == 0 with input as {"services": {"web-forward": service}}
+}
+
+test_edge_service_may_join_an_outbound_network if {
+	service := object.union(object.remove(base_service, {"network_mode"}), {"networks": ["egress-clients", "egress"]})
+	count(deny) == 0 with input as {"services": {"egress-proxy": service}}
+	count(deny) == 1 with input as {"services": {"public-probe": object.union(service, {"dns": [blackhole_resolver]})}}
+}
+
+test_non_edge_service_with_a_network_must_name_the_blackhole_resolver if {
+	internal := object.union(object.remove(base_service, {"network_mode"}), {"networks": ["core"]})
+	every dns in [null, [], ["1.1.1.1"], [blackhole_resolver, "1.1.1.1"]] {
+		service := object.union(internal, {"dns": dns})
+		findings := deny with input as {"services": {"backend": service}, "networks": {"core": {"internal": true}}}
+		count(findings) == 1
+	}
+	count(deny) == 0 with input as {"services": {"backend": base_service}}
+	count(deny) == 0 with input as {"services": {"egress-proxy": internal}, "networks": {"core": {"internal": true}}}
+}
+
+test_data_network_that_is_not_internal_is_denied if {
+	every network in [{}, {"internal": false}, null] {
+		findings := deny with input as {"services": {}, "networks": {"core": network}}
+		count(findings) == 1
+	}
+	count(deny) == 0 with input as {"services": {}, "networks": {"monitoring": {"internal": true}, "egress": {}}}
+}
+
+# --- 11. seccomp stays on ----------------------------------------------------
+
+test_unconfined_seccomp_is_denied if {
+	every opt in ["seccomp:unconfined", "seccomp=unconfined", "SECCOMP=Unconfined"] {
+		service := object.union(base_service, {"security_opt": ["no-new-privileges:true", opt]})
+		findings := deny with input as {"services": {"app": service}}
+		count(findings) == 1
+	}
+	profile := object.union(base_service, {"security_opt": ["no-new-privileges:true", "seccomp=./profile.json"]})
+	count(deny) == 0 with input as {"services": {"app": profile}}
+}
+
+# --- 12. no literal secret behind a substitution ----------------------------
+
+test_secret_with_a_literal_default_is_denied if {
+	every value in ["${POSTGRES_PASSWORD:-hunter2hunter2}", "${JWT_SECRET-changeme}"] {
+		service := object.union(base_service, {"environment": {"POSTGRES_PASSWORD": value}})
+		findings := deny with input as {"services": {"secrets-init": service}}
+		count(findings) == 1
+	}
+}
+
+test_secret_with_an_empty_numeric_or_required_default_is_accepted if {
+	every value in ["${POSTGRES_PASSWORD:-}", "${POSTGRES_PASSWORD:?set it}", "${DASHBOARD_SESSION_MINUTES:-480}", "${PASSWORD_LOGIN:-false}"] {
+		service := object.union(base_service, {"environment": {"POSTGRES_PASSWORD": value}})
+		findings := deny with input as {"services": {"secrets-init": service}}
+		count(findings) == 0
+	}
+}
+
+test_secret_file_directory_under_run_secrets_is_accepted if {
+	service := object.union(base_service, {"environment": {"CHRONICLE_SECRETS_DIR": "/run/secrets/chronicle"}})
+	count(deny) == 0 with input as {"services": {"backend": service}}
+	elsewhere := object.union(base_service, {"environment": {"CHRONICLE_SECRETS_DIR": "/srv/secrets"}})
+	count(deny) == 1 with input as {"services": {"backend": elsewhere}}
+}
+
+# --- 13. credentials only in the secret writers' environment ------------------
+
+test_credential_substitution_outside_the_secret_writers_is_denied if {
+	every value in ["${CHRONICLE_INTERNAL_WEB_SECRET:?set it}", "${POSTGRES_PASSWORD}", "prefix-${METRICS_PASSWORD:-}"] {
+		service := object.union(base_service, {"environment": {"ANY_NAME": value}})
+		count(deny) == 1 with input as {"services": {"web": service}}
+		count(deny) == 0 with input as {"services": {"secrets-init": service}}
+	}
+}
+
+test_settings_that_only_look_like_credentials_are_accepted if {
+	every value in ["${JWT_SECRET_PREVIOUS_EXPIRES_AT:-0}", "${DASHBOARD_PASSWORD_HASH:-}", "${PG_TDE_KEY_PROVIDER:-file}"] {
+		service := object.union(base_service, {"environment": {"SETTING": value}})
+		count(deny) == 0 with input as {"services": {"backend": service}}
+	}
+}
+
+# --- 14. CPU ceilings as CFS quotas -----------------------------------------
+
+test_a_service_without_a_cpu_quota_is_denied if {
+	service := object.remove(base_service, ["cpu_quota"])
+	count(deny) == 1 with input as {"services": {"app": service}}
+}
+
+test_cpus_is_denied_because_docker_refuses_it_on_smaller_hosts if {
+	service := object.union(base_service, {"cpus": "4"})
+	count(deny) == 1 with input as {"services": {"app": service}}
 }

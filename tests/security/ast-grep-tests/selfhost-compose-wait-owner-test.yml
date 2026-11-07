@@ -1,0 +1,9 @@
+id: selfhost-compose-wait-owner
+valid:
+- "start_split(compose, core, monitoring, timeout, ('--remove-orphans', '--force-recreate'))\n"
+- "compose('up', '-d', '--wait-timeout', timeout)\n"
+- "compose('up', '-d', '--no-deps', *services)\n"
+invalid:
+- "compose('up', '-d', '--wait', '--wait-timeout', timeout, *services)\n"
+- "self.dc(\"up\", \"-d\", \"--wait\", \"--wait-timeout\", self.timeout, *startup)\n"
+- "compose_release(directory, project, names, 'up', '-d', '--wait', *startup, check=True)\n"

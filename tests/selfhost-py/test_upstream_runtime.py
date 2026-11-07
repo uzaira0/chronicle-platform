@@ -132,6 +132,9 @@ class UpstreamRuntimeTests(unittest.TestCase):
             for name, service in config.get('services', {}).items():
                 for key, value in service.get('environment', {}).items():
                     with self.subTest(path=path, service=name, key=key):
+                        if key == 'GF_PLUGINS_PREINSTALL_DISABLED':  # the switch that turns preinstall off
+                            self.assertEqual('true', str(value).lower())
+                            continue
                         self.assertFalse(key.startswith(('GF_INSTALL_PLUGINS', 'GF_PLUGINS_PREINSTALL'))
                                          and str(value).lower() not in ('false', '', 'none'))
 
@@ -465,8 +468,10 @@ class UpstreamRuntimeTests(unittest.TestCase):
                                  {image.variable: value(saved, image.variable) for image in images.SOURCE_IMAGES if not image.overlay})
                 self.assertEqual(0o600, settings.stat().st_mode & 0o777)
                 self.assertEqual(backup, value(saved, 'BACKUP_IMAGE'))
-                self.assertEqual([('frontend', Path(folder), revision), ('caddy', Path(folder), revision),
-                                  ('postgres', Path(folder), revision)], archived)
+                # build_source_images archives Path.cwd().parent, which the OS reports resolved (/private/var on macOS).
+                checkout = Path(folder).resolve()
+                self.assertEqual([('frontend', checkout, revision), ('caddy', checkout, revision),
+                                  ('postgres', checkout, revision)], archived)
                 (frontend, frontend_input), (caddy, caddy_input), (postgres, postgres_input) = builds
                 self.assertEqual((b'frontend', b'caddy', b'postgres'), (frontend_input, caddy_input, postgres_input))
                 self.assertIn('Dockerfile.postgres', postgres)
@@ -495,7 +500,11 @@ class UpstreamRuntimeTests(unittest.TestCase):
     def test_update_discovers_highest_published_stable_release(self):
         from chronicle_ops import update
         from chronicle_ops.release import UPDATE_AVAILABLE_EXIT
-        releases = [{'tag_name': version, 'draft': draft, 'prerelease': prerelease}
+        def assets(version):  # discovery offers only a release whose three assets are published
+            name = f'chronicle-selfhost-{version}.tar.gz'
+            return [{'name': item, 'browser_download_url': 'https://example.org/' + item}
+                    for item in (name, name + '.sha256', name + '.sha256.sig')]
+        releases = [{'tag_name': version, 'draft': draft, 'prerelease': prerelease, 'assets': assets(version)}
                     for version, draft, prerelease in [('1.1.0', False, False), ('1.2.0', False, False),
                                                        ('2.0.0', True, False), ('3.0.0-rc.1', False, True)]]
         with tempfile.TemporaryDirectory() as folder:
@@ -504,6 +513,7 @@ class UpstreamRuntimeTests(unittest.TestCase):
             settings = host / '.env'; settings.write_text('COMPOSE_PROJECT_NAME=fixture\n'); settings.chmod(0o600)
             with patch.object(Path, 'cwd', return_value=host), \
                  patch('chronicle_ops.update.require_current_owner'), \
+                 patch('chronicle_ops.egress.first_unreachable', return_value=None), \
                  patch('chronicle_ops.update.curl', return_value=json.dumps(releases)):
                 self.assertEqual(UPDATE_AVAILABLE_EXIT, update.update(check=True))
                 with self.assertRaisesRegex(ValueError, 'fresh install'):
@@ -548,10 +558,13 @@ class UpstreamRuntimeTests(unittest.TestCase):
                 operation = reconcile.SCHEDULED_UPDATE if arguments else reconcile.SCHEDULED_RECONCILE
                 outcome = 'success' if status == UPDATE_AVAILABLE_EXIT else 'failure'
                 project = saved_project or DEFAULT_COMPOSE_PROJECT
+                calls = (root / 'docker-record').read_text().splitlines()
                 self.assertEqual([
                     f'compose -p {project} ps --status running --services',
                     f'compose -p {project} exec -T operational-probe /monitoring/record-operation.sh {operation} {outcome} {category}'
-                ], (root / 'docker-record').read_text().splitlines())
+                ], [call for call in calls if call.startswith('compose ')])
+                # The daily update check also measures free disk against the next update's reserve.
+                self.assertEqual(bool(arguments), 'info --format {{.DockerRootDir}}' in calls)
                 self.assertIn('Chronicle update available' if status == UPDATE_AVAILABLE_EXIT else 'failed',
                               (root / 'logger-record').read_text())
 

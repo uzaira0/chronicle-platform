@@ -7,6 +7,8 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
+from test_secret_generation import SelfhostSetupFixture
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -237,8 +239,10 @@ class OperatorDocTruthTests(unittest.TestCase):
         login = (ROOT / 'chronicle-server/src/main/kotlin/com/openlattice/chronicle/controllers/AuthTokenController.kt').read_text()
         handler = login[login.index('fun dashboardLogin('):]
         handler = handler[:handler.index('\n    }\n')]
+        # Kotlin source as text, deliberately: the handler reads an untyped map, so no model class or
+        # OpenAPI contract (DashboardLoginRequest is hand-written) binds the field the README names.
         self.assertEqual(['password'], re.findall(r'body\?\.get\("(\w+)"\)', handler))
-        self.assertIn('use the shared dashboard password you just chose.', (ROOT / 'selfhost/chronicle').read_text())
+
 
     def test_operations_index_names_only_rotations_the_cli_offers(self):
         usage = subprocess.run(['bash', str(ROOT / 'selfhost/chronicle'), 'rotate-secret', '--help'],
@@ -482,8 +486,6 @@ INDEPENDENT_SHELL_BLOCKS = {
     ('SECRET-ROTATION.md', './chronicle verify'): 'two independent verifications, each with its own verdict',
     ('SECRET-ROTATION.md', 'docker compose ps --all'): 'read-only inspection',
     ('SECRET-ROTATION.md', './chronicle rotate-secret recover --forward'): 'two alternatives; the operator runs exactly one',
-    ('INCIDENT-RESPONSE.md', 'case_dir="$HOME/chronicle-incident-$(date -u +%Y%m%dT%H%M%SZ)"'):
-        'best-effort evidence snapshots; database and receipt commands explicitly stop collection on failure',
     ('UNINSTALL-DATA-DELETION.md', "grep -E '^[[:space:]]*(export[[:space:]]+)?(COMPOSE_PROJECT_NAME|CHRONICLE_STATE_DIR)=' .env"):
         'read-only inspection',
     ('UNINSTALL-DATA-DELETION.md', 'realpath /ABSOLUTE/CHRONICLE_STATE_DIR'): 'read-only inspection',
@@ -599,3 +601,9 @@ class OperatorShellBlockTests(unittest.TestCase):
             (commands / 'rclone').write_text('#!/bin/sh\nexit 1\n'); (commands / 'rclone').chmod(0o755)
             result = run_documented_block(compare, root, commands)
             self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+
+
+class SetupSignInMessageTests(SelfhostSetupFixture):
+    def test_setup_tells_the_operator_to_sign_in_with_the_password_they_chose(self):
+        result = self.run_setup()
+        self.assertIn('use the shared dashboard password you just chose.', result.stdout)

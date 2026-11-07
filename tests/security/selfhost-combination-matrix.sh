@@ -72,6 +72,9 @@ for mode in "${supported_modes[@]}"; do
 done
 /bin/cp "${SELFHOST_ROOT}/overlays/backups.yml" "${DEPLOYMENT}/overlays/backups.yml"
 /bin/cp "${SELFHOST_ROOT}/overlays/monitoring.yml" "${DEPLOYMENT}/overlays/monitoring.yml"
+# monitoring.yml extends Grafana's network fragment from here (CHRONICLE_ALERT_EGRESS).
+/bin/mkdir -p "${DEPLOYMENT}/monitoring"
+/bin/cp "${SELFHOST_ROOT}"/monitoring/docker-compose.grafana-alerts-*.yml "${DEPLOYMENT}/monitoring/"
 
 render_env() {
   local output="$1" compose_file="$2" encryption="$3" state_dir="$4" project="$5"
@@ -92,6 +95,8 @@ values = {
     "COMPOSE_PROJECT_NAME": project,
     "CHRONICLE_STATE_DIR": state_dir,
     "COMPOSE_FILE": compose_file,
+    # Setup writes the core network's prefix (network-subnet.py select-core); the matrix picks one.
+    "CHRONICLE_CORE_PREFIX": "10.252.9",
     "ENABLE_ENCRYPTION": encryption,
     "HTTP_BIND": "127.0.0.1",
     "INTERNAL_BIND": "127.0.0.1",
@@ -136,14 +141,14 @@ monitoring = monitoring_text == "true"
 config = json.loads(Path(config_path).read_text(encoding="utf-8"))
 services = config.get("services", {})
 
-expected = set(application_services([])) | {"config-guard", "cert-init", "caddy-storage-init", "postgres"}
+expected = set(application_services([])) | {"config-guard", "cert-init", "caddy-storage-init", "secrets-init", "postgres", "web-forward"}
 if mode == "mode-local-https.yml":
     expected.add("ca-export")
 if backups:
     expected.add("db-backup")
 if monitoring:
-    expected.update({"monitoring-config", "monitoring-cert-init", "health-probe", "docker-socket-proxy", "cadvisor", "operational-probe",
-                     "metrics-exporter", "victoriametrics", "victorialogs", "fluent-bit", "grafana"})
+    expected.update({"monitoring-config", "monitoring-cert-init", "health-probe", "docker-socket-proxy", "cadvisor", "operational-probe", "public-probe",
+                     "metrics-exporter", "victoriametrics", "victorialogs", "fluent-bit", "grafana", "monitoring-forward"})
 if set(services) != expected:
     raise SystemExit(f"service set mismatch: expected {sorted(expected)}, got {sorted(services)}")
 if any("build" in service for service in services.values()):
@@ -204,14 +209,22 @@ expected_caddy = {
 if caddy_mount is None or Path(caddy_mount.get("source", "")).name != expected_caddy:
     raise SystemExit(f"web Caddyfile mismatch for {mode}")
 
-targets = {int(item["target"]) for item in services["web"].get("ports", [])}
+# web publishes nothing: web-forward holds its ports (container 8443 -> web 443, 8880 -> web 80).
+if services["web"].get("ports"):
+    raise SystemExit("web publishes ports; web-forward must hold them (docs/NETWORK-EGRESS.md)")
+targets = {int(item["target"]) for item in services["web-forward"].get("ports", [])}
 # Behind a proxy the pool listener is :8080 (plain or POOL_LISTENER_TLS), not the redirect port.
-expected_targets = {8080, 8081} if mode == "mode-behind-proxy-internal.yml" else {80, 443, 8081}
+expected_targets = {8080, 8081} if mode == "mode-behind-proxy-internal.yml" else {8880, 8443, 8081}
 if targets != expected_targets:
     raise SystemExit(f"published target ports mismatch: expected {expected_targets}, got {targets}")
 
 guard_environment["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
 guard_environment["CHRONICLE_GUARD_TLS_DIR"] = tls_dir
+# config-guard reads its credentials from the files secrets-init writes; run directly here, it
+# takes the same values from secrets-init's rendered environment.
+guard_environment.pop("CHRONICLE_SECRETS_DIR", None)
+for key, value in services["secrets-init"].get("environment", {}).items():
+    guard_environment.setdefault(key, str(value))
 completed = subprocess.run(
     [guard],
     cwd=str(Path(guard).parent),
@@ -279,6 +292,9 @@ base = {key: str(value) for key, value in config["services"]["config-guard"]["en
 base["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
 base["CHRONICLE_GUARD_TLS_DIR"] = tls_dir
 base["DASHBOARD_PASSWORD_HASH"] = base.get("DASHBOARD_PASSWORD_HASH", "").replace("$$", "$")
+base.pop("CHRONICLE_SECRETS_DIR", None)  # credentials as secrets-init would write them (above)
+for key, value in config["services"]["secrets-init"].get("environment", {}).items():
+    base.setdefault(key, str(value))
 
 cases = [
     ("staff-ip-invalid", {"CHRONICLE_RECORD_STAFF_IP": "no"}, "CHRONICLE_RECORD_STAFF_IP must be exactly true or false"),

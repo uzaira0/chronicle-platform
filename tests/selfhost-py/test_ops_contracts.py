@@ -71,15 +71,18 @@ class DeploymentModeTests(unittest.TestCase):
             with patch.object(Path, "cwd", return_value=release):
                 self.assertIs(deployment_mode(selection), DeploymentMode.LOCAL_HTTPS)
 
-    def test_update_refuses_a_previous_selection_that_leaves_the_release_or_drops_the_base_file(self):
+    def test_update_drops_an_operator_file_outside_the_release_and_refuses_a_missing_base_file(self):
+        from chronicle_ops.env_migration import compose_selection
         with tempfile.TemporaryDirectory() as folder:
             release = Path(folder).resolve()
-            for selection, message in ((f"{release}/docker-compose.yml:/etc/chronicle/custom.yml",
-                                        "previous COMPOSE_FILE references a file outside its release: /etc/chronicle/custom.yml"),
-                                       ("overlays/mode-local-https.yml:overlays/backups.yml",
-                                        "previous COMPOSE_FILE must contain docker-compose.yml exactly once")):
-                with self.subTest(selection=selection), self.assertRaisesRegex(ValueError, "^" + re.escape(message) + "$"):
-                    compose_names({"COMPOSE_FILE": selection}, release)
+            # An operator's own Compose file is left out (the update keeps a copy and names it).
+            selection = f"{release}/docker-compose.yml:{release}/overlays/mode-local-https.yml:/etc/chronicle/custom.yml"
+            self.assertEqual((["docker-compose.yml", "overlays/mode-local-https.yml"], ["/etc/chronicle/custom.yml"]),
+                             compose_selection({"COMPOSE_FILE": selection}, release))
+            # Without the base file there is nothing to derive the deployment from.
+            message = "previous COMPOSE_FILE must contain docker-compose.yml exactly once"
+            with self.assertRaisesRegex(ValueError, "^" + re.escape(message) + "$"):
+                compose_names({"COMPOSE_FILE": "overlays/mode-local-https.yml:overlays/backups.yml"}, release)
 
     def test_compose_selection_needs_exactly_one_known_mode(self):
         for selection in ("docker-compose.yml",

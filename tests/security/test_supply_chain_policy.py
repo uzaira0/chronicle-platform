@@ -33,9 +33,13 @@ class SuppressionPolicyTests(unittest.TestCase):
             if problem:
                 self.assertIn(problem, result.stdout + result.stderr)
 
-    def rule(self, *, until=None, package="pkg:maven/org.bundled/library@1.0.0", advisory='<vulnerabilityName regex="true">.*</vulnerabilityName>'):
+    NOTES = 'Shaded copy. Owner: uzaira0. Rechecked 2026-11-01. Carried by org.resolved:library:4.2.0'
+
+    def rule(self, *, until=None, package="pkg:maven/org.bundled/library@1.0.0",
+             advisory='<vulnerabilityName regex="true">.*</vulnerabilityName>', notes=NOTES):
         expiry = '' if until is None else f' until="{until}"'
-        return f'<suppress{expiry}><packageUrl regex="true">{package}</packageUrl>{advisory}</suppress>'
+        return (f'<suppress{expiry}><notes>{notes}</notes>'
+                f'<packageUrl regex="true">{package}</packageUrl>{advisory}</suppress>')
 
     def test_removed_and_other_reviewed_bundled_waivers_pass(self):
         self.check('', 0)
@@ -67,9 +71,39 @@ class SuppressionPolicyTests(unittest.TestCase):
         self.check(f'<suppress until="{self.soon}"><vulnerabilityName regex="true">.*</vulnerabilityName></suppress>',
                    1, 'matches resolved dependency')
 
-    def test_specific_advisory_needs_no_package_wide_expiry(self):
+    def test_specific_advisory_on_a_resolved_version_passes(self):
+        self.check(self.rule(until=self.soon, package='pkg:maven/org.resolved/library@4.2.0',
+                             advisory='<cve>CVE-2099-12345</cve>', notes='Owner: uzaira0. Rechecked 2026-11-01.'), 0)
+
+    def test_every_suppression_expires(self):
+        # Before 2026-11-06 a CVE-scoped suppression could omit until= and never be rechecked.
         self.check(self.rule(package='pkg:maven/org.resolved/library@4.2.0',
-                             advisory='<cve>CVE-2099-12345</cve>'), 0)
+                             advisory='<cve>CVE-2099-12345</cve>'), 1, 'until')
+
+    def test_owner_and_recheck_are_required(self):
+        for notes, problem in (('Rechecked 2026-11-01. Carried by org.resolved:library:4.2.0', 'owner'),
+                               ('Owner: uzaira0. Carried by org.resolved:library:4.2.0', 'recheck')):
+            with self.subTest(problem=problem):
+                self.check(self.rule(until=self.soon, notes=notes), 1, problem)
+
+    def test_any_version_selector_fails(self):
+        # The 2026-11-06 file waived flyway-database-postgresql@.* and five other artifacts at every version.
+        self.check(self.rule(until=self.soon, package=r'^pkg:maven/org\.resolved/library@.*$',
+                             advisory='<cve>CVE-2099-12345</cve>'), 1, 'at any version')
+
+    def test_suppression_matching_nothing_resolved_is_stale(self):
+        # Guava 19.0 and Log4j 2.25.2 sat on checkstyle/spotbugs, which Dependency-Check never scans.
+        self.check(self.rule(until=self.soon, package='pkg:maven/org.unused/library@1.0.0',
+                             advisory='<cve>CVE-2099-12345</cve>', notes='Owner: uzaira0. Rechecked 2026-11-01.'),
+                   1, 'stale')
+        self.check(self.rule(until=self.soon, notes='Owner: uzaira0. Rechecked 2026-11-01.'), 1, 'Carried by')
+        self.check(self.rule(until=self.soon, notes='Owner: uzaira0. Rechecked 2026-11-01. Carried by org.gone:jar:1.0'),
+                   1, 'Carried by')
+
+    def test_shipped_suppressions_pass(self):
+        result = subprocess.run([sys.executable, '-s', str(CHECKER), str(ROOT / 'config/dependency-check-suppression.xml'),
+                                 str(ROOT)], text=True, capture_output=True, timeout=60)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def setUp(self):
         self.today = datetime.datetime.now(datetime.timezone.utc).date()

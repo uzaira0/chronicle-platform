@@ -17,6 +17,19 @@ from test_secret_generation import ROOT, SelfhostSetupFixture
 from selfhost_fixture import bundle_fixture_files, run_cert_init
 
 
+
+def write_guard_secrets(host, folder):
+    """What secrets-init writes for config-guard: each file guard-config.sh loads, from .env."""
+    import re
+    from chronicle_ops.envfile import read_env, value
+    settings = read_env(host / '.env')
+    guard = (host / 'guard-config.sh').read_text()
+    call = guard[guard.index('load_secret_files "$CHRONICLE_SECRETS_DIR"'):guard.index('\nfi\n', guard.index('load_secret_files "$CHRONICLE_SECRETS_DIR"'))]
+    folder.mkdir()
+    for variable, name in re.findall(r'([A-Z_][A-Z0-9_]*):([a-z][a-z-]*)', call):
+        (folder / name).write_text(value(settings, variable))
+    return folder
+
 class FreshBundleSetupTests(SelfhostSetupFixture):
     def install_ip_stub(self, extra=''):
         """An `ip` that reports loopback and one LAN IPv4 address (plus `extra` printf lines) and no policy routes."""
@@ -141,13 +154,32 @@ esac
         for stale in (None, *SOURCE_IMAGES):
             def inspect(command, **kwargs):
                 bad = stale is not None and command[-1] == getattr(args, stale.component + '_image')
-                return subprocess.CompletedProcess(command, 0, stdout=('0' * 40 if bad else tree) + '\n')
+                return subprocess.CompletedProcess(command, 0, stdout=('0' * 40 if bad else tree) + ' linux/amd64\n')
             with self.subTest(stale=stale), patch.dict(validate.__globals__, subprocess=SimpleNamespace(run=inspect)):
                 if stale is None:
                     self.assertEqual(len(SOURCE_IMAGES), len(validate(args)))
                 else:
                     with self.assertRaises(SystemExit):
                         validate(args)
+
+    def test_every_first_party_image_must_be_built_for_the_release_platform(self):
+        """2026.11.6 candidates built unpinned on an arm64 Mac were arm64; the manifest declares linux/amd64."""
+        from chronicle_ops.images import SOURCE_IMAGES, source_inputs_tree
+        builder = runpy.run_path(str(ROOT / 'scripts/build-selfhost-release.py'))
+        revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+        tree = source_inputs_tree(ROOT, revision)
+        args = SimpleNamespace(version='2026.10.17', source_revision=revision, public_revision=None,
+                               source_date_epoch=1700000000, **{image.component + '_image':
+                               f'fixture/{image.component}@sha256:' + 'a' * 64 for image in SOURCE_IMAGES})
+        validate = builder['validate_inputs']
+        for platform in ('linux/arm64', 'linux/amd64/v3', ''):
+            def inspect(command, **kwargs):
+                odd = command[-1] == args.grafana_image
+                return subprocess.CompletedProcess(command, 0, stdout=f"{tree} {platform if odd else 'linux/amd64'}\n")
+            with self.subTest(platform=platform), patch.dict(validate.__globals__, subprocess=SimpleNamespace(run=inspect)), \
+                    self.assertRaises(SystemExit) as refused:
+                validate(args)
+            self.assertIn('grafana image is built for', str(refused.exception.code))
 
     def test_every_setup_mode_passes_shipped_preflight(self):
         from chronicle_ops.migrations import migration_hashes
@@ -198,6 +230,8 @@ esac
                     guard = json.loads(rendered.stdout)['services']['config-guard']['environment']
                     # Compose escapes dollars when serializing a reusable Compose document.
                     guard = {key: text.replace('$$', '$') for key, text in guard.items()}
+                    # The guard reads credentials from the files secrets-init writes from .env.
+                    guard['CHRONICLE_SECRETS_DIR'] = str(write_guard_secrets(host, host.parent / f'guard-{mode.value}-{monitoring}'))
                     # Setup fakes Docker's bcrypt helper; verification needs the real Compose parser.
                     environment.update(guard, CHRONICLE_GUARD_TLS_DIR=str(host / 'tls'), PATH=os.environ['PATH'])
                     for script in ('verify-config.sh', 'guard-config.sh'):
@@ -214,9 +248,9 @@ esac
         from chronicle_ops.envfile import read_env, value
         settings = read_env(self.host / '.env')
         environment = dict(self.environment, **{key: value(settings, key) for key in settings})
-        environment.update(TLS_MODE='behind-proxy', DASHBOARD_EXPOSURE='internal', BACKUPS_ENABLED='true',
-                           COMPOSE_FILE_SELECTION=value(settings, 'COMPOSE_FILE'),
-                           CHRONICLE_GUARD_TLS_DIR=str(self.host / 'tls'), **overrides)
+        environment.update({**dict(TLS_MODE='behind-proxy', DASHBOARD_EXPOSURE='internal', BACKUPS_ENABLED='true',
+                                   COMPOSE_FILE_SELECTION=value(settings, 'COMPOSE_FILE'),
+                                   CHRONICLE_GUARD_TLS_DIR=str(self.host / 'tls')), **overrides})
         return run(['bash', str(self.host / 'guard-config.sh')], cwd=self.host, env=environment,
                    capture=True, stderr=subprocess.PIPE, timeout=20)
 
@@ -237,6 +271,23 @@ esac
                 self.assertEqual(accepted, result.returncode == 0, result.stdout + result.stderr)
                 if not accepted:
                     self.assertIn('POOL_', result.stdout)
+
+    def test_own_tls_warns_about_an_ocsp_must_staple_certificate(self):
+        """web has no route out, so Caddy staples no OCSP response (docs/NETWORK-EGRESS.md); a
+        Must-Staple certificate would then be refused by browsers that enforce it."""
+        self.run_setup()
+        tls = self.host / 'tls'
+        tls.mkdir(exist_ok=True)
+        for must_staple in (True, False):
+            with self.subTest(must_staple=must_staple):
+                extra = ['-addext', 'tlsfeature=status_request'] if must_staple else []
+                made = run(['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+                            '-nodes', '-days', '2', '-subj', '/CN=staple.test', '-keyout', str(tls / 'key.pem'),
+                            '-out', str(tls / 'cert.pem'), *extra], capture=True, stderr=subprocess.PIPE, timeout=20)
+                self.assertEqual(made.returncode, 0, made.stderr)
+                # The fixture's openssl only generates secrets; the guard reads the certificate with the real one.
+                result = self.guard(TLS_MODE='own-tls', PATH=os.environ['PATH'])
+                self.assertEqual(must_staple, 'OCSP Must-Staple' in result.stdout, result.stdout + result.stderr)
 
     def test_resetup_reaches_the_fresh_setup_pool_tls_answer(self):
         from chronicle_ops.envfile import read_env, set_env_values, value

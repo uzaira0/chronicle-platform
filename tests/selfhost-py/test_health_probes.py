@@ -51,11 +51,8 @@ class HealthProbeTests(unittest.TestCase):
                 self.assertTrue(any(re.fullmatch(r"tls \S+\.pem \S+\.pem", line) for line in internal))
                 route = internal[internal.index("route {") + 1:]
                 self.assertEqual("import chronicle_health", route[0])
-        monitoring = (ROOT / "selfhost/monitoring/probe.sh").read_text()
-        internal_probe = next(line for line in monitoring.splitlines() if '"$INTERNAL_HEALTH_URL"' in line)
-        self.assertIn('--cacert "$internal_ca"', internal_probe)
-        self.assertIn("== 204 ]]", internal_probe)
-        self.assertNotIn(" -k", internal_probe)
+        # The operational probe's side (verified against the dashboard CA, never -k, 204 only) runs
+        # probe.sh itself: tests/security/selfhost-monitoring.py probe_certificate_check.
 
 
     def test_no_prose_waivers_replace_readiness(self):

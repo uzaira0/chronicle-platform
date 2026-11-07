@@ -1,29 +1,39 @@
 import os
-from contextlib import ExitStack
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "selfhost"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from chronicle_ops.env_migration import compose_names, merge_env
-from chronicle_ops.release import MIGRATIONS_KEY, UPGRADE_FROM_MINIMUM, UPGRADE_FLOOR_KEY, compose_release, free_disk_floor, parse_version, read_manifest, require_current_owner
-from chronicle_ops.receipts import OPERATOR_RECEIPTS_DIR
 # Imported before any patch so their from-imports bind the real functions, not a test's mock.
 from chronicle_ops import update, upgrade  # noqa: F401
+from chronicle_ops.common import run
+from chronicle_ops.env_migration import compose_names, merge_env
+from chronicle_ops.receipts import OPERATOR_RECEIPTS_DIR
+from chronicle_ops.release import (
+    MIGRATIONS_KEY,
+    UPGRADE_FLOOR_KEY,
+    UPGRADE_FROM_MINIMUM,
+    compose_release,
+    free_disk_floor,
+    parse_version,
+    read_manifest,
+    require_current_owner,
+)
 from selfhost_fixture import copy_selfhost_fixture
 from test_secret_generation import SelfhostSetupFixture
-from chronicle_ops.common import run
 
 
 def complete_manifest_fixture(bundle, images=None):
     """Complete the small shell fixtures with the publisher's integrity contract."""
     import json
     import shutil
+
     from chronicle_ops.dump import file_sha256
     from chronicle_ops.envfile import read_env, value
     from chronicle_ops.images import IMAGE_INPUTS_KEY, SOURCE_IMAGES
@@ -117,6 +127,12 @@ class ReleaseTests(unittest.TestCase):
         with patch.dict(os.environ, clear=True):
             self.assertEqual(free_disk_floor({}), '5')
 
+    def test_upgrade_floor_is_pinned(self):
+        # Every server installed since the 2026.10.18 reset must reach the newest release with
+        # ./chronicle update alone. Raising this floor strands them: add a migration step instead.
+        from chronicle_ops.release import UPGRADE_FROM_MINIMUM
+        self.assertEqual('2026.10.18', UPGRADE_FROM_MINIMUM)
+
     def test_every_free_disk_reader_resolves_the_floor_through_the_one_owner(self):
         # update, upgrade, doctor and storage-check once read .env alone and ignored the CLI's precedence.
         import ast
@@ -128,6 +144,15 @@ class ReleaseTests(unittest.TestCase):
             readers += [f'{path.name}:{node.lineno}' for node in ast.walk(tree)
                         if isinstance(node, ast.Constant) and node.value == 'MIN_FREE_DISK_GIB' and node not in owners]
         self.assertEqual([], readers)
+
+    def test_the_core_network_range_has_one_owner(self):
+        # network-subnet.py chooses CHRONICLE_CORE_PREFIX; setup and update write it to .env and Compose
+        # refuses to start without it, so no other shipped file carries a fallback of its own.
+        selfhost = ROOT / 'selfhost'
+        shipped = [selfhost / 'chronicle', selfhost / '.env.example', *selfhost.glob('*.yml'), *selfhost.glob('*.sh'),
+                   *selfhost.glob('*.py'), *selfhost.glob('overlays/*.yml'), *selfhost.glob('chronicle_ops/*.py')]
+        self.assertEqual(['selfhost/network-subnet.py'],
+                         sorted(path.relative_to(ROOT).as_posix() for path in shipped if '10.252' in path.read_text()))
 
     def test_rollback_keeps_the_same_candidate_valid_and_archives_settings_privately(self):
         from chronicle_ops.restore import rollback
@@ -149,14 +174,18 @@ class ReleaseTests(unittest.TestCase):
             operation.return_value.execute.return_value = 0
             for name in ("chronicle_ops.restore.acquire_operation_lock", "chronicle_ops.restore.release_operation_lock",
                          "chronicle_ops.restore.compose", "chronicle_ops.release.require_current_owner",
-                         "chronicle_ops.env_migration.merge_env", "chronicle_ops.release.set_current_owner",
+                         "chronicle_ops.env_migration.merge_env",
                          "chronicle_ops.reconcile.install", "chronicle_ops.reconcile.uninstall"):
                 stack.enter_context(patch(name))
             stack.enter_context(patch("chronicle_ops.upgrade.start_release"))
+            stack.enter_context(patch("chronicle_ops.restore.database_moved", return_value=False))
+            stack.enter_context(patch("chronicle_ops.upgrade.verify_release"))
             stack.enter_context(patch("chronicle_ops.common.run", return_value=subprocess.CompletedProcess([], 0)))
             stack.enter_context(patch.object(Path, "cwd", return_value=candidate))
             stack.enter_context(patch.dict(os.environ, {}, clear=True))
             self.assertEqual(rollback(old, "/backups/fixture.sql.gz", "a" * 64, True), 0)
+            # The rollback records the previous release as the owner and reads it back (UPD-N1).
+            self.assertEqual(str(old.resolve()), (state / ".chronicle-owner").read_text().strip())
             self.assertFalse((candidate / ".env").exists())
             archives = list((state / OPERATOR_RECEIPTS_DIR).glob(".env.rollback-*"))
             self.assertEqual(len(archives), 1)
@@ -285,6 +314,8 @@ class ReleaseTests(unittest.TestCase):
                     ('manifest symlink', linked_manifest, 'release manifest is missing or unsafe'),
                     ('future schema', edit(schema_version=2), 'unsupported release manifest schema'),
                     ('branch name as revision', edit(source_revision='main'), 'invalid source revision'),
+                    ('platform without its OS', edit(platform='amd64'), 'invalid release platform'),
+                    ('platform not a string', edit(platform=['linux/amd64']), 'invalid release platform'),
                     ('empty inventory', edit(files={}), 'release manifest has no file inventory'),
                     ('non-text checksum', edit(files=lambda files: dict(files, **{'selfhost/chronicle': 7})), 'malformed file inventory entry'),
                     ('escaping path', edit(files=lambda files: dict(files, **{'selfhost/../../etc/passwd': '0' * 64})), 'unsafe file path'),
@@ -312,6 +343,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_an_interrupted_updates_candidate_alone_may_act_before_ownership_moves(self):
         import json
+
         from chronicle_ops import release
         from chronicle_ops.reconcile import RECOVERY_FILE, UPGRADE_LOCK
         with tempfile.TemporaryDirectory() as folder, patch.object(release, 'compose_projects', return_value=[]):
@@ -319,7 +351,8 @@ class ReleaseTests(unittest.TestCase):
             for directory in (state, old, candidate, stranger):
                 directory.mkdir()
             release.set_current_owner(old, state)
-            with self.assertRaisesRegex(ValueError, 'this release was superseded; use the active selfhost directory: ' + str(old)):
+            # The marker records the resolved directory (macOS /var is /private/var).
+            with self.assertRaisesRegex(ValueError, 'this release was superseded; use the active selfhost directory: ' + str(old.resolve())):
                 require_current_owner(candidate, state, 'pilot')
             (state / UPGRADE_LOCK).mkdir()
             (state / UPGRADE_LOCK / RECOVERY_FILE).write_text(json.dumps({'owner': str(candidate), 'phase': 'migration-started'}))
@@ -327,6 +360,29 @@ class ReleaseTests(unittest.TestCase):
             require_current_owner(old, state, 'pilot')
             with self.assertRaisesRegex(ValueError, 'this release was superseded'):
                 require_current_owner(stranger, state, 'pilot')
+
+    def test_recorded_release_directories_match_through_symlinks(self):
+        """A recovery record written through a symlinked path still names the same release."""
+        import json
+
+        from chronicle_ops import release
+        from chronicle_ops.common import same_path
+        from chronicle_ops.reconcile import RECOVERY_FILE, UPGRADE_LOCK
+        with tempfile.TemporaryDirectory() as folder, patch.object(release, 'compose_projects', return_value=[]):
+            real = Path(folder).resolve() / 'data'
+            state, candidate = real / 'state', real / 'candidate'
+            for directory in (state, candidate):
+                directory.mkdir(parents=True)
+            link = Path(folder).resolve() / 'link'
+            link.symlink_to(real)
+            self.assertTrue(same_path(str(link / 'candidate'), candidate))
+            self.assertFalse(same_path('', candidate))
+            self.assertFalse(same_path('candidate', candidate))
+            release.set_current_owner(real / 'old', state)
+            (state / UPGRADE_LOCK).mkdir()
+            (state / UPGRADE_LOCK / RECOVERY_FILE).write_text(json.dumps({'owner': str(link / 'candidate'),
+                                                                          'phase': 'migration-started'}))
+            require_current_owner(candidate, state, 'pilot')  # was refused: text compared with a resolved path
 
     def test_a_full_disk_during_the_pre_update_dump_stops_pg_dump(self):
         from chronicle_ops import release
@@ -365,8 +421,13 @@ class ReleaseTests(unittest.TestCase):
     def test_cleanup_subtracts_every_retained_runtime_image(self):
         import hashlib
         import json
-        from chronicle_ops.images import bundle_config, SOURCE_IMAGES
-        from chronicle_ops.release import cleanup_releases, RELEASE_KEEP_COUNT, UPDATE_DIRECTORY_PREFIX
+
+        from chronicle_ops.images import SOURCE_IMAGES, bundle_config
+        from chronicle_ops.release import (
+            RELEASE_KEEP_COUNT,
+            UPDATE_DIRECTORY_PREFIX,
+            cleanup_releases,
+        )
         services = bundle_config(Path(__file__).resolve().parents[2] / 'selfhost')['services']
         pins = {service['image'] for service in services.values() if 'image' in service}
         pins = {next((f'fixture/{image.component}@sha256:' + 'a' * 64 for image in SOURCE_IMAGES
@@ -450,3 +511,82 @@ class ReleaseGitDiagnosticTests(unittest.TestCase):
                 builder['require_committed_release_source'](Path(folder), 'a' * 40)
         self.assertIn('source metadata', str(failure.exception))
         self.assertIn('checkout', str(failure.exception))
+
+
+class DatabaseVolumeContinuityTests(unittest.TestCase):
+    """Publishing refuses a release that a supported published release could not update to."""
+
+    def test_a_major_change_needs_new_volume_names_and_the_same_major_keeps_them(self):
+        from chronicle_ops.migrations import database_layout, layout_conflict
+        dockerfile = 'FROM percona/percona-distribution-postgresql:{}.6.1-4@sha256:' + 'a' * 64 + '\n'
+        compose = 'services:\n  postgres:\n    volumes:\n      - {}:/data/db\n      - {}:/var/lib/postgresql/tde-keyring\n'
+        published = database_layout(dockerfile.format(18), compose.format('postgres_data', 'postgres_tde_keyring'))
+        self.assertEqual((18, {'postgres_data', 'postgres_tde_keyring'}), published)
+        for major, data, keyring, problem in (
+                (18, 'postgres_data', 'postgres_tde_keyring', None),
+                (19, 'postgres_data', 'postgres_tde_keyring', 'a new major needs new volume names'),
+                (19, 'postgres_data_19', 'postgres_tde_keyring_19', None),
+                (18, 'postgres_data_18', 'postgres_tde_keyring_18', 'the update would start it on another database')):
+            with self.subTest(major=major, data=data):
+                conflict = layout_conflict('2026.11.2', published, database_layout(dockerfile.format(major), compose.format(data, keyring)))
+                if problem is None:
+                    self.assertIsNone(conflict)
+                else:
+                    self.assertIn(problem, conflict)
+
+    def test_this_source_tree_is_updatable_from_every_supported_published_release(self):
+        from chronicle_ops.migrations import require_database_volume_continuity
+        require_database_volume_continuity(ROOT, ROOT)
+
+
+class ReleasePlatformTests(unittest.TestCase):
+    """CI-I4b: the release manifest declares the image platform, and installed releases still read it."""
+
+    def build_bundle(self, folder):
+        import json
+        import runpy
+        from types import SimpleNamespace
+
+        from chronicle_ops.migrations import migration_hashes
+        from selfhost_fixture import bundle_fixture_files
+        builder = runpy.run_path(str(ROOT / 'scripts/build-selfhost-release.py'))
+        version = '2026.11.6'
+        bundle = Path(folder) / ('chronicle-selfhost-' + version)
+        args = SimpleNamespace(source_revision='a' * 40, public_revision=None, inputs_tree='b' * 40,
+                               source_date_epoch=1700000000, migrations=migration_hashes(ROOT))
+        tracked = builder['tracked_source_paths'](ROOT) | {'selfhost/' + name for name in bundle_fixture_files(builder)}
+        builder['copy_bundle_inputs'](bundle, args, tracked)
+        images = {name: 'fixture/' + name + '@sha256:' + 'a' * 64 for name in builder['PLACEHOLDERS'].values()}
+        builder['render_bundle'](bundle, args, images, version)
+        return bundle, json.loads((bundle / 'release-manifest.json').read_text())
+
+    def test_the_manifest_declares_the_one_published_platform(self):
+        import re
+        with tempfile.TemporaryDirectory() as folder:
+            _, manifest = self.build_bundle(folder)
+        toolchain = re.search(r'^release_platform: "([^"]+)"', (ROOT / 'toolchain-manifest.yaml').read_text(), re.MULTILINE)[1]
+        publish = re.search(r'^release_platform=(\S+)', (ROOT / 'scripts/publish-images.sh').read_text(), re.MULTILINE)[1]
+        self.assertEqual('linux/amd64', manifest['platform'])
+        from chronicle_ops.release import RELEASE_PLATFORM
+        self.assertEqual({manifest['platform']}, {toolchain, publish, RELEASE_PLATFORM})
+
+    def test_2026_11_2_reads_the_new_manifest_with_its_own_code(self):
+        # An installed release validates the next bundle with its own, unchangeable read_manifest:
+        # discovery first, then the full check before any change (update.py, upgrade.py at the tag).
+        tags = subprocess.run(['git', '-C', str(ROOT), 'tag', '--list', '2026.11.2'], capture_output=True, text=True, check=True)
+        self.assertEqual('2026.11.2', tags.stdout.strip(), 'run `git fetch --tags`')
+        with tempfile.TemporaryDirectory() as folder:
+            bundle, _ = self.build_bundle(folder)
+            installed = Path(folder) / 'installed'
+            installed.mkdir()
+            archive = subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=tar', '2026.11.2', 'selfhost/chronicle_ops'],
+                                     capture_output=True, check=True).stdout
+            subprocess.run(['tar', '-x', '-C', str(installed)], input=archive, check=True)
+            script = ('import sys; sys.path.insert(0, sys.argv[1]); from chronicle_ops.release import read_manifest\n'
+                      'for discovery in (True, False):\n'
+                      '    print(read_manifest(sys.argv[2], True, discovery=discovery).manifest["release_version"])\n')
+            result = subprocess.run([sys.executable, '-s', '-c', script, str(installed / 'selfhost'),
+                                     str(bundle / 'release-manifest.json')], capture_output=True, text=True, timeout=60,
+                                    check=False, env={key: item for key, item in os.environ.items() if key != 'PYTHONPATH'})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual('2026.11.6\n2026.11.6\n', result.stdout)

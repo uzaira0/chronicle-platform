@@ -1,5 +1,9 @@
 """Operator audit regressions, using synthetic state and the shipped configuration."""
 
+import json
+import os
+import re
+import shutil
 import subprocess
 import time
 import unittest
@@ -148,7 +152,8 @@ setup_network_policy
             ('operational-probe', 'user', '0:0', 'long-running as root'),
             ('operational-probe', 'user', '00:0', 'long-running as root'),
             ('docker-socket-proxy', 'cap_add', ['SYS_ADMIN'], 'socket-proxy root exception'),
-            ('cadvisor', 'volumes', ['/:/rootfs:rw', '/sys:/sys:ro', '/var/lib/docker/:/var/lib/docker:ro'], 'cAdvisor root exception'),
+            # cAdvisor runs unprivileged since CI-R1; root is no longer an exception for it.
+            ('cadvisor', 'user', '0:0', 'long-running as root'),
         ):
             with self.subTest(service=name, field=field):
                 config = copy.deepcopy(original)
@@ -179,22 +184,57 @@ setup_network_policy
     def test_compose_guard_receives_every_security_input_it_validates(self):
         import yaml
         guard = yaml.safe_load((ROOT / 'selfhost/docker-compose.yml').read_text())['services']['config-guard']['environment']
-        for name in ('CHRONICLE_RECORD_STAFF_IP', 'JWT_SECRET_PREVIOUS', 'JWT_SECRET_PREVIOUS_EXPIRES_AT',
+        for name in ('CHRONICLE_RECORD_STAFF_IP', 'JWT_SECRET_PREVIOUS_EXPIRES_AT',
                      'RATE_LIMIT_MOBILE_ABUSE_EVENTS', 'RATE_LIMIT_MOBILE_WINDOW',
                      'RATE_LIMIT_WEB_ABUSE_EVENTS', 'RATE_LIMIT_WEB_WINDOW',
                      'RATE_LIMIT_GUARD_EVENTS', 'RATE_LIMIT_GUARD_WINDOW'):
             self.assertIn(name, guard)
+        # Credentials reach the guard as the files secrets-init writes, not through its environment.
+        self.assertNotIn('JWT_SECRET_PREVIOUS', guard)
+
+    def test_the_guard_checks_the_previous_jwt_secret_it_reads_from_its_secret_file(self):
+        from chronicle_ops.envfile import read_env, value
+        from test_fresh_setup import write_guard_secrets
+        self.run_setup()
+        settings = read_env(self.host / '.env')
+        secrets = write_guard_secrets(self.host, self.host.parent / 'guard-secrets')
+        credentials = {path.name for path in secrets.iterdir()}
+        self.assertIn('jwt-secret-previous', credentials)
+        environment = {key: value(settings, key) for key in settings if key not in (
+            'POSTGRES_PASSWORD', 'POSTGRES_APP_PASSWORD', 'JWT_SECRET', 'JWT_SECRET_PREVIOUS', 'METRICS_PASSWORD',
+            'CHRONICLE_INTERNAL_WEB_SECRET', 'CHRONICLE_REVIEWER_ACCESS_SECRET', 'GRAFANA_ADMIN_PASSWORD')}
+        environment.update(self.environment, TLS_MODE='behind-proxy', DASHBOARD_EXPOSURE='internal', BACKUPS_ENABLED='true',
+                           COMPOSE_FILE_SELECTION=value(settings, 'COMPOSE_FILE'), POOL_LISTENER_TLS='true',
+                           CHRONICLE_SECRETS_DIR=str(secrets))
+        for previous, failed in (('', False), ('too-short', True)):
+            with self.subTest(previous=previous):
+                (secrets / 'jwt-secret-previous').write_text(previous)
+                result = subprocess.run(['bash', str(self.host / 'guard-config.sh')], cwd=self.host, env=environment,
+                                        capture_output=True, text=True, timeout=20, check=False)
+                self.assertEqual(failed, bool(re.search('FAIL.*JWT_SECRET_PREVIOUS', result.stdout)), result.stdout)
+                self.assertEqual(failed, result.returncode != 0, result.stdout + result.stderr)
 
     def test_staff_ip_recording_defaults_off_everywhere(self):
-        # Staff IP fingerprints are opt-in.
-        import yaml
-        services = yaml.safe_load((ROOT / 'selfhost/docker-compose.yml').read_text())['services']
-        defaults = {service: environment['CHRONICLE_RECORD_STAFF_IP'] for service, body in services.items()
-                    if 'CHRONICLE_RECORD_STAFF_IP' in (environment := body.get('environment') or {})}
-        self.assertEqual({'config-guard', 'backend'}, set(defaults))
-        self.assertEqual({'${CHRONICLE_RECORD_STAFF_IP:-false}'}, set(defaults.values()))
-        self.assertIn(': "${CHRONICLE_RECORD_STAFF_IP:=false}"', (ROOT / 'selfhost/guard-config.sh').read_text().splitlines())
-        self.assertIn('CHRONICLE_RECORD_STAFF_IP=false', (ROOT / 'selfhost/.env.example').read_text().splitlines())
+        # Staff IP fingerprints are opt-in: setup writes false, and a .env without the key renders
+        # false into every service that reads it. One default in every file: test_config_defaults.
+        from chronicle_ops.envfile import read_env, value
+        self.run_setup()
+        settings = read_env(self.host / '.env')
+        self.assertEqual('false', value(settings, 'CHRONICLE_RECORD_STAFF_IP'))
+        if not shutil.which('docker'):
+            self.skipTest('docker compose renders the services')
+        environment = {key: entry for key, entry in os.environ.items() if key != 'CHRONICLE_RECORD_STAFF_IP'}
+        environment.update({key: value(settings, key) for key in settings if key != 'CHRONICLE_RECORD_STAFF_IP'})
+        # The launcher exports the operator's ids before every Compose call.
+        environment.update(CHRONICLE_HOST_UID=str(os.getuid()), CHRONICLE_HOST_GID=str(os.getgid()))
+        files = [argument for name in value(settings, 'COMPOSE_FILE').split(':') for argument in ('-f', name)]
+        result = subprocess.run(['docker', 'compose', '--env-file', os.devnull, *files, 'config', '--format', 'json'],
+                                cwd=ROOT / 'selfhost', env=environment, capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(0, result.returncode, result.stderr)
+        services = json.loads(result.stdout)['services']
+        rendered = {name: service['environment']['CHRONICLE_RECORD_STAFF_IP'] for name, service in services.items()
+                    if 'CHRONICLE_RECORD_STAFF_IP' in (service.get('environment') or {})}
+        self.assertEqual({'config-guard': 'false', 'backend': 'false'}, rendered)
 
 
 if __name__ == '__main__':

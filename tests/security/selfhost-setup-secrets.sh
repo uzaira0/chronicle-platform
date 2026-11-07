@@ -378,25 +378,25 @@ if env PATH="${COMMAND_DIR}:${PATH}" \
     SELFHOST_SETUP_TEST_RENDERED_SUBNET=172.28.0.0/16 \
     SELFHOST_SETUP_TEST_PREFLIGHT_CALLS="${RUN_DIR}/preflight-calls" \
     /bin/bash "${FIXTURE_SELFHOST}/chronicle" up >"${RUN_DIR}/subnet-preflight-output.txt" 2>&1; then
-  fail "up accepted a subnet held by another Docker network"
+  : # An overlap only warns; the fixture's later steps decide the exit status.
 fi
-if ! grep -Fq 'CHRONICLE_SUBNET 172.28.0.0/16 overlaps Docker network other_default (172.28.0.0/16); set CHRONICLE_SUBNET in .env to a free private range' \
+if ! grep -Fq 'warning: CHRONICLE_SUBNET 172.28.0.0/16 overlaps Docker network other_default (172.28.0.0/16); set CHRONICLE_SUBNET in .env to a free private range' \
     "${RUN_DIR}/subnet-preflight-output.txt"; then
   cat "${RUN_DIR}/subnet-preflight-output.txt" >&2
-  fail "up did not name the conflict and its remedy"
+  fail "up did not warn about the conflict and name its remedy"
 fi
-! grep -Eq '(^| )(run|up)( |$)' "${RUN_DIR}/preflight-calls" \
-  || fail "up started a container before rejecting the subnet conflict"
-printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
-  PATH="${COMMAND_DIR}:${PATH}" "$REAL_PYTHON" "${FIXTURE_SELFHOST}/network-subnet.py" check \
-  || fail "subnet check rejected the project's own network"
+own_warnings="$(printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
+  PATH="${COMMAND_DIR}:${PATH}" "$REAL_PYTHON" "${FIXTURE_SELFHOST}/network-subnet.py" check 2>&1)" \
+  || fail "subnet check failed on the project's own network"
+[[ -z "$own_warnings" ]] || fail "subnet check warned about the project's own network: $own_warnings"
 # Same name without this project's Compose labels is someone else's network, not ours.
-if printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
+impostor_warnings="$(printf '%s\n' '{"name":"other","networks":{"default":{"name":"other_default","ipam":{"config":[{"subnet":"172.28.0.0/16"}]}}}}' |
   SELFHOST_SETUP_TEST_NETWORKS='[{"Name":"other_default","IPAM":{"Config":[{"Subnet":"172.28.0.0/16"}]}}]' \
-  PATH="${COMMAND_DIR}:${PATH}" "$REAL_PYTHON" "${FIXTURE_SELFHOST}/network-subnet.py" check 2>/dev/null; then
-  fail "subnet check excluded an unlabelled network that only shares the project's name"
-fi
-echo "PASS: subnet selection, rerun preservation, and pre-start overlap rejection"
+  PATH="${COMMAND_DIR}:${PATH}" "$REAL_PYTHON" "${FIXTURE_SELFHOST}/network-subnet.py" check 2>&1)" \
+  || fail "subnet check failed instead of warning"
+[[ "$impostor_warnings" == *"overlaps Docker network other_default"* ]] \
+  || fail "subnet check excluded an unlabelled network that only shares the project's name"
+echo "PASS: subnet selection, rerun preservation, and pre-start overlap warning"
 
 # Setup refuses while a rotation/restore/upgrade lock is held, and never publishes values it
 # read before another operation changed .env under it.

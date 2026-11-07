@@ -16,11 +16,29 @@ FIXTURE_POSTGRES_PASSWORD = "synthetic-test-password"
 FIXTURE_POSTGRES_APP_PASSWORD = "synthetic-app-test-password"
 
 
+def context_sources(dockerfile):
+    """The build-context paths a Dockerfile reads (its COPY/ADD sources and RUN --mount=type=bind sources),
+    as the dependency gate runner reads them (scripts/dependency-gate-runner.py copy_sources)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dependency_gate_runner_sources", ROOT / "scripts/dependency-gate-runner.py")
+    runner = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(spec.name, runner)  # dataclasses look their module up here
+    spec.loader.exec_module(runner)
+    return runner.copy_sources(Path(dockerfile))
+
+
 @functools.cache
 def postgres_image():
-    """The release Postgres image built from selfhost/Dockerfile.postgres; it copies nothing, so no context."""
+    """The release Postgres image built from selfhost/Dockerfile.postgres, with only the context files it reads."""
+    import io
+    import tarfile
     tag = "chronicle-selfhost-postgres:test"
-    subprocess.run(["docker", "build", "-q", "-t", tag, "-"], input=(ROOT / "selfhost/Dockerfile.postgres").read_bytes(),
+    context = io.BytesIO()
+    with tarfile.open(fileobj=context, mode="w", format=tarfile.GNU_FORMAT) as archive:
+        archive.add(ROOT / "selfhost/Dockerfile.postgres", arcname="Dockerfile")
+        for source in context_sources(ROOT / "selfhost/Dockerfile.postgres"):
+            archive.add(ROOT / "selfhost" / source, arcname=source)
+    subprocess.run(["docker", "build", "-q", "-t", tag, "-"], input=context.getvalue(),
                    check=True, capture_output=True, timeout=600)
     return tag
 

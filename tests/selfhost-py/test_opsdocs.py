@@ -220,7 +220,7 @@ class OpsDocsTests(SelfhostSetupFixture):
         settings.write_text(set_env_values(settings.read_text(), {'CHRONICLE_STATE_DIR': str(state)}, require_existing=True))
         case = self.host.parent / 'case'; case.mkdir()
         guide = (ROOT / 'selfhost/docs/INCIDENT-RESPONSE.md').read_text()
-        recipe = guide[guide.index('# Operator receipts:'):].split('```', 1)[0]
+        recipe = guide[guide.index('# Operator receipts:'):].split('```', 1)[0].rstrip().removesuffix(')')
         result = subprocess.run(['bash', '-eu', '-c', 'case_dir="$CASE_DIR"\n' + recipe],
             cwd=self.host, env=dict(self.environment, CASE_DIR=str(case)), capture_output=True, text=True, timeout=10)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)

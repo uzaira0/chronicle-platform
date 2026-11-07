@@ -1,0 +1,15 @@
+id: selfhost-compose-wait-owner
+language: Python
+note: |
+  Blind spots: matches the literal "--wait" argument only; an argv built from a variable or a
+  concatenated string is not resolved. The launcher's shell waits are covered by
+  tests/selfhost-py/test_monitoring_startup.py.
+severity: error
+message: Compose --wait in operator Python must go through chronicle_ops/services.py start_split, which waits only on core services and starts optional monitoring separately. Waiting on a monitoring service lets an unhealthy Grafana fail up, update or rollback.
+files:
+  - "selfhost/chronicle_ops/**/*.py"
+ignores:
+  - "selfhost/chronicle_ops/services.py"
+rule:
+  kind: string
+  regex: '^["'']--wait["'']$'

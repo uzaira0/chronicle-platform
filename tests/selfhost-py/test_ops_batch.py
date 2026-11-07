@@ -134,14 +134,36 @@ esac
         return subprocess.run(['bash', str(fixture.host / 'chronicle'), 'doctor', '--json'],
                               env=dict(fixture.environment, **overrides), capture_output=True, text=True, timeout=20)
 
-    def test_doctor_fails_without_a_monitoring_alert_destination(self):
+    def test_doctor_warns_without_a_monitoring_alert_destination_and_exits_zero(self):
+        """AF-P2: a default install has no alert recipient. A failing row there made doctor exit 1
+        and reconciliation record a failure every 15 minutes, hiding every real failure."""
         fixture = self.doctor_fixture()
         settings = fixture.host / '.env'
         settings.write_text(set_env_values(settings.read_text(), {'CHRONICLE_ALERT_WEBHOOK_URL': ''}, require_existing=True))
         result = self.run_doctor(fixture)
-        self.assertEqual(1, result.returncode, result.stderr + result.stdout)
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
         checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
-        self.assertEqual('fail', checks['alert-route']['status'])
+        self.assertEqual('warn', checks['alert-route']['status'])
+        self.assertIn('CHRONICLE_ALERT_WEBHOOK_URL', checks['alert-route']['recoveryCommand'])
+        self.assertIn('.env', checks['alert-route']['recoveryCommand'])
+        self.assertEqual('ok', json.loads(result.stdout)['overall'])
+
+    def test_doctor_reports_a_configured_alert_destination_as_ok(self):
+        result = self.run_doctor(self.doctor_fixture())
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+        self.assertEqual('ok', checks['alert-route']['status'])
+
+    def test_doctor_reports_db_backup_which_update_no_longer_waits_for(self):
+        """O10d: update and rollback start db-backup without waiting for its first dump, so doctor
+        is where its state shows: healthy is ok, a first dump in progress warns, anything else fails."""
+        fixture = self.doctor_fixture()
+        for state, expected in (('running healthy', 'ok'), ('running starting', 'warn'),
+                                ('running unhealthy', 'fail'), ('exited ', 'fail')):
+            with self.subTest(state=state):
+                result = self.run_doctor(fixture, CONTAINER_STATE=state)
+                checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+                self.assertEqual(expected, checks['service-db-backup']['status'], result.stdout)
 
     def test_low_free_percentage_warns_and_only_the_startup_reserve_fails(self):
         # A 1-TiB host filesystem with 100 GiB available is below 15% free yet far above the reserve.
@@ -931,7 +953,7 @@ cmd_down down
         with tempfile.TemporaryDirectory() as folder:
             compose = Path(folder) / "docker-compose.yml"
             service = {"image": "fixture", "logging": {}, "security_opt": ["no-new-privileges:true"],
-                       "cap_drop": ["ALL"], "pids_limit": 64, "mem_limit": "64m"}
+                       "cap_drop": ["ALL"], "pids_limit": 64, "mem_limit": "64m", "network_mode": "none"}
             for readonly, reason, passes in ((False, "", False), (False, "Reviewed writable cache requirement", True), (True, "", True)):
                 service.update(read_only=readonly, labels={WRITABLE_ROOT_REASON_LABEL: reason})
                 compose.write_text(yaml.safe_dump({"services": {"queue": service}}))

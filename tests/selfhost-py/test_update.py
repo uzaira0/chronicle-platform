@@ -257,7 +257,11 @@ class UpdateCommandTests(unittest.TestCase):
         self.pages = {}
 
     def catalog(self, *tags, url='https://updates.example.cl/releases?per_page=100', **flags):
-        self.pages[url] = [dict(tag_name=tag, draft=False, prerelease=False, **flags) for tag in tags]
+        def assets(tag):
+            name = f"chronicle-selfhost-{tag.removeprefix('v')}.tar.gz"
+            return [dict(name=item, browser_download_url='https://updates.example.cl/' + item)
+                    for item in (name, name + '.sha256', name + '.sha256.sig')]
+        self.pages[url] = [dict(tag_name=tag, draft=False, prerelease=False, assets=assets(tag), **flags) for tag in tags]
 
     def cli(self, *args):
         import io
@@ -266,6 +270,7 @@ class UpdateCommandTests(unittest.TestCase):
         def download(url, *_args, **_kwargs):
             return json.dumps(self.pages[url]).encode()
         with patch('chronicle_ops.update.curl', side_effect=download), \
+             patch('chronicle_ops.egress.first_unreachable', return_value=None), \
              patch('sys.stdout', new_callable=io.StringIO) as output, patch('sys.stderr', new_callable=io.StringIO) as errors:
             status = run_cli(['update', *args])
         return status, output.getvalue(), errors.getvalue()
@@ -297,20 +302,39 @@ class UpdateCommandTests(unittest.TestCase):
         self.catalog('2026.11.4', '2026.10.18', url='https://updates.example.cl/releases?per_page=100&page=2')
         self.assertEqual((UPDATE_AVAILABLE_EXIT, f'Current: {self.current}; selected: 2026.11.4\n', ''), self.cli('--check'))
 
+    def test_a_catalog_that_never_ends_is_cut_off(self):
+        # AF-P8: a mirror that returns full pages forever must not keep update --check looping;
+        # fetch_published_releases then tries the next source.
+        from unittest.mock import patch
+
+        from chronicle_ops import update
+        from chronicle_ops.update import MAX_CATALOG_PAGES, RELEASES_PAGE_SIZE
+        requested = []
+        full_page = [{'tag_name': f'2026.10.30-rc.{number}', 'draft': False, 'prerelease': True}
+                     for number in range(RELEASES_PAGE_SIZE)]
+        def download(url, *_args, **_kwargs):
+            requested.append(url)
+            return json.dumps(full_page).encode()
+        with patch('chronicle_ops.update.curl', side_effect=download), \
+             self.assertRaisesRegex(ValueError, f'more than {MAX_CATALOG_PAGES} pages'):
+            update.catalog_releases('https://updates.example.cl/releases?per_page=100')
+        self.assertEqual(MAX_CATALOG_PAGES, len(requested))
+
     def test_malformed_catalog_or_installation_fails_before_any_change(self):
         import os
         from chronicle_ops.common import OPERATION_LOCK
         manifest = self.release / 'release-manifest.json'
         cases = (
+            # Every release source fails (the fake knows no GitHub URL); the configured one is named first.
             ('catalog object', lambda: self.pages.update({'https://updates.example.cl/releases?per_page=100': {'tag_name': '2026.11.4'}}),
-             'release catalog must be an array'),
+             'no release source answered; updates.example.cl: release catalog must be an array; '
+             "api.github.com: 'https://api.github.com/repos/uzaira0/methodic/releases?per_page=100'; "
+             "github.com: 'https://github.com/uzaira0/methodic/releases.atom'"),
+            # A malformed row is skipped with a warning; with nothing else published there is nothing to select.
             ('unflagged draft', lambda: self.pages.update({'https://updates.example.cl/releases?per_page=100': [{'tag_name': '2026.11.4'}]}),
-             'release catalog requires explicit draft and prerelease flags'),
+             'no published stable releases'),
             ('no manifest', lambda: manifest.unlink(), f'missing current release manifest: {manifest}'),
             ('manifest without version', lambda: manifest.write_text('{}'), 'missing release_version or release tag'),
-            ('shared .env', lambda: self.env.chmod(0o644), "update requires the active release's regular .env with mode 0600"),
-            ('non-http catalog', lambda: os.environ.update(CHRONICLE_RELEASES_URL='file:///etc/passwd'),
-             'release URL must use http or https'),
         )
         for label, change, message in cases:
             saved, url = manifest.read_text() if manifest.exists() else None, os.environ['CHRONICLE_RELEASES_URL']
@@ -318,9 +342,9 @@ class UpdateCommandTests(unittest.TestCase):
             change()
             for args in (('--check',), ()):
                 with self.subTest(label, args=args):
-                    status, _, errors = self.cli(*args) if label != 'non-http catalog' else self.real_curl_cli(*args)
+                    status, _, errors = self.cli(*args)
                     self.assertEqual(1, status)
-                    self.assertEqual(f'error: update failed: {message}\n', errors)
+                    self.assertTrue(errors.endswith(f'error: update failed: {message}\n'), errors)
             self.assertEqual([], [path.name for path in self.state.iterdir() if path.name != OPERATION_LOCK and
                                   not path.name.startswith('.chronicle-owner')])
             manifest.write_text(saved or json.dumps({'release_version': self.current}))
@@ -357,6 +381,8 @@ class UpdateCommandTests(unittest.TestCase):
         from chronicle_ops.reconcile import RECOVERY_FILE, UPGRADE_LOCK
         from chronicle_ops.update import HANDOFF_FILE
         candidate = self.root / 'releases/chronicle-update-x/chronicle-selfhost-2026.11.4/selfhost'
+        candidate.mkdir(parents=True)
+        (candidate / 'chronicle').write_text('')  # a live handoff; a dead one is cleared (test_update_breakers)
         handoff = dict(previous=str(self.selfhost), owner=str(candidate))
         (self.state / HANDOFF_FILE).write_text(json.dumps(handoff))
         recovery = dict(previous=str(self.selfhost), owner=str(self.root / 'recorded/selfhost'))

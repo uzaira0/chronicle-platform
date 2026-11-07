@@ -53,7 +53,7 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         super().setUpClass()
         cls.bootstrap_deployment()
         cls.java_image = cls.pull_image('eclipse-temurin:25-jdk')
-        cls.edge_image = cls.pull_image('caddy:2.11.7-alpine')
+        cls.edge_image = cls.pull_image('caddy:2.11.9-alpine')
         libraries = cls.work / 'classpath'
         libraries.mkdir()
         for index, entry in enumerate(cls.main_classpath.split(os.pathsep)):
@@ -111,7 +111,10 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         services = config['services']
         one_shot = dict(image=self.pg_image, entrypoint=['/bin/true'], restart='no',
                         depends_on=dict(postgres=dict(condition='service_healthy')))
-        services.update({'config-guard': dict(one_shot, profiles=['tools']), 'db-init': one_shot})
+        # The upgrade preflight runs secrets-init, then config-guard, on the candidate.
+        services.update({'config-guard': dict(one_shot, profiles=['tools']), 'db-init': one_shot,
+                         'secrets-init': dict(image=self.pg_image, entrypoint=['/bin/true'], restart='no',
+                                              profiles=['tools'])})
         sources = self.sources[version] / 'chronicle-server/src/main/resources/db/migration'
         libraries = ':'.join('/work/classpath/' + path.name for path in (self.work / 'classpath').iterdir())
         services['migrate'] = dict(image=self.java_image, entrypoint=['java', '-Xmx256m', '-cp', libraries,
@@ -218,6 +221,14 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
     def command(self, args, **kwargs):
         if args[0] == 'python3' and 'network-subnet.py' in args[1]:
             return SimpleNamespace(returncode=0, stdout='')
+        if Path(args[0]).name == 'chronicle' and args[-1] == 'verify' and kwargs.get('cwd'):
+            # Upgrade.verify_previous: the previous release checks itself while it still serves,
+            # before the fence closes, so participants are still accepted here.
+            endpoint = self.dc_fixture(Path(kwargs['cwd']).resolve(), 'port', 'web', '8080').stdout.strip()
+            with urlopen(Request('http://' + endpoint + '/chronicle/v4/study/x/upload', data=b'fixture'),
+                         timeout=10) as response:
+                self.assertEqual(200, response.status)
+            return SimpleNamespace(returncode=0, stdout='internal verification passed')
         if Path(args[0]).name == 'chronicle' and args[-1] == 'verify':
             host = Path(args[0]).resolve().parent
             version = json.loads((host.parent / 'release-manifest.json').read_text())['release_version']
@@ -396,8 +407,11 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         self.assertEqual(self.shipped_version, self.schema_version())
         self.assertTrue(marker.exists())
         self.kill_rollback_phase = None
-        self.assertEqual(0, self.invoke(host))  # Real PREPARED recovery excludes ca-export from up --wait.
+        # Real PREPARED recovery excludes ca-export from up --wait. It ends on the previous
+        # release, so the rerun reports the rolled-back update as a failure (93151f3a).
+        self.assertEqual(1, self.invoke(host))
         self.assertFalse(marker.exists())
+        self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
         self.kill_after_migration = True
         self.assertNotEqual(0, self.invoke(host, second))
         self.kill_after_migration = False
@@ -407,7 +421,7 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         abandoned = Path(record['owner'])
         self.dc_fixture(abandoned, 'restart', 'web')
         self.assert_fenced(abandoned)  # Caddy restart after updater death still refuses participants.
-        self.assertEqual(0, self.invoke(host))  # SIGKILL left the durable fence and safety dump.
+        self.assertEqual(1, self.invoke(host))  # SIGKILL left the durable fence and safety dump; rolled back.
         self.assertFalse(marker.exists())
         self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
         self.assertEqual(self.shipped_version, self.schema_version())
@@ -422,7 +436,7 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
                 self.assertTrue(fence_path(self.work / 'state').exists())
                 self.kill_rollback_phase = None
                 self.fail_version = None
-                self.assertEqual(0, self.invoke(host))
+                self.assertEqual(1, self.invoke(host))  # finishes the rollback
                 self.assertFalse(marker.exists())
                 self.assertFalse(fence_path(self.work / 'state').exists())
                 self.assertEqual(self.shipped_version, self.schema_version())

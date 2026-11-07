@@ -140,7 +140,7 @@ case "${1:-}" in
     fi
     ;;
   run)
-    if [[ "$*" == *'--rm --no-deps ca-export'* ]]; then
+    if [[ "$*" == *'--rm --no-deps ca-export'* || "$*" == *'--rm --no-deps secrets-init'* ]]; then
       printf 'compose-run:%s\n' "$*" >>"${SELFHOST_ROTATION_TEST_ARGS_LOG}"
     elif [[ "$*" == *'--rm --no-deps monitoring-config'* ]]; then
       record_monitoring "$@"

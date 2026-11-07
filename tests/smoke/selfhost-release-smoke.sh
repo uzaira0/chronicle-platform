@@ -345,7 +345,12 @@ PY_WAL
   config_report="$(./verify-config.sh 2>&1)" ||
     { grep -F FAIL <<<"$config_report" >&2; fail "verify-config failed: $BUNDLE"; }
   compose_args=()
-  [[ -f .env ]] || compose_args=(--env-file .env.example)
+  if [[ ! -f .env ]]; then
+    compose_args=(--env-file .env.example)
+    # Setup writes the core network's prefix; the template leaves it to setup.
+    CHRONICLE_CORE_PREFIX="$(python3 ./network-subnet.py default-core)"
+    export CHRONICLE_CORE_PREFIX
+  fi
   docker compose "${compose_args[@]}" config --quiet
   if docker compose "${compose_args[@]}" config --format json | jq -e 'any(.services[]; has("build"))' >/dev/null; then
     fail "extracted release Compose contains a source build: $BUNDLE"
@@ -571,8 +576,14 @@ tls.verify_flags &= ~ssl.VERIFY_X509_STRICT
 base = f"https://127.0.0.1:{os.environ['GRAFANA_PORT']}"
 checks = {
     "/api/datasources/uid/chronicle-victoriametrics": ("uid", "chronicle-victoriametrics"),
-    "/api/dashboards/uid/chronicle-containers": ("meta", None),
 }
+# Every dashboard the bundle ships, not one sample: a dashboard Grafana cannot load stays missing.
+shipped = sorted((Path(os.environ["BUNDLE"]) / "selfhost/monitoring/grafana-dashboards").glob("*.json"))
+if len(shipped) < 6:
+    raise SystemExit(f"the bundle ships {len(shipped)} Grafana dashboards, expected at least 6")
+for dashboard in shipped:
+    uid = json.loads(dashboard.read_text(encoding="utf-8"))["uid"]
+    checks[f"/api/dashboards/uid/{uid}"] = ("dashboard", uid)
 deadline = time.monotonic() + 60
 pending = set(checks)
 while pending and time.monotonic() < deadline:
@@ -585,7 +596,7 @@ while pending and time.monotonic() < deadline:
             key, expected = checks[endpoint]
             if key == "uid" and payload.get(key) == expected:
                 pending.remove(endpoint)
-            elif key == "meta" and payload.get("dashboard", {}).get("uid") == "chronicle-containers":
+            elif key == "dashboard" and payload.get("dashboard", {}).get("uid") == expected:
                 pending.remove(endpoint)
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
             pass

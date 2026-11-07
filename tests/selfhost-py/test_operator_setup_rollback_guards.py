@@ -89,6 +89,8 @@ source "$1"
                 stack.enter_context(patch('chronicle_ops.restore.compose'))
                 stack.enter_context(patch('chronicle_ops.restore.Restore.execute', return_value=0))
                 stack.enter_context(patch('chronicle_ops.common.run', side_effect=run))
+                stack.enter_context(patch('chronicle_ops.upgrade.run', side_effect=run))  # verify_release
+                stack.enter_context(patch('chronicle_ops.restore.database_moved', return_value=False))
                 stack.enter_context(patch('chronicle_ops.upgrade.start_release',
                                           side_effect=lambda host, *_: run([str(host / 'chronicle'), 'up'])))
                 stack.enter_context(patch('chronicle_ops.release.compose_projects', return_value=[]))
@@ -98,7 +100,11 @@ source "$1"
                 with self.assertRaises(subprocess.CalledProcessError):
                     rollback(old, '/backups/reviewed.sql.gz', 'a' * 64, True)
                 release.require_current_owner(old, state, 'pilot')
+                # Reconciliation is disabled here, so its uninstall marker stays. The dump is restored,
+                # so ingress reopens on the data in place, as before the update.
                 self.assertTrue((state / reconcile.STOP_MARKER).exists())
+                from chronicle_ops.ingress import fence_path
+                self.assertFalse(fence_path(state).exists())
                 archive, = (state / receipts.OPERATOR_RECEIPTS_DIR).glob('.env.rollback-*')
                 self.assertEqual(archive.read_text(), settings + ''.join(f'{key}=all\n' for key in retention_keys))
                 for key in retention_keys:
@@ -127,6 +133,7 @@ source "$1"
             written = datetime(2026, 10, 20, 9, 30, tzinfo=timezone.utc).timestamp()
             os.utime(dump, (written, written))
             stack.enter_context(patch('chronicle_ops.release.require_current_owner'))
+            stack.enter_context(patch('chronicle_ops.restore.database_moved', return_value=False))
             stack.enter_context(patch.object(Path, 'cwd', return_value=candidate))
             stack.enter_context(patch('chronicle_ops.restore.time.time', return_value=written + 3 * 86400 + 5 * 3600))
             executed = stack.enter_context(patch('chronicle_ops.restore.Rollback'))
@@ -153,6 +160,7 @@ source "$1"
             (old / '.env').write_text(f"COMPOSE_PROJECT_NAME=pilot\nCHRONICLE_STATE_DIR='{state}'\n")
             (old / '.env').chmod(0o600)
             stack.enter_context(patch('chronicle_ops.release.require_current_owner'))
+            stack.enter_context(patch('chronicle_ops.restore.database_moved', return_value=False))
             stack.enter_context(patch.object(Path, 'cwd', return_value=candidate))
             executed = stack.enter_context(patch('chronicle_ops.restore.Rollback'))
             executed.return_value.execute.return_value = 0

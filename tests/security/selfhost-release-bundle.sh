@@ -57,11 +57,14 @@ cat >"${RUN_DIR}/bin/docker" <<STUB
 #!/usr/bin/env bash
 if [[ "\$1 \$2" == "image inspect" ]]; then
   case "\${@: -1}" in
-    "$MISLABELLED_IMAGE") echo 0000000000000000000000000000000000000000; exit 0 ;;
+    "$MISLABELLED_IMAGE") echo 0000000000000000000000000000000000000000 linux/amd64; exit 0 ;;
     "$BACKEND_IMAGE"|"$FRONTEND_IMAGE"|"$CADDY_IMAGE"|"$BACKUP_IMAGE"|"$GRAFANA_IMAGE"|"$POSTGRES_IMAGE"|"$FLUENTBIT_IMAGE"|"$PRIVATE_REGISTRY_IMAGE")
-      echo "$INPUTS_TREE"; exit 0 ;;
+      echo "$INPUTS_TREE linux/amd64"; exit 0 ;;
   esac
 fi
+# The launcher's daemon-architecture preflight (test_host_architecture covers it): answer the release
+# platform so a run on an arm64 workstation reaches the wizard steps this test checks.
+if [[ "\$*" == "info --format {{.Architecture}}" ]]; then echo x86_64; exit 0; fi
 exec "$REAL_DOCKER" "\$@"
 STUB
 /bin/chmod 700 "${RUN_DIR}/bin/docker"
@@ -174,14 +177,17 @@ last_build=$(grep -n 'docker build ' <<<"$publish_plan" | tail -1 | cut -d: -f1)
 grep -Fq -- '--severity HIGH,CRITICAL --exit-code 1' "$ROOT_DIR/scripts/scan-selfhost-release-images.sh" || fail "publish scan does not gate HIGH and CRITICAL"
 # A dedicated write:packages token, never the operator's general gh token.
 ! grep -Fq 'gh auth token' "$ROOT_DIR/scripts/publish-images.sh" || fail "publish logs in to GHCR with the general gh token"
-grep -Fq 'GHCR_TOKEN' <<<"$publish_plan" || fail "publish does not log in with GHCR_TOKEN"
+grep -Fq 'printf %s "$ghcr_token" | docker login ghcr.io' <<<"$publish_plan" \
+  || fail "publish does not log in with the GHCR_TOKEN it took (unexported) at start"
 unset_token_out="$(cd "$ROOT_DIR" && env -u GHCR_TOKEN bash scripts/publish-images.sh "$RELEASE_VERSION" 2>&1)" \
   && fail "publish ran without GHCR_TOKEN"
 grep -Fq 'GHCR_TOKEN' <<<"$unset_token_out" || fail "publish without GHCR_TOKEN did not name the missing token"
 grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/selfhost/docker-compose.yml" "${RUN_DIR}/archive-members.txt" \
   || fail "archive lacks selfhost/docker-compose.yml"
 for shipped in CHANGELOG.md SECURITY.md LICENSE THIRD-PARTY.md \
-               selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh selfhost/network-subnet.py selfhost/release-signing.pub; do
+               selfhost/docs/INCIDENT-RESPONSE.md selfhost/backup-prune-hook.sh selfhost/network-subnet.py selfhost/release-signing.pub \
+               selfhost/secrets-init.sh selfhost/monitoring/docker-compose.grafana-alerts-closed.yml \
+               selfhost/monitoring/docker-api-strip-env.lua; do
   grep -Fqx "chronicle-selfhost-${RELEASE_VERSION}/${shipped}" "${RUN_DIR}/archive-members.txt" \
     || fail "archive lacks ${shipped}"
 done
@@ -380,8 +386,12 @@ SELFHOST_MATRIX_ROOT="${BUNDLE}/selfhost" \
 copied_env_mode="$(stat -c '%a' "${BUNDLE}/selfhost/.env" 2>/dev/null || stat -f '%Lp' "${BUNDLE}/selfhost/.env")"
 [[ "$copied_env_mode" == 600 ]] || fail "cp .env.example .env did not retain private mode 0600"
 # Backup retention has no default; setup records the operator's choice.
-sed -i -E 's/^(BACKUP_KEEP_DAYS|BACKUP_KEEP_WEEKS|BACKUP_KEEP_MONTHS|PRE_OP_BACKUP_KEEP_DAYS)=$/\1=all/' \
+# perl -pi: BSD sed would take -E as the backup suffix and match nothing.
+perl -pi -e 's/^(BACKUP_KEEP_DAYS|BACKUP_KEEP_WEEKS|BACKUP_KEEP_MONTHS|PRE_OP_BACKUP_KEEP_DAYS)=$/${1}=all/' \
   "${BUNDLE}/selfhost/.env"
+# Setup also writes the internal core network's prefix; take the shipped first choice.
+core_prefix="$(python3 "${BUNDLE}/selfhost/network-subnet.py" default-core)"
+perl -pi -e "s/^CHRONICLE_CORE_PREFIX=\$/CHRONICLE_CORE_PREFIX=${core_prefix}/" "${BUNDLE}/selfhost/.env"
 # Setup also records the operator UID/GID that owns the state directories.
 printf 'CHRONICLE_HOST_UID=%s\nCHRONICLE_HOST_GID=%s\n' "$(id -u)" "$(id -g)" >>"${BUNDLE}/selfhost/.env"
 (cd "${BUNDLE}/selfhost" && docker compose config --images >"${RUN_DIR}/compose-images.txt") \

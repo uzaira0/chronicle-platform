@@ -249,24 +249,29 @@ class OperatorCliTests(unittest.TestCase):
         with patch.dict(os.environ, CHRONICLE_RECONCILE_RUN="true"):
             self.assertEqual(1, self.cli("reconcile", "check-start")[0])
 
-    def test_setup_preflight_refuses_hosts_without_an_active_cron_service(self):
+    def test_setup_preflight_warns_on_hosts_without_an_active_cron_service(self):
         from types import SimpleNamespace
         def services(*active):
             return lambda args, **_: SimpleNamespace(returncode=0 if args[-1] in active else 3)
         cases = (
-            ("Linux", "/usr/bin/tool", services("cron"), (0, "", "")),
-            ("Linux", "/usr/bin/tool", services("crond"), (0, "", "")),
-            ("Darwin", "/usr/bin/tool", services("cron"), (1, "", "error: automatic reconciliation requires a Linux operator crontab\n")),
-            ("Linux", None, services("cron"), (1, "", "error: reconciliation requires crontab, logger and systemctl; "
-                                                 "install cron/cronie or explicitly disable reconciliation\n")),
-            ("Linux", "/usr/bin/tool", services(), (1, "", "error: reconciliation requires an enabled, active cron/crond service\n")),
+            ("Linux", "/usr/bin/tool", services("cron"), None),
+            ("Linux", "/usr/bin/tool", services("crond"), None),
+            ("Darwin", "/usr/bin/tool", services("cron"), "automatic reconciliation requires a Linux operator crontab"),
+            ("Linux", None, services("cron"), "reconciliation requires crontab, logger and systemctl; "
+                                              "install cron/cronie or explicitly disable reconciliation"),
+            ("Linux", "/usr/bin/tool", services(), "reconciliation requires an enabled, active cron/crond service"),
         )
-        for system, tool, systemctl, expected in cases:
-            with self.subTest(system=system, tool=tool, expected=expected), \
+        for system, tool, systemctl, reason in cases:
+            with self.subTest(system=system, tool=tool, reason=reason), \
                  patch("chronicle_ops.reconcile.platform.system", return_value=system), \
                  patch("chronicle_ops.reconcile.shutil.which", return_value=tool), \
                  patch("chronicle_ops.reconcile.run", side_effect=systemctl):
-                self.assertEqual(expected, self.cli("reconcile", "preflight"))
+                status, output, errors = self.cli("reconcile", "preflight")
+                self.assertEqual((0, ""), (status, output))  # never refuses setup
+                if reason:
+                    self.assertIn(f"automatic reconciliation is unavailable: {reason}", errors)
+                else:
+                    self.assertEqual("", errors)
                 with patch.dict(os.environ, CHRONICLE_RECONCILE_ENABLED="false"):
                     self.assertEqual((0, "", ""), self.cli("reconcile", "preflight"))
 

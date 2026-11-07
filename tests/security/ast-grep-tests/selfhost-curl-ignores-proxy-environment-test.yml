@@ -1,0 +1,10 @@
+id: selfhost-curl-ignores-proxy-environment
+valid:
+- "subprocess.run(['curl', '--noproxy', '*', url], check=True)\n"
+- "run(['curl', '--fail', '--noproxy', '*', '--max-time', '10', url], check=True)\n"
+- "subprocess.run(['git', 'fetch', url], check=True)\n"
+invalid:
+- "subprocess.run(['curl', url], check=True)\n"
+- "subprocess.check_output(['curl', '--max-time', '10', url])\n"
+- "run(['curl', url], check=True)\n"
+- "subprocess.run(['curl', '--noproxy', 'localhost', url], check=True)\n"

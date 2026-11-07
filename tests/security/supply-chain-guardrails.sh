@@ -4,7 +4,9 @@ set -euo pipefail
 
 REPORT_DIR="${1:-/tmp/chronicle-supply-chain-guardrails}"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-BUN_VERSION="1.3.12"
+# The Bun pin's one source is toolchain-manifest.yaml (read with sed: this guard cannot depend on yq).
+BUN_VERSION="$(sed -nE 's/^bun: "([^"]+)".*/\1/p' "$ROOT_DIR/toolchain-manifest.yaml")"
+[ -n "$BUN_VERSION" ] || { echo '[fail] toolchain-manifest.yaml has no bun pin' >&2; exit 1; }
 # Bun is the sole JS runtime — Node is banned from workflows entirely
 # (check_runtime_pins rejects any setup-node / node-version occurrence).
 
@@ -105,13 +107,14 @@ problems = []
 
 if package.get("engines", {}).get("bun") != expected_bun:
     problems.append(f"chronicle-web engines.bun must be exactly {expected_bun}")
-for dependency in ("bun", "bun-types"):
-    actual = dev_dependencies.get(dependency)
-    if actual != expected_bun:
-        problems.append(
-            f"chronicle-web devDependency {dependency} must be exactly "
-            f"{expected_bun}, found {actual!r}"
-        )
+actual = dev_dependencies.get("bun-types")
+if actual != expected_bun:
+    problems.append(f"chronicle-web devDependency bun-types must be exactly {expected_bun}, found {actual!r}")
+# Installs run with --ignore-scripts, so the `bun` npm package keeps its placeholder bin, and an
+# installed placeholder shadows the runtime for every nested `bun run` (node_modules/.bin wins).
+for section in ("dependencies", "devDependencies", "optionalDependencies"):
+    if "bun" in package.get(section, {}):
+        problems.append(f"chronicle-web {section} must not list the bun npm package (its bin needs a postinstall)")
 
 report.write_text("\n".join(problems) + ("\n" if problems else ""), encoding="utf-8")
 raise SystemExit(1 if problems else 0)
@@ -220,9 +223,17 @@ SH
   if ! python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" --self-test; then
     fail "OSV waiver checker self-test failed"
   elif xargs -r python3 "$ROOT_DIR/tests/security/check-osv-waivers.py" < "$osv_waivers_file" > "$osv_waivers_file.problems"; then
-    pass "OSV waivers each carry a reason and expire within 62 days"
+    pass "OSV waivers each carry a reason, an owner and a dated recheck, expire within 62 days on staggered dates, and name a resolved version"
   else
-    fail "OSV waivers need a reason and an expiry within 62 days; see $osv_waivers_file.problems"
+    fail "OSV waivers need a reason, an owner, a dated recheck, a staggered expiry within 62 days and a resolved version; see $osv_waivers_file.problems"
+  fi
+  # The stale-entry rule for Trivy needs the release scans (publish-images.sh, local-ci.sh image-gate);
+  # the fields, the expiry bound and the stagger are checked here on every run.
+  if python3 -s -m unittest discover -s "$ROOT_DIR/tests/security" -p test_vulnerability_waivers.py &&
+     python3 "$ROOT_DIR/tests/security/check-trivy-waivers.py" "$ROOT_DIR/.trivyignore.yaml"; then
+    pass "Trivy waivers each carry a statement, an owner and a dated recheck, and expire within 62 days on staggered dates"
+  else
+    fail "Trivy waivers need a statement, an owner, a dated recheck and a staggered expiry within 62 days of it"
   fi
 
 }
@@ -238,27 +249,61 @@ import sys
 root = pathlib.Path(sys.argv[1])
 report = pathlib.Path(sys.argv[2])
 problems = []
+# Every place that installs web dependencies: workflows, scripts, the security runners and every
+# Dockerfile (release images install inside BuildKit, where a lifecycle script runs as root).
 paths = list((root / ".github").rglob("*.yml")) + list((root / ".github").rglob("*.yaml"))
-paths += list((root / "scripts").glob("*.sh"))
+paths += list((root / "scripts").glob("*.sh")) + list((root / "tests").rglob("*.sh"))
+paths += [path for path in root.rglob("Dockerfile*")
+          if path.is_file() and not {"node_modules", ".git", "build"} & set(path.relative_to(root).parts)]
 
-for path in sorted(paths):
+for path in sorted(set(paths)):
     rel = path.relative_to(root)
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if "bun install" not in line:
+        if "bun install" not in line or '"bun install"' in line:  # a quoted string is a matcher, not a run
             continue
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("description:"):
             continue
-        if "--frozen-lockfile" not in line:
-            problems.append(f"{rel}:{line_no}: {stripped}")
+        missing = [flag for flag in ("--frozen-lockfile", "--ignore-scripts") if flag not in line]
+        if missing:
+            problems.append(f"{rel}:{line_no}: missing {' '.join(missing)}: {stripped}")
+        # Bun reads [install] (release age, peers) only from a bunfig.toml beside package.json.
+        earlier = "\n".join(path.read_text(encoding="utf-8").splitlines()[:line_no - 1])
+        if path.name.startswith("Dockerfile") and "bunfig.toml" not in earlier:
+            problems.append(f"{rel}:{line_no}: bunfig.toml is not copied before this install: {stripped}")
 
 report.write_text("\n".join(problems) + ("\n" if problems else ""), encoding="utf-8")
 raise SystemExit(1 if problems else 0)
 PY
   then
-    fail "Bun installs without --frozen-lockfile found; see $unfrozen_file"
+    fail "Bun installs without --frozen-lockfile --ignore-scripts found; see $unfrozen_file"
   else
-    pass "all CI/script Bun installs are frozen"
+    pass "every workflow, script and Dockerfile Bun install is frozen and runs no lifecycle scripts"
+  fi
+}
+
+check_web_install_policy() {
+  # bunfig.toml is the second layer behind Renovate and scripts/check-dependency-age.py: Bun itself
+  # refuses to resolve a version younger than 7 days, and peers stay off (see the bunfig comment).
+  if python3 - "$ROOT_DIR/chronicle-web/bunfig.toml" <<'PY'
+import sys
+import tomllib
+with open(sys.argv[1], "rb") as handle:
+    install = tomllib.load(handle).get("install", {})
+problems = []
+age = install.get("minimumReleaseAge")
+if not isinstance(age, int) or age < 604800:
+    problems.append(f"[install] minimumReleaseAge must be at least 604800 seconds, found {age!r}")
+if install.get("peer") is not False:
+    problems.append("[install] peer must be false")
+for line in problems:
+    print(f"chronicle-web/bunfig.toml: {line}")
+raise SystemExit(1 if problems else 0)
+PY
+  then
+    pass "chronicle-web/bunfig.toml holds back npm versions younger than 7 days"
+  else
+    fail "chronicle-web/bunfig.toml must set [install] minimumReleaseAge >= 604800 and peer = false"
   fi
 }
 
@@ -268,9 +313,9 @@ check_dependency_check_suppressions() {
   if python3 -s -m unittest discover -s "$ROOT_DIR/tests/security" -p test_supply_chain_policy.py &&
      python3 -s "$ROOT_DIR/tests/security/check-dependency-check-suppressions.py" \
        "$ROOT_DIR/config/dependency-check-suppression.xml" "$ROOT_DIR"; then
-    pass "Dependency-Check package-wide suppressions have bounded expiry and exclude resolved dependencies"
+    pass "Dependency-Check suppressions expire within 90 days on staggered dates, name an owner and a recheck, pin versions, still match the runtime, and package-wide ones exclude resolved dependencies"
   else
-    fail "Dependency-Check package-wide suppression policy or negative XML fixtures failed"
+    fail "Dependency-Check suppression policy or negative XML fixtures failed"
   fi
 }
 
@@ -281,6 +326,7 @@ check_dependency_integrity_files
 check_scanner_dependency_inputs
 check_dependency_check_suppressions
 check_frozen_web_installs
+check_web_install_policy
 
 if [ "$failures" -gt 0 ]; then
   record "Supply-chain guardrails failed with $failures finding(s)"
