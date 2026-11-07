@@ -1303,15 +1303,15 @@
   },
   {
    "column": 16,
-   "line": 414,
+   "line": 418,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "rule": "NestedBlockDepth",
    "sha256": "6fa17d49429386c2e775047c1b20cd25456df2517db8bc56de2ec97686562552",
    "span": {
     "endColumn": 6,
-    "endLine": 443,
+    "endLine": 447,
     "startColumn": 5,
-    "startLine": 414
+    "startLine": 418
    }
   },
   {
@@ -1992,15 +1992,15 @@
   },
   {
    "column": 17,
-   "line": 687,
+   "line": 695,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "rule": "ThrowsCount",
    "sha256": "fca9a206357d7ab654577383e16b256e9b9f06051856232562e428f107ded851",
    "span": {
     "endColumn": 6,
-    "endLine": 705,
+    "endLine": 713,
     "startColumn": 5,
-    "startLine": 687
+    "startLine": 695
    }
   },
   {
@@ -2018,15 +2018,15 @@
   },
   {
    "column": 17,
-   "line": 724,
+   "line": 732,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "rule": "LongMethod",
    "sha256": "992b6561f561a4bbe6f8eff0ba7c66020d68bc42e22fcfa157ea259bb6566bc2",
    "span": {
     "endColumn": 6,
-    "endLine": 791,
+    "endLine": 799,
     "startColumn": 5,
-    "startLine": 723
+    "startLine": 731
    }
   },
   {
@@ -2057,28 +2057,28 @@
   },
   {
    "column": 17,
-   "line": 793,
+   "line": 801,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "rule": "LongMethod",
    "sha256": "b9b5ec2f22508742d224f222bfcc396cee99ece4e78922a58f2b45c78ae7e568",
    "span": {
     "endColumn": 6,
-    "endLine": 887,
+    "endLine": 895,
     "startColumn": 5,
-    "startLine": 793
+    "startLine": 801
    }
   },
   {
    "column": 17,
-   "line": 793,
+   "line": 801,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "rule": "ReturnCount",
    "sha256": "b9b5ec2f22508742d224f222bfcc396cee99ece4e78922a58f2b45c78ae7e568",
    "span": {
     "endColumn": 6,
-    "endLine": 887,
+    "endLine": 895,
     "startColumn": 5,
-    "startLine": 793
+    "startLine": 801
    }
   },
   {
@@ -3305,28 +3305,15 @@
   },
   {
    "column": 18,
-   "line": 845,
+   "line": 853,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "rule": "SwallowedException",
    "sha256": "ebf6269d811298d874a7cb23668ea745325b1fa0eef886393577baa809ef810e",
    "span": {
     "endColumn": 34,
-    "endLine": 845,
+    "endLine": 853,
     "startColumn": 18,
-    "startLine": 845
-   }
-  },
-  {
-   "column": 18,
-   "line": 856,
-   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
-   "rule": "TooGenericExceptionCaught",
-   "sha256": "a72d10b2a8a06e6e99f32b31c21542edc7924be865a7c0934c43cea1e9f2573d",
-   "span": {
-    "endColumn": 31,
-    "endLine": 856,
-    "startColumn": 18,
-    "startLine": 856
+    "startLine": 853
    }
   },
   {
@@ -3340,6 +3327,19 @@
     "endLine": 151,
     "startColumn": 5,
     "startLine": 86
+   }
+  },
+  {
+   "column": 18,
+   "line": 864,
+   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
+   "rule": "TooGenericExceptionCaught",
+   "sha256": "a72d10b2a8a06e6e99f32b31c21542edc7924be865a7c0934c43cea1e9f2573d",
+   "span": {
+    "endColumn": 31,
+    "endLine": 864,
+    "startColumn": 18,
+    "startLine": 864
    }
   },
   {
@@ -6581,7 +6581,7 @@
    "text": "@Suppress(\"ThrowsCount\")"
   },
   {
-   "line": 336,
+   "line": 339,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "text": "@Suppress(\"TooGenericExceptionCaught\")"
   },
@@ -6941,7 +6941,7 @@
    "text": "@Suppress(\"TooManyFunctions\")"
   },
   {
-   "line": 540,
+   "line": 548,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "text": "@Suppress(\"TooGenericExceptionCaught\")"
   },
@@ -7031,11 +7031,6 @@
    "text": "@Suppress(\"LoopWithTooManyJumpStatements\")"
   },
   {
-   "line": 574,
-   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
-   "text": "@Suppress(\"TooGenericExceptionCaught\")"
-  },
-  {
    "line": 575,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/surveys/SurveysService.kt",
    "text": "@Suppress(\"TooGenericExceptionCaught\")"
@@ -7049,6 +7044,11 @@
    "line": 58,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/notifications/NotificationService.kt",
    "text": "@Suppress(\"UnusedPrivateProperty\")"
+  },
+  {
+   "line": 582,
+   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
+   "text": "@Suppress(\"TooGenericExceptionCaught\")"
   },
   {
    "line": 583,
@@ -7126,7 +7126,7 @@
    "text": "@Suppress(\"DEPRECATION\")"
   },
   {
-   "line": 673,
+   "line": 681,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
    "text": "@Suppress(\"ThrowsCount\", \"TooGenericExceptionCaught\")"
   },
@@ -7166,11 +7166,6 @@
    "text": "@Suppress(\"LongParameterList\")"
   },
   {
-   "line": 723,
-   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
-   "text": "@Suppress(\"TooGenericExceptionCaught\")"
-  },
-  {
    "line": 73,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/enrollment/ReviewerEnrollmentService.kt",
    "text": "@Suppress(\"TooGenericExceptionCaught\")"
@@ -7179,6 +7174,11 @@
    "line": 73,
    "path": "chronicle/app/src/main/java/com/openlattice/chronicle/serialization/ChronicleJson.kt",
    "text": "@Suppress(\"UNCHECKED_CAST\")"
+  },
+  {
+   "line": 731,
+   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
+   "text": "@Suppress(\"TooGenericExceptionCaught\")"
   },
   {
    "line": 75,
@@ -7271,11 +7271,6 @@
    "text": "@Suppress(\"TooGenericExceptionCaught\")"
   },
   {
-   "line": 917,
-   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
-   "text": "@Suppress(\"TooGenericExceptionCaught\")"
-  },
-  {
    "line": 92,
    "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/authorization/principals/HazelcastPrincipalService.kt",
    "text": "@Suppress(\"SpreadOperator\")"
@@ -7284,6 +7279,11 @@
    "line": 92,
    "path": "chronicle-server/src/test/kotlin/com/openlattice/chronicle/serialization/DtoSerializationTests.kt",
    "text": "@Suppress(\"LargeClass\")"
+  },
+  {
+   "line": 925,
+   "path": "chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/webhooks/WebhookService.kt",
+   "text": "@Suppress(\"TooGenericExceptionCaught\")"
   },
   {
    "line": 93,

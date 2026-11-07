@@ -1,18 +1,17 @@
 # Monitoring and alert runbook
 
+Monitoring is optional and never gates Chronicle: `./chronicle up`, `update` and rollback wait
+only for Chronicle's own services, then start the monitoring services with a separate bounded
+wait. An unhealthy monitoring service is printed as a warning naming the service and
+the command to read its log (for example `./chronicle logs grafana`), and `./chronicle doctor` reports it as a warning.
+
 Start with `./chronicle doctor`. It reports the failed check, likely cause, and recovery
 command without exposing deployment secrets. After any repair, run `./chronicle doctor`
 and `./chronicle verify`; both must pass.
 
 The operational probe runs as the operator UID/GID selected by `./chronicle`, with no
-capabilities. The monitoring initializer assigns its textfiles to that same account.
-Two reviewed monitoring exceptions retain UID 0: `cadvisor` reads root-owned host cgroups
-and Docker storage through read-only mounts; `docker-socket-proxy` alone mounts the host
-Docker socket. Its HAProxy configuration permits only the GET container/info/version
-endpoints, rejects writes, and listens on an internal network shared only with cAdvisor.
-Both retain a read-only root filesystem, no capabilities, no-new-privileges, health checks,
-and memory/PID ceilings. The socket still grants its holder host-level access if the proxy
-process is compromised; disable the monitoring overlay when that access is unacceptable.
+capabilities. The monitoring initializer assigns its textfiles to that same account. Each
+service's user and capabilities are listed under [Service privileges](#service-privileges).
 
 | Alert | Confirm | Likely cause | Recover |
 |---|---|---|---|
@@ -69,8 +68,9 @@ resolve `TLS_DIR` again before using it in later commands:
 Grafana is never anonymous and never binds every interface. Create one account per trusted
 observer with `./chronicle monitoring add-viewer NAME`; it receives only the Grafana Viewer
 role. Remove or reset it with the corresponding `remove-viewer` or `reset-viewer` command.
-Provisioned alerts are always visible in Grafana. To send them to a person, see
-"Attach a notification channel" below.
+Provisioned alerts are always visible in Grafana and, with no configuration, in the host's
+system log; see "Where alerts go" below. To send them to a person, see "Attach a notification
+channel".
 
 The shared log stream is deliberately not a copy of application logs. Fluent Bit emits
 only timestamp, service, severity, normalized route, status, duration, request/error ID,
@@ -79,16 +79,36 @@ approved source uses a structured envelope. It discards messages, query strings,
 payloads, SQL text, stack traces, and identity/address fields before ingestion; unknown lines
 are represented only as generic service/severity events.
 
+## Where alerts go
+
+**With no configuration.** Grafana sends every firing alert with the label `scope=selfhost` to
+one contact point, `chronicle-dashboard-only` (`monitoring/grafana-alerting/contactpoints.yml`).
+Its URL comes from `CHRONICLE_ALERT_WEBHOOK_URL`; unset, it is the closed discard port
+`http://127.0.0.1:9`, and no container gets a route out of the host. The host reads the alerts
+instead: every 15 minutes the scheduled reconciliation runs `./chronicle doctor`, which asks
+Grafana's Alertmanager API (over the private listener, as the admin) which alerts are firing and
+writes each one to the host's system log with `logger`:
+
+```
+chronicle: Chronicle alert firing: <alert name> (<severity>): <summary>. Run ./chronicle doctor
+```
+
+at priority `user.crit`, again every 24 hours while it keeps firing (Grafana's own repeat
+interval), and `Chronicle alert resolved: <alert name>` at `user.notice` once it stops. Read them
+with `journalctl -t chronicle` (or `/var/log/syslog`, `/var/log/messages`). An institution that
+forwards the host's syslog to central log collection receives them there with no further step.
+`./chronicle doctor` lists firing alerts as `alerts-firing` and `./chronicle status` prints them
+below the service table. `alert-route` in doctor says which of these applies; it warns only when
+there is neither a webhook nor a schedule (no Linux cron, or `CHRONICLE_RECONCILE_ENABLED=false`),
+because then alerts stay in Grafana. Nothing here pages a person: the system log is read when
+someone or something reads it. To push alerts to a person, add a webhook:
+
 ## Attach a notification channel
 
-Alerts reach a person only through a webhook. Grafana sends every firing alert with the label
-`scope=selfhost` to one contact point, `chronicle-dashboard-only`, defined in
-`monitoring/grafana-alerting/contactpoints.yml`. Its URL comes from
-`CHRONICLE_ALERT_WEBHOOK_URL`. When that is unset, the URL is the closed discard port
-`http://127.0.0.1:9`, so delivery fails and alerts stay in Grafana only.
-`./chronicle doctor` reports `alert-route` as a failure while the setting is empty and as
-configured when it is nonempty; `./chronicle check` and `up` print the same warning. That check does not send a message or prove the receiver is
-reachable; use Grafana's contact-point test below to confirm delivery to the operator.
+A webhook delivers each alert to a person as Grafana fires it. `./chronicle doctor` reports
+`alert-route` as configured when `CHRONICLE_ALERT_WEBHOOK_URL` is set; that check does not send a
+message or prove the receiver is reachable; use Grafana's contact-point test below to confirm
+delivery. The system-log path above keeps working alongside it.
 
 1. Choose a receiver that accepts a JSON `POST`: a chat incoming webhook, a pager service,
    or an internal relay that forwards to email. Chronicle sends no email itself. Payloads
@@ -128,13 +148,35 @@ Record the destination owner, probe URL and last delivery test in the operations
 
 ## Service privileges
 
-VictoriaMetrics and VictoriaLogs run as 65534, Fluent Bit as 100, Grafana as 472,
-and the metrics exporter as 10001. The one-shot configuration job owns volume setup.
-The root exceptions are cAdvisor, which reads host cgroups and Docker storage; the
-isolated GET-only socket proxy, which connects to the root-owned Docker socket;
-and the operational probe, which traverses the private backup directory using
-only DAC_READ_SEARCH. Each keeps a read-only root, dropped capabilities and private
-mounts or networks. Audit the running UIDs and health after an image update.
+Every long-running monitoring service keeps a read-only root filesystem, drops every capability
+it does not list below, runs with no-new-privileges, and has memory and PID ceilings. One-shot
+initializers (`monitoring-cert-init`, `monitoring-config`, `health-probe`) own volume setup and
+exit. `operator` is the UID/GID `./chronicle` selects (`CHRONICLE_HOST_UID`/`GID`).
+
+| Service | User | Capabilities added |
+|---|---|---|
+| `docker-socket-proxy` | root | none |
+| `cadvisor` | 65532:65532 | none |
+| `operational-probe` | operator | none |
+| `public-probe` | operator | none |
+| `egress-proxy` | 10001:0 | none |
+| `metrics-exporter` | 10001:0 | NET_BIND_SERVICE |
+| `monitoring-forward` | 10001:0 | none |
+| `victoriametrics` | 65534:65534 | none |
+| `victorialogs` | 65534:65534 | none |
+| `fluent-bit` | 100:101 | none |
+| `grafana` | 472:0 | none |
+
+`docker-socket-proxy` is root because the host Docker socket is root-owned; its HAProxy permits
+only the GET container/info/version endpoints, blanks every container's environment in what it
+returns, and listens on an internal network shared only with cAdvisor. The socket still grants
+its holder host-level access if the proxy process is compromised; disable the monitoring overlay
+when that access is unacceptable. `cadvisor` is unprivileged and mounts only cgroups (`/sys`),
+the host's `/proc` (per-container network counters), Docker's layer-id files and the backups
+directory as a free-space mount point, all read-only: no container configuration, volume or host
+root. Per-container disk usage needs Docker's storage directories, so it is not collected.
+`metrics-exporter` keeps NET_BIND_SERVICE only because the caddy binary
+carries that file capability. Audit the running UIDs and health after an image update.
 
 ## Buffered log delivery
 
@@ -144,6 +186,13 @@ is unreachable; later messages are dropped and the app keeps running. The shared
 Fluent Bit uses filesystem buffering for forwarded logs, at most 16 resident chunks and a
 128 MiB queued-output ceiling. Its tail inputs retain their existing 10 MiB and 2 MiB limits.
 When that disk queue fills, the oldest pending logs can be lost; investigate sink outages promptly.
+
+The forward input those containers deliver to (`FLUENT_BIT_FORWARD_PORT`, published on
+`127.0.0.1` through monitoring-forward) has no authentication: Docker's `fluentd` log driver
+cannot send Fluent Bit's shared key or use TLS, so requiring either would stop log delivery. Any
+process on this host can write records to it, and they reach VictoriaLogs like any other. It
+accepts writes only. Do not treat a VictoriaLogs record as proof of what a service did; the
+backend's audit table and log files are the record ([INCIDENT-RESPONSE.md](INCIDENT-RESPONSE.md)).
 
 Grafana's VictoriaLogs plugin is hash-verified during image build. Startup needs no plugin
 repository access. Its generated certificates live in a dedicated named volume shared with

@@ -53,14 +53,25 @@ is encrypted.
 
 ## Container network and client IPs
 
-The base Compose file creates a dedicated bridge on `CHRONICLE_SUBNET` (default
-`172.28.0.0/16`) and passes that same CIDR to the backend's trusted-proxy resolver. The
-startup guard accepts one canonical private IPv4 subnet and rejects a mismatch, so the
-backend will not silently treat Caddy as untrusted after Docker chooses another address
-pool. If this range overlaps a host, VPN, or existing Docker network, set `CHRONICLE_SUBNET`
-in `.env` to an unused RFC1918 subnet such as `192.168.240.0/24`; the compose network and
-backend `CHRONICLE_TRUSTED_PROXY_CIDRS` value use the same input and are checked for exact
-consistency at startup.
+The base Compose file creates two fixed-subnet networks (docs/NETWORK-EGRESS.md):
+
+- the edge bridge on `CHRONICLE_SUBNET` (default `172.28.0.0/16`), which carries only the web
+  proxy's published ports;
+- the internal `core` network on `CHRONICLE_CORE_PREFIX.0/24`, which carries web, the backend,
+  PostgreSQL and backups. Web holds `CHRONICLE_CORE_PREFIX.2`, outside the range Docker hands
+  out, and the backend's `CHRONICLE_TRUSTED_PROXY_CIDRS` is that one address; Compose derives
+  both from the prefix, so no other container can claim a forwarded client address. The startup
+  guard accepts only a private /24 prefix, and `./chronicle verify` fails when the running core
+  network or web's address on it differs from `.env` (`./chronicle up` recreates them).
+
+`setup` and `update` choose a free `CHRONICLE_CORE_PREFIX` themselves and write it to `.env`;
+Compose refuses to start without it. `up`, `setup` and
+`update` warn, and never stop, when either range overlaps a host route, a VPN, or another
+project's Docker network (this deployment's own networks are recognised by their Compose
+labels and are never reported). Docker refuses to create a network over another Docker
+network, and containers cannot reach hosts behind an overlapping route, so set
+`CHRONICLE_SUBNET` in `.env` to an unused RFC1918 subnet such as `192.168.240.0/24`, or
+`CHRONICLE_CORE_PREFIX` to the first three octets of a free private /24.
 
 Caddy separately trusts upstream load balancers through `CADDY_TRUSTED_PROXIES`, a
 space-separated list of explicit CIDRs. Only a loopback proxy listener defaults to the Compose

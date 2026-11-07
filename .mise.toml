@@ -5,7 +5,8 @@
 [tools]
 bun = "latest"
 node = "lts"
-java = "temurin-17"
+# Gradle refuses to run on a JDK older than 21; 25 is the project standard (chronicle-server/build.gradle).
+java = "temurin-25"
 
 [env]
 # Gradle JVM args for development

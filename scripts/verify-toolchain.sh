@@ -151,10 +151,9 @@ grep -q '"node":' "$ROOT_DIR/chronicle-web/package.json" \
   && fail "chronicle-web/package.json declares engines.node; Node is not a dependency (bun only)"
 grep -Eq 'have_cmd node|command -v node' "$ROOT_DIR/scripts/chronicle-web-bun-smoke.sh" \
   && fail "chronicle-web-bun-smoke.sh requires node; bun only"
-# The guard script hardcodes its own Bun literal (they cannot depend on yq);
-# cross-check them against the manifest so the gates cannot contradict each other.
-grep -Eq "^[[:space:]]*BUN_VERSION=[\"']?${BUN}" "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" \
-  || fail "supply-chain-guardrails.sh BUN_VERSION != $BUN"
+# supply-chain-guardrails.sh reads its Bun pin from the manifest; a literal copy would drift.
+grep -Eq "^[[:space:]]*BUN_VERSION=[\"']?[0-9]" "$ROOT_DIR/tests/security/supply-chain-guardrails.sh" \
+  && fail "supply-chain-guardrails.sh hardcodes BUN_VERSION; read it from toolchain-manifest.yaml"
 
 # Gate commands use the installed runtime; package scripts and types must match it.
 if command -v bun >/dev/null 2>&1; then
@@ -173,11 +172,13 @@ if [[ -f "$PKG" ]]; then
   ENGINE_BUN="$(jq -r '.engines.bun // ""' "$PKG")"
   [[ "$ENGINE_BUN" == "$BUN" ]] \
     || fail "chronicle-web/package.json engines.bun must be exactly $BUN (found $ENGINE_BUN)"
-  for dep in bun bun-types; do
-    ver="$(jq -r --arg d "$dep" '(.dependencies[$d] // .devDependencies[$d]) // ""' "$PKG")"
-    [[ "$ver" == "$BUN" ]] \
-      || fail "chronicle-web/package.json must pin $dep to $BUN (found ${ver:-none})"
-  done
+  ver="$(jq -r '(.dependencies["bun-types"] // .devDependencies["bun-types"]) // ""' "$PKG")"
+  [[ "$ver" == "$BUN" ]] \
+    || fail "chronicle-web/package.json must pin bun-types to $BUN (found ${ver:-none})"
+  # Installs run with --ignore-scripts; the bun npm package's bin stays a placeholder that would
+  # shadow this runtime in every nested `bun run`, so the runtime pin is the toolchain itself.
+  jq -e '(.dependencies.bun // .devDependencies.bun // .optionalDependencies.bun) == null' "$PKG" >/dev/null \
+    || fail "chronicle-web/package.json must not depend on the bun npm package (installs run with --ignore-scripts)"
   # The lockfile is what `--frozen-lockfile` actually enforces, so a package.json that
   # matches the manifest while bun.lock does not still fails every install and CI job.
   LOCK="$ROOT_DIR/chronicle-web/bun.lock"
@@ -272,6 +273,13 @@ for image_contract in \
     && ok "selfhost/$selfhost_file -> $selfhost_image" \
     || fail "selfhost/$selfhost_file does not use manifest image $selfhost_image"
 done
+
+# Release platform: the manifest declares it; the publisher builds and the scanner scans exactly that.
+RELEASE_PLATFORM="$(manifest_value release_platform)"
+grep -Fxq "release_platform=$RELEASE_PLATFORM" "$ROOT_DIR/scripts/publish-images.sh" \
+  && grep -Fq -- "--platform $RELEASE_PLATFORM " "$ROOT_DIR/scripts/scan-selfhost-release-images.sh" \
+  && ok "release images build and scan for $RELEASE_PLATFORM" \
+  || fail "scripts/publish-images.sh and scripts/scan-selfhost-release-images.sh must use release_platform $RELEASE_PLATFORM"
 
 # ── 7. Preloaded libraries ────────────────────────────────────────────────────
 # The image ships no percona_pg_telemetry, so naming it in shared_preload_libraries makes

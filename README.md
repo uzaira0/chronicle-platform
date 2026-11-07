@@ -5,7 +5,9 @@ Research data collection platform for longitudinal studies, supporting Android s
 ## Run your own instance
 
 `selfhost/` is a self-contained deployment of the same server, meant for a team running
-Chronicle on their own hardware. Three commands, from nothing to a working dashboard:
+Chronicle on their own hardware. The published release images are linux/amd64 only (x86-64
+Linux servers); arm64 hosts are not supported. Three commands, from nothing to a working
+dashboard:
 
 ```bash
 git clone https://github.com/uzaira0/methodic.git chronicle

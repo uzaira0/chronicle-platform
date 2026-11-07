@@ -26,7 +26,7 @@ export PATH="$LOCAL_BIN_DIR:$PATH"
 # shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
 fast_jobs=(engineering preflight architecture duplication migration-safety web web-e2e api-probes web-a11y jvm-smoke repo-automation linkml-ssot dead-code security-layers dependency-sbom license-compliance android-unit selfhost-python diff-coverage)
 # shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
-security_jobs=(engineering gitleaks gradle-depcheck bun-audit deps-freshness detekt pmd bearer osv grype syft fuzz)
+security_jobs=(engineering gitleaks dependency-age gradle-depcheck bun-audit deps-freshness detekt pmd bearer osv grype syft fuzz)
 # shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
 containers_jobs=(selfhost dockerfile-lint iac-scan container-structure upload-body-limit-edge android-replay route-surface-edge fluent-bit-config)
 # shellcheck disable=SC2034 # job_group_members reads this array through indirect expansion.
@@ -74,6 +74,7 @@ Container/IaC jobs:
   dockerfile-lint       Hadolint the Dockerfiles
   iac-scan              Checkov Dockerfile and compose scans
   container-structure   Build/test every shipped selfhost image structure
+  image-gate            Release images as published (linux/amd64, committed HEAD): structure, SSH, listeners, image policy, trivy
   upload-body-limit-edge  Android maximum upload bodies through the shipped Caddy and server filters
   android-replay        Android-captured enrollment, uploads, identity labels and survey links into server, export and web
   http-smoke-stack      Disposable-host only: build/start smoke stack, HTTP/upload tests, tear down
@@ -87,6 +88,7 @@ Security/dependency jobs:
   gradle-depcheck       OWASP Dependency-Check with shared NVD update
   bun-audit             Bun high/critical dependency audit
   deps-freshness        Pins vs upstream releases; fails on unaccepted major lag
+  dependency-age        New or changed pins younger than the wait (7/14/3 days), unreviewed new names, OSV MAL-
   fluent-bit-config     Every shipped fluent-bit config loads on the manifest-pinned image
   gitleaks              Full-history secrets scan across root and all submodules
   pmd                   PMD bug-pattern scan
@@ -94,6 +96,7 @@ Security/dependency jobs:
   osv                   OSV-Scanner recursive SARIF scan
   grype                 Grype recursive repository scan
   syft                  Syft SPDX JSON SBOM
+  gate-tools            Fetch every security tool and grype's database (the dependency gate's tools step)
 
 Slow/specialized jobs:
   pit                   PIT mutation test for chronicle-server
@@ -125,7 +128,12 @@ Environment:
   scripts/chronicle-store-nvd-api-key.sh
                         Safe one-time helper for installing the NVD key into
                         Keychain or a private file without printing it.
-  SKIP_NVD_UPDATE=1     Reuse the existing NVD database for gradle-depcheck
+  SKIP_NVD_UPDATE=1     Reuse the existing NVD database for gradle-depcheck; it must
+                        carry the update record a keyed run writes
+                        (chronicle-nvd-updated-utc) and be no older than
+                        CHRONICLE_DEPCHECK_MAX_AGE_HOURS, else the job exits 2
+  CHRONICLE_DEPCHECK_MAX_AGE_HOURS
+                        Oldest NVD database a cache-only run accepts, default 168
   CHRONICLE_DEPCHECK_DATA_DIR
                         Shared NVD database for all checkouts, default
                         ~/.cache/chronicle/dependency-check-data
@@ -293,6 +301,42 @@ diagnose_dependency_check_data() {
 EOF
     exit 2
   fi
+}
+
+# When the shared NVD database last finished an update. Dependency-Check keeps that time inside its H2
+# database, which nothing outside the JVM reads, so this job records it next to the database after a
+# successful update; the gate runner's copy carries the record with it.
+DEPCHECK_UPDATED_RECORD=chronicle-nvd-updated-utc
+
+dependency_check_record_update() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ' > "$CHRONICLE_DEPCHECK_DATA_DIR/$DEPCHECK_UPDATED_RECORD"
+}
+
+# A cache-only scan (SKIP_NVD_UPDATE=1) of an undated or stale database would pass exactly like a fresh
+# one, so it prints the database's age and refuses (status 2) one with no record of its last update or
+# one older than CHRONICLE_DEPCHECK_MAX_AGE_HOURS.
+dependency_check_require_fresh() {
+  python3 - "$CHRONICLE_DEPCHECK_DATA_DIR/$DEPCHECK_UPDATED_RECORD" "${CHRONICLE_DEPCHECK_MAX_AGE_HOURS:-168}" <<'PY'
+import datetime as dt
+import sys
+from pathlib import Path
+
+record, limit = Path(sys.argv[1]), int(sys.argv[2])
+refresh = 'refresh it with the NVD key: scripts/local-ci.sh gradle-depcheck (without SKIP_NVD_UPDATE)'
+try:
+    updated = dt.datetime.strptime(record.read_text().strip(), '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.UTC)
+except (OSError, ValueError):
+    print(f'[local-ci] no record of when the NVD database in {record.parent} was last updated ({record.name}); {refresh}',
+          file=sys.stderr)
+    sys.exit(2)
+hours = int((dt.datetime.now(dt.UTC) - updated).total_seconds() // 3600)
+stamp = updated.strftime('%Y-%m-%dT%H:%M:%SZ')
+if hours > limit:
+    print(f'[local-ci] NVD database is stale: last updated {stamp} ({hours} hours ago; limit {limit}); {refresh}',
+          file=sys.stderr)
+    sys.exit(2)
+print(f'[local-ci] NVD database last updated {stamp} ({hours} hours ago; limit {limit})')
+PY
 }
 
 dependency_check_lock_listing() {
@@ -905,7 +949,8 @@ job_architecture() {
   python3 "$ROOT_DIR/tests/security/check-setting-readers.py"
   selfhost_python "$ROOT_DIR/tests/security/selfhost-monitoring.py"
   require_cmd uvx "install uv"
-  uvx --with types-PyYAML==6.0.12.20250915 --from mypy==1.18.2 mypy "$ROOT_DIR/selfhost/chronicle_ops"
+  # --check-untyped-defs: without it mypy skipped every unannotated body and reported 0 errors (AF-P12).
+  uvx --with types-PyYAML==6.0.12.20250915 --from mypy==1.18.2 mypy --check-untyped-defs "$ROOT_DIR/selfhost/chronicle_ops"
 }
 
 job_migration_safety() {
@@ -1008,7 +1053,9 @@ job_contract_drift() {
 job_web() {
   require_cmd bun "install Bun 1.3.x"
   ensure_ast_grep
-  run_job bun-audit
+  # CHRONICLE_WEB_AUDIT=0: the dependency gate runs this job with no network after a separate
+  # install, and runs bun-audit in its security step.
+  [[ "${CHRONICLE_WEB_AUDIT:-1}" == 0 ]] || run_job bun-audit
   log "web check"
   (cd "$WEB_DIR" && bun run check)
   log "web modern tests"
@@ -1101,6 +1148,8 @@ job_repo_automation() {
   log "JDK discovery and the web dependency age rule (gate tool digests run in verify-toolchain.sh)"
   python3 "$ROOT_DIR/tests/quality/test_jdk_discovery.py"
   python3 "$ROOT_DIR/tests/quality/test_web_dependency_age.py"
+  log "dependency age gate and dependency intake scripts"
+  python3 "$ROOT_DIR/tests/quality/test_check_dependency_age.py"
 }
 
 job_dead_code() {
@@ -1247,6 +1296,76 @@ job_container_structure() {
     fi
     container-structure-test test --image "chronicle-selfhost-$component:test" --config "$ROOT_DIR/tests/container/selfhost-$component.yaml"
   done
+}
+
+# Release images exactly as publish-images.sh builds them: linux/amd64, from the committed HEAD through
+# chronicle_ops.images (same context, Dockerfile and gitlinks), then container-structure-test, the
+# SSH-server, listener and image-policy checks and the release trivy scan (vulnerabilities and
+# secrets). CHRONICLE_IMAGE_GATE_COMPONENTS picks the images (default: all); caddy brings frontend,
+# whose output it serves. CHRONICLE_IMAGE_GATE_RUNTIME=1 also scans and checks the third-party runtime
+# images of the release inventory and, when every component was built, fails on a .trivyignore.yaml
+# entry that suppressed nothing in any image. CHRONICLE_IMAGE_GATE_SOURCE builds
+# another repository (the dependency gate runner's candidate) with this checkout's image inventory,
+# structure tests, SSH check and scanner: nothing from that repository runs on the host, only its
+# committed tree goes to the builds (which run inside BuildKit).
+job_image_gate() {
+  require_cmd docker
+  require_cmd python3
+  require_cmd trivy
+  ensure_container_structure_test
+  local requested=" ${CHRONICLE_IMAGE_GATE_COMPONENTS:-backend frontend caddy backup grafana fluentbit postgres} "
+  [[ "$requested" != *" caddy "* || "$requested" == *" frontend "* ]] || requested+="frontend "
+  trivy image --quiet --download-db-only
+  trivy image --quiet --download-java-db-only
+  local revision component context dockerfile tag config image_failed=0 extra source="${CHRONICLE_IMAGE_GATE_SOURCE:-$ROOT_DIR}"
+  local reports built=" "
+  revision="$(git -C "$source" rev-parse HEAD)"
+  # A fresh directory per run: a report left by an earlier run would hide a stale ignore entry.
+  mkdir -p "$ROOT_DIR/build"
+  reports="$(mktemp -d "$ROOT_DIR/build/image-gate-trivy-${revision:0:16}.XXXXXX")"
+  # Component order of chronicle_ops.images.SOURCE_IMAGES puts frontend before caddy.
+  while read -r component context dockerfile; do
+    [[ "$requested" == *" $component "* ]] || continue
+    tag="chronicle-image-gate-$component:${revision:0:16}"
+    extra=()
+    [[ "$component" != caddy ]] || extra=(--build-context "chronicle-selfhost-frontend:release=docker-image://chronicle-image-gate-frontend:${revision:0:16}")
+    log "image-gate: build $component"
+    if ! selfhost_python -c 'from chronicle_ops.images import SOURCE_IMAGES; import sys
+next(image for image in SOURCE_IMAGES if image.component == sys.argv[3]).archive(sys.argv[1], sys.argv[2], sys.stdout.buffer)' \
+        "$source" "$revision" "$component" |
+      docker build --platform linux/amd64 -f "$dockerfile" ${extra[@]+"${extra[@]}"} -t "$tag" -; then
+      printf '[local-ci] image-gate: %s build failed\n' "$component" >&2
+      image_failed=1
+      continue
+    fi
+    config="$ROOT_DIR/tests/container/selfhost-$component.yaml"
+    [[ "$component" != backend ]] || config="$ROOT_DIR/tests/container/backend.yaml"
+    if [[ -f "$config" ]]; then
+      container-structure-test test --platform linux/amd64 --image "$tag" --config "$config" || image_failed=1
+    fi
+    bash "$ROOT_DIR/scripts/check-image-no-ssh-server.sh" "$tag" || image_failed=1
+    bash "$ROOT_DIR/scripts/check-image-listeners.sh" "$tag" || image_failed=1
+    python3 "$ROOT_DIR/scripts/check-image-policy.py" "$component=$tag" || image_failed=1
+    CHRONICLE_TRIVY_REPORT_DIR="$reports" bash "$ROOT_DIR/scripts/scan-selfhost-release-images.sh" "$tag" || image_failed=1
+    built+="$component "
+  done < <(selfhost_python - <<'PY_IMAGE_GATE'
+import os
+from chronicle_ops.images import SOURCE_IMAGES
+for image in SOURCE_IMAGES:
+    context = os.path.normpath('selfhost/' + image.context)
+    print(image.component, context, os.path.relpath('selfhost/' + image.dockerfile, context))
+PY_IMAGE_GATE
+  )
+  if [[ "${CHRONICLE_IMAGE_GATE_RUNTIME:-0}" == 1 ]]; then
+    CHRONICLE_TRIVY_REPORT_DIR="$reports" bash "$ROOT_DIR/scripts/scan-selfhost-release-images.sh" --inventory "$source/selfhost" || image_failed=1
+    selfhost_python "$ROOT_DIR/scripts/check-runtime-images.py" --inventory "$source/selfhost" || image_failed=1
+    # Stale entries can be judged only against every shipped image.
+    if [[ "$built" == *" backend "* && "$built" == *" frontend "* && "$built" == *" caddy "* && "$built" == *" backup "* &&
+          "$built" == *" grafana "* && "$built" == *" fluentbit "* && "$built" == *" postgres "* ]]; then
+      python3 "$ROOT_DIR/tests/security/check-trivy-waivers.py" "$ROOT_DIR/.trivyignore.yaml" --reports "$reports" || image_failed=1
+    fi
+  fi
+  return "$image_failed"
 }
 
 write_ci_smoke_files() {
@@ -1590,7 +1709,7 @@ job_parity() {
   require_jdk21
   require_cmd bun "install Bun 1.3.x"
   gradle :chronicle-server:test --tests "*ParityTest"
-  (cd "$WEB_DIR" && bun install --frozen-lockfile && bun test src/modern/test/parity.test.ts)
+  (cd "$WEB_DIR" && bun install --frozen-lockfile --ignore-scripts && bun test src/modern/test/parity.test.ts)
 }
 
 job_android_unit() {
@@ -1795,6 +1914,7 @@ job_gradle_depcheck() {
       return "$update_status"
     fi
     dependency_check_data_snapshot "$update_snapshot_after"
+    dependency_check_record_update
   elif [[ ! -s "$CHRONICLE_DEPCHECK_DATA_DIR/odc.mv.db" ]]; then
     if [[ "${CHRONICLE_DEPCHECK_ALLOW_MISSING_CACHE:-0}" == "1" ]]; then
       local reason="SKIP_NVD_UPDATE=1 requested but no warmed NVD database (odc.mv.db) was found"
@@ -1804,6 +1924,8 @@ job_gradle_depcheck() {
     fi
     printf '[local-ci] SKIP_NVD_UPDATE=1 requires a warmed %s cache.\n' "$CHRONICLE_DEPCHECK_DATA_DIR/odc.mv.db" >&2
     exit 2
+  else
+    dependency_check_require_fresh || exit 2
   fi
   local status=0
   local depcheck_args=(-PdependencyCheckAutoUpdate=false)
@@ -1821,6 +1943,13 @@ job_gradle_depcheck() {
     fi
   }
   return "$status"
+}
+
+job_dependency_age() {
+  # Base: CHRONICLE_DEPENDENCY_BASE (the gate runner passes deps/auto), else origin/main.
+  local report
+  report="$(report_path "$ROOT_DIR/build/reports/dependency-age.txt" "dependency-age.txt")"
+  python3 "$ROOT_DIR/scripts/check-dependency-age.py" --root "$ROOT_DIR" --report "$report"
 }
 
 job_deps_freshness() {
@@ -1874,7 +2003,8 @@ job_detekt() {
   "${detekt[@]}" --report "sarif:$all_sarif_report" || all_status=$?
   if [[ "$all_status" != 0 && "$all_status" != 2 ]]; then return "$all_status"; fi
   status="$filtered_status"
-  python3 "$ROOT_DIR/scripts/check-detekt-waiver-source.py" \
+  # The ast-grep ensure_ast_grep resolved (LOCAL_BIN_DIR is first on PATH); the check refuses any other version.
+  CHRONICLE_AST_GREP="$(command -v ast-grep)" python3 "$ROOT_DIR/scripts/check-detekt-waiver-source.py" \
     --all-sarif "$all_sarif_report" --filtered-sarif "$sarif_report" || status=1
   # A stale baseline entry would admit a new finding with the same signature, so it fails too.
   # detekt reads an existing --baseline file before writing it, so the path must not exist yet.
@@ -1890,6 +2020,20 @@ sys.exit(1 if committed - current else 0)
 PY
   rm -rf -- "$fresh"
   return "$status"
+}
+
+job_gate_tools() {
+  # The dependency gate runner's tools step: every checksum-pinned tool the security and web jobs
+  # download, and grype's database, fetched into LOCAL_BIN_DIR by this script alone, so that those
+  # jobs then run with no network and no write access to their tools.
+  ensure_detekt
+  ensure_ast_grep
+  ensure_pmd
+  ensure_bearer
+  ensure_osv_scanner
+  ensure_grype
+  ensure_syft
+  "$LOCAL_BIN_DIR/grype" db update
 }
 
 job_pmd() {
@@ -2058,6 +2202,7 @@ dispatch_job() {
     iac-scan) job_iac_scan ;;
     license-compliance) job_license_compliance ;;
     container-structure) job_container_structure ;;
+    image-gate) job_image_gate ;;
     upload-body-limit-edge) job_upload_body_limit_edge ;;
     android-replay) job_android_replay ;;
     route-surface-edge) job_route_surface_edge ;;
@@ -2074,6 +2219,7 @@ dispatch_job() {
     gradle-depcheck) job_gradle_depcheck ;;
     bun-audit) job_bun_audit ;;
     deps-freshness) job_deps_freshness ;;
+    dependency-age) job_dependency_age ;;
     fluent-bit-config) job_fluent_bit_config ;;
     detekt) job_detekt ;;
     pmd) job_pmd ;;
@@ -2081,6 +2227,7 @@ dispatch_job() {
     osv) job_osv ;;
     grype) job_grype ;;
     syft) job_syft ;;
+    gate-tools) job_gate_tools ;;
     web-mutation) job_web_mutation ;;
     fast|security|containers|all) run_job_group "$1" ;;
     -h|--help|help) usage ;;

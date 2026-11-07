@@ -22,6 +22,13 @@ If it differs, stop. Do not install. If it matches, follow the signature and che
 in [Quick start](selfhost/README.md#quick-start) before extracting the rest of the bundle.
 Setup also prints the installed fingerprint.
 
+The maintainer rotates the key with `scripts/endorse-release-key.sh`, which signs the new public
+key with the old one (namespace `chronicle-release-key`); both files are uploaded with each release
+the new key signs. An installed server (2026.11.6 or later) follows the rotation in
+`./chronicle update` with no step of its own; see
+[upgrade and rollback](selfhost/docs/UPGRADE-ROLLBACK.md). A first installation still compares
+the fingerprint of the key in the bundle with the one the maintainer sent separately.
+
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting on the affected repository

@@ -209,6 +209,11 @@ publication. Never point the synthetic client at a live research study.
 
 ## Study webhook recipients
 
+On self-host, study webhooks are off: the backend has no route off the host, so registering a
+webhook is refused (409, with that reason) and nothing is delivered
+([NETWORK-EGRESS.md](NETWORK-EGRESS.md#what-still-goes-out-and-why)). The rest of this section
+applies only to a deployment that a deliberate design change gives webhooks back.
+
 Study webhooks are managed through the authenticated API, not the dashboard. Inventory
 registered recipients with `GET /chronicle/v3/study/{id}/webhooks` using a researcher session
 with study access. Create recipients before enrollment: adding a destination is refused

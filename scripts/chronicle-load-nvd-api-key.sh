@@ -74,9 +74,13 @@ if [[ "$_chronicle_nvd_file_rejected" == "0" && -z "${NVD_API_KEY:-}" ]] \
   fi
 fi
 
+# pass decrypts with gpg, which asks gpg-agent for the passphrase and opens pinentry (a GUI dialog on
+# macOS, even from a terminal) when it is not cached. This helper runs from scripts and agents, so gpg
+# gets --batch --pinentry-mode error: a cached passphrase works, anything else fails without a prompt.
 if [[ "$_chronicle_nvd_file_rejected" == "0" && -z "${NVD_API_KEY:-}" ]] && command -v pass >/dev/null 2>&1; then
   _chronicle_nvd_pass_name="${CHRONICLE_NVD_PASS_NAME:-chronicle/nvd-api-key}"
-  NVD_API_KEY="$(pass show "$_chronicle_nvd_pass_name" 2>/dev/null | sed -n '1p' || true)"
+  NVD_API_KEY="$(PASSWORD_STORE_GPG_OPTS="${PASSWORD_STORE_GPG_OPTS:+$PASSWORD_STORE_GPG_OPTS }--batch --pinentry-mode error" \
+    pass show "$_chronicle_nvd_pass_name" 2>/dev/null | sed -n '1p' || true)"
   NVD_API_KEY="${NVD_API_KEY%$'\r'}"
   if [[ -n "$NVD_API_KEY" ]]; then
     export NVD_API_KEY

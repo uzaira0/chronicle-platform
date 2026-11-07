@@ -12,27 +12,36 @@ Write down the time and the person for each step.
 Collect before you change anything, so the evidence reflects the incident and not the
 clean-up. Keep the copies private (mode `0700` directory, on a host you control).
 
+The block runs in a subshell: it stops at the first step that fails, and that failure does not
+close your shell. The case directory it used is printed first.
+
 ```bash
+(
+set -euo pipefail
 case_dir="$HOME/chronicle-incident-$(date -u +%Y%m%dT%H%M%SZ)"
+printf 'case directory: %s\n' "$case_dir"
 install -d -m 0700 "$case_dir"
-./chronicle doctor --json >"$case_dir/doctor.json"      # contains no secrets
-./chronicle status >"$case_dir/status.txt" 2>&1
+# Both report failing checks with a non-zero status; the report is the evidence, so go on.
+./chronicle doctor --json >"$case_dir/doctor.json" || true     # contains no secrets
+./chronicle status >"$case_dir/status.txt" 2>&1 || true
 docker compose ps -a >"$case_dir/compose-ps.txt"
 docker compose logs --timestamps --no-color >"$case_dir/compose.log" 2>&1
 # Application and audit log files (the file half of the audit trail)
 docker compose cp backend:/var/log/chronicle "$case_dir/backend-logs"
-# Database audit trail: request events and structured authorization/application events
+# Database audit trail: request events and structured authorization/application events.
+# The postgres container holds its password only as the file secrets-init writes.
 docker compose exec -T postgres sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy (SELECT * FROM public.audit) TO STDOUT WITH CSV HEADER"' \
-  >"$case_dir/audit.csv" || exit 1
+  'PGPASSWORD="$(cat "$POSTGRES_PASSWORD_FILE")" psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\copy (SELECT * FROM public.audit) TO STDOUT WITH CSV HEADER"' \
+  >"$case_dir/audit.csv"
 # Operator receipts: setup, upgrade, restore and rotation history
-state_dir="$(bash -c 'source ./chronicle; need_env; printf "%s" "$STATE_ROOT"')" || exit 1
-cp -a "$state_dir/operator-receipts" "$case_dir/" || exit 1
+state_dir="$(bash -c 'source ./chronicle; need_env; printf "%s" "$STATE_ROOT"')"
+cp -a "$state_dir/operator-receipts" "$case_dir/"
 if [[ "$(uname -s)" == Darwin ]]; then
   ls -laT "$state_dir" "$state_dir/backups" "$state_dir/backups/last"
 else
   ls -la --time-style=full-iso "$state_dir" "$state_dir/backups" "$state_dir/backups/last"
 fi >"$case_dir/file-listing.txt" 2>&1
+)
 ```
 
 The configured state directory stays at its original absolute location after an update;

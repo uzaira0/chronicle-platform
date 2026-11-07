@@ -166,5 +166,305 @@
     "comment": "scripts/web_dependency_age.py:95 False positive: subprocess receives an argv list (no shell); curl gets fixed flags and a registry URL whose package name is percent-encoded.",
     "false_positive": true,
     "ignored_at": "2026-11-02T00:00:00Z"
+  },
+  "55b306da99c07561d724907f98a043cd_0": {
+    "author": "chronicle",
+    "comment": "scripts/check-dependency-age.py:277 (git with fixed subcommands and refs). False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_0": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py run() (git, gh, this checkout's gate scripts, deps-sandbox.sh). False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_1": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py run() with a log file. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_2": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py out() (git and docker queries). False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_3": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py push_repository(): git init --bare of the runner's own push repository. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "55af5552566a4de582ed359e3fb80f6b_0": {
+    "author": "chronicle",
+    "comment": "scripts/deps-regenerate.py copy_tree(): cp -cR of the tree into --scratch. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "55af5552566a4de582ed359e3fb80f6b_1": {
+    "author": "chronicle",
+    "comment": "scripts/deps-regenerate.py sandbox(): deps-sandbox.sh with fixed bun/gradlew/go commands. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_4": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py gate_status(): gh api statuses of a repository/sha listed by git ls-remote. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_5": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py text_at(): git show of a path at the trusted base, in the candidate clone or its submodule. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5a7d6c10a2a99de83045c8b0405188ee_6": {
+    "author": "chronicle",
+    "comment": "scripts/dependency-gate-runner.py snapshot(): cp -cR of the candidate clone into the work directory. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "55af5552566a4de582ed359e3fb80f6b_2": {
+    "author": "chronicle",
+    "comment": "scripts/deps-regenerate.py git(): git diff/show/ls-files against the --base ref. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_0": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py image_files(): docker image inspect. False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_1": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py image_files(): docker pull. False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_2": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py image_files(): docker create (nothing started). False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_3": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py image_files(): docker cp of a package database out of the created container. False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_4": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py image_files(): docker rm of that container. False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_5": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py propose_apt(): docker run of the base image's apt with the helper mounted read-only; package names come from the Dockerfile's own helper call. False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "2a257d2e59da81a2e0eef23098d60669_6": {
+    "author": "chronicle",
+    "comment": "scripts/os-package-pins.py dockerfiles(): git ls-files of --root. False positive: subprocess receives an argv list (no shell); the image references are digest-pinned FROM lines of tracked Dockerfiles, the paths fixed package-database paths, the container id docker's own output.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "f3c17e39830d80b4a18fbdb84ca015fd_0": {
+    "author": "chronicle",
+    "comment": "scripts/check-image-policy.py:44 False positive: subprocess receives an argv list (no shell); docker export of the container id docker create just returned.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "f3c17e39830d80b4a18fbdb84ca015fd_1": {
+    "author": "chronicle",
+    "comment": "scripts/check-image-policy.py:56 False positive: subprocess receives an argv list (no shell); docker container rm of that same container id.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "9b10cad84d97d1cce42b12882e6a7c1b_0": {
+    "author": "chronicle",
+    "comment": "scripts/check-release-discovery.py:100 False positive: subprocess receives an argv list (no shell); git -C <this checkout> tag --list.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "9b10cad84d97d1cce42b12882e6a7c1b_1": {
+    "author": "chronicle",
+    "comment": "scripts/check-release-discovery.py:118 False positive: subprocess receives an argv list (no shell); sys.executable -I -c with the fixed DISCOVER source; the package path and version are arguments, not code.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "9b10cad84d97d1cce42b12882e6a7c1b_2": {
+    "author": "chronicle",
+    "comment": "scripts/check-release-discovery.py:147 False positive: subprocess receives an argv list (no shell); git archive of a tag that git tag --list returned and parse_version accepted.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "e055cef74d63fbbe464da5313953f5ff_0": {
+    "author": "chronicle",
+    "comment": "scripts/check-runtime-images.py:42 False positive: subprocess receives an argv list (no shell); docker buildx imagetools inspect of an inventory image already checked to be name@sha256:<64 hex>.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "e055cef74d63fbbe464da5313953f5ff_1": {
+    "author": "chronicle",
+    "comment": "scripts/check-runtime-images.py:62 False positive: subprocess receives an argv list (no shell); docker pull of that image's platform digest.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "e055cef74d63fbbe464da5313953f5ff_2": {
+    "author": "chronicle",
+    "comment": "scripts/check-runtime-images.py:71 False positive: subprocess receives an argv list (no shell); the repo's own check scripts with the pulled digest references as arguments.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "d7f277e06d9f383f7de0cd6b9585bbb0_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/alerts.py:81 False positive: subprocess receives an argv list (no shell); logger -p <fixed priority> -t chronicle; every message starts with \"Chronicle alert\", so it cannot be read as an option.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "6ea4e1d347b4f159a1639fafb41f8f6e_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/egress.py:128 False positive: subprocess receives an argv list (no shell); curl --proto =https of https://<host>/ for a fixed HOST_DESTINATIONS host or the hostname urlsplit takes from CHRONICLE_RELEASES_URL; output discarded.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "19deed0c625e1621902084eb5ffca171_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/image_signatures.py:53 False positive: subprocess receives an argv list (no shell); openssl dgst -verify of the release public key against files this function wrote in its own temporary directory.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "5324a6b0bfa9a9b4315b83c48225ed5d_0": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/migrations.py:90 False positive: subprocess receives an argv list (no shell); git -C <root> show refs/tags/<ledger version>:<fixed path>; the refs/tags/ prefix keeps it from being an option.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "f187bd2327048228706883fbaa912501_1": {
+    "author": "chronicle",
+    "comment": "selfhost/chronicle_ops/update.py:96 False positive: the ValueError names the unsafe or duplicate member of a public release archive with repr (control characters escaped); no participant data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_0": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:105 False positive: logs the listen port, the upstream host:port from the compose command and the dial error; no client data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_1": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:112 False positive: logs the listen port, upstream host:port and the PROXY header write error between internal containers; no client data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_2": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:170 False positive: log.Fatal of parseMapping's error, which quotes the operator's LISTEN=HOST:PORT argument; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_3": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:176 False positive: log.Fatal of the -check healthcheck dial error to 127.0.0.1:<listen port>; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_4": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:185 False positive: log.Fatal of ResolveTCPAddr for :<listen port>; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_5": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:189 False positive: log.Fatal of ListenTCP for :<listen port>; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_6": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:191 False positive: startup line with the listen port, upstream host:port and the PROXY flag from the compose command.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_7": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:194 False positive: log.Fatal of a listener's Accept error; no client data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "493785f99993eee4eec2d5571028c345_0": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:53 False positive: os.ReadFile of the -allow path, which comes from the container command in the Compose file the operator installs, never from a client.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_0": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:86 False positive: logs the refused request's method, which net/http's ReadRequest has already checked is an HTTP token (no CR/LF); no credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_1": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:92 False positive: logs the refused CONNECT authority with %q, which escapes control characters; a host:port, no credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_2": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:98 False positive: logs the allowlisted host:port and the dial error; no client data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_3": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:148 False positive: log.Fatal of loadAllowlist's error, which names the allowlist file and line; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_4": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:152 False positive: log.Fatal of ResolveTCPAddr for :<listen port>; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_5": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:156 False positive: log.Fatal of ListenTCP for :<listen port>; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_6": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:158 False positive: startup line with the listen port and the number of allowed targets; no secrets.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "08ba67fcf719a94c359397f7f0543a45_7": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:159 False positive: log.Fatal of the listener's Accept error; no client data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "7ae4ee891030589f8475e849f0713312_0": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/connect.go:159 False positive: the logged value is the listener's Accept error from the kernel, not client input, so there is nothing to neutralize.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "ccd0f053ee9a598e6a8dba5924410a98_8": {
+    "author": "chronicle",
+    "comment": "selfhost/caddy/forward/main.go:212 False positive: log.Fatal of the first serve loop's error (a listener's Accept error); no client data or credentials.",
+    "false_positive": true,
+    "ignored_at": "2026-11-06T00:00:00Z"
   }
 }

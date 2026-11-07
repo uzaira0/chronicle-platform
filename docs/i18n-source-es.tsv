@@ -89,6 +89,7 @@ chronicle-server/src/main/resources/messages_es.properties	error.study.unversion
 chronicle-server/src/main/resources/messages_es.properties	error.study.versionedSettingsRemoval	d371c414cf91ed49
 chronicle-server/src/main/resources/messages_es.properties	error.unauthorized	0fcfb12dfad07ba0
 chronicle-server/src/main/resources/messages_es.properties	error.unexpected	6615bf1c8fddf2fb
+chronicle-server/src/main/resources/messages_es.properties	error.webhook.disabled	f99517622659df61
 chronicle-server/src/main/resources/messages_es.properties	error.webhook.recipientsLocked	f8603da526f2db72
 chronicle-server/src/main/resources/messages_es.properties	error.webhook.twilioSignatureInvalid	53ccb0a9dc58830f
 chronicle-server/src/main/resources/messages_es.properties	reminder.appUsage.title	a9114c86e39fa786

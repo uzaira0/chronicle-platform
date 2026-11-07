@@ -12,7 +12,7 @@ their inclusion in a GPL-3.0 work. The container images a deployment runs carry 
 | `ghcr.io/uzaira0/chronicle-backend` | GPL-3.0 | https://github.com/uzaira0/chronicle-server |
 | `ghcr.io/uzaira0/chronicle-selfhost-frontend` | GPL-3.0 | https://github.com/uzaira0/chronicle-web |
 | `ghcr.io/uzaira0/chronicle-selfhost-caddy` | Apache-2.0 (Caddy and caddy-ratelimit); its Go module dependencies carry their own licenses (Apache-2.0, BSD and MIT), shipped in the image under `/usr/share/licenses/caddy-modules` | https://github.com/caddyserver/caddy and https://github.com/mholt/caddy-ratelimit, built by `selfhost/Dockerfile.caddy` |
-| `ghcr.io/uzaira0/chronicle-selfhost-grafana` (monitoring overlay) | AGPL-3.0 (Grafana, unmodified) plus the Apache-2.0 victoriametrics-logs-datasource plugin 0.33.1 added at `/opt/chronicle-plugins` (its LICENSE ships beside it) | https://github.com/grafana/grafana (13.2.4) and https://github.com/VictoriaMetrics/victorialogs-datasource (v0.33.1), built by `selfhost/Dockerfile.grafana` |
+| `ghcr.io/uzaira0/chronicle-selfhost-grafana` (monitoring overlay) | AGPL-3.0 (Grafana; server rebuilt from the 13.2.5 tag with go-jose 4.1.8, and only the bundled Prometheus datasource kept) plus the Apache-2.0 victoriametrics-logs-datasource plugin 0.33.1 added at `/opt/chronicle-plugins` (its LICENSE ships beside it) | https://github.com/grafana/grafana (13.2.5) and https://github.com/VictoriaMetrics/victorialogs-datasource (v0.33.1), built by `selfhost/Dockerfile.grafana` |
 
 Each Chronicle image is built from the commit recorded in `release-manifest.json` as
 `public_revision`: a commit of https://github.com/uzaira0/methodic (the release tag points at
@@ -37,8 +37,8 @@ project from the pinned Percona Distribution for PostgreSQL image (https://githu
 with unused packages removed.
 
 `ghcr.io/uzaira0/chronicle-selfhost-fluentbit` (monitoring overlay) is the pinned Fluent Bit image
-(Apache-2.0, https://github.com/fluent/fluent-bit) with Debian's security build of libbrotli1 (MIT)
-in place of the shipped one.
+(Apache-2.0, https://github.com/fluent/fluent-bit) with Debian's security builds of libbrotli1 (MIT)
+and libcurl4t64 (curl license, MIT-style) in place of the shipped ones.
 
 | Image | Used by | Upstream |
 |---|---|---|

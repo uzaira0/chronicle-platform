@@ -11,53 +11,13 @@
         </suppress>
     -->
 
-    <!-- ===================================================================
-         Build-time static-analysis tooling (NOT shipped with the backend).
-         These vulnerable jars are bundled by Checkstyle / SpotBugs and only
-         appear on the `checkstyle` / `spotbugs` Gradle configurations. They
-         run on the developer/CI machine at build time and are never deployed
-         in the chronicle-server runtime image, so they pose no risk to the
-         backend. Suppressions are scoped to the exact build-tool GAV so
-         any real (shipped) occurrence of these libraries would still fail.
-         Verified 2026-06-22 via dependency-check report projectReferences:
-           guava-19.0      <= chronicle-api:checkstyle
-           log4j-*-2.25.2  <= chronicle-api:spotbugs
-         ==================================================================== -->
-
-    <suppress>
-        <notes><![CDATA[
-            Guava 19.0 is bundled by Checkstyle 7.4 (build-time linter on the
-            `checkstyle` configuration only) — not on any shipped/runtime
-            classpath. CVE-2023-2976 (insecure temp-file/dir) is not reachable
-            from the build use of Checkstyle. Accepted build-tool risk.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/com\.google\.guava/guava@19\.0$</packageUrl>
-        <cve>CVE-2023-2976</cve>
-    </suppress>
-
-    <suppress>
-        <notes><![CDATA[
-            Log4j 2.25.2 (log4j-core) is bundled by SpotBugs (build-time static
-            analysis on the `spotbugs` configuration only) — not on any
-            shipped/runtime classpath. The backend logs via its own (non-Log4j)
-            stack. CVE-2026-34478/34479/34480 are not reachable from the build
-            use of SpotBugs. Accepted build-tool risk.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.apache\.logging\.log4j/log4j-core@2\.25\.2$</packageUrl>
-        <cve>CVE-2026-34478</cve>
-        <cve>CVE-2026-34479</cve>
-        <cve>CVE-2026-34480</cve>
-    </suppress>
-
-    <suppress>
-        <notes><![CDATA[
-            Log4j 2.25.2 (log4j-api) is bundled by SpotBugs (build-time static
-            analysis on the `spotbugs` configuration only) — not on any
-            shipped/runtime classpath. Accepted build-tool risk.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.apache\.logging\.log4j/log4j-api@2\.25\.2$</packageUrl>
-        <cve>CVE-2026-34479</cve>
-    </suppress>
+    <!-- Every suppression: until= at most 90 days ahead, notes naming the owner and the last
+         recheck, a packageUrl pinned to the versions it waives, and a match on a locked
+         runtimeClasspath coordinate (Dependency-Check scans only runtimeClasspath; a shaded copy
+         names the jar that carries it with "Carried by"). tests/security/check-dependency-check-suppressions.py
+         enforces this. Removed 2026-11-06 as stale: Guava 19.0 (Checkstyle) and Log4j 2.25.2
+         (SpotBugs), whose configurations Dependency-Check never scans (the runtime has Log4j 2.25.5),
+         and the LatencyUtils and io.grpc false positives, which no runtime configuration resolves. -->
 
     <!-- ===================================================================
          CPE false-positive: org.glassfish.expressly:expressly is the Jakarta
@@ -73,13 +33,15 @@
          would still fail the gate. Confirmed 2026-07-18: no real advisory exists
          for org.glassfish.expressly:expressly 5.0.0.
          ==================================================================== -->
-    <suppress>
+    <suppress until="2026-12-18Z">
         <notes><![CDATA[
             Expressly (Jakarta EL RI) is not GlassFish. The eclipse:glassfish CPE
             is a vendor-string collision; the associated GlassFish app-server CVEs
             are unreachable. Suppress the mis-assigned CPE, not the CVEs.
+            Owner: uzaira0. Rechecked 2026-11-06: the runtime resolves expressly 6.0.0, still
+            matched only through the eclipse:glassfish vendor string.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.glassfish\.expressly/expressly@.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.glassfish\.expressly/expressly@6\.0\.0$</packageUrl>
         <cpe>cpe:/a:eclipse:glassfish</cpe>
     </suppress>
 
@@ -105,14 +67,23 @@
          fixed version (a fixed version is simply not flagged). Remove this entry
          at the Kotlin 2.4.20 GA upgrade.
          ==================================================================== -->
-    <suppress>
+    <suppress until="2026-11-20Z">
         <notes><![CDATA[
             CVE-2026-53914 is a Kotlin build-cache-metadata deserialization flaw
             in the compiler/Gradle toolchain, not in the shipped kotlin-stdlib /
             kotlin-reflect runtime. Build-time only (JetBrains AV:L, 6.7 Medium).
-            No stable fix released yet (2.4.20 is unreleased); track the upgrade.
+            Owner: uzaira0 (backend and Android builds). Rechecked 2026-11-06: Kotlin 2.4.20
+            (2026-09-07) and 2.4.21 are stable and fixed; the build still pins 2.4.10
+            (gradles/chronicle.gradle, settings.gradle.kts), so the Kotlin upgrade is due and this
+            suppression lapses on 2026-11-20.
+            Rechecked 2026-11-06 (release blockers): GHSA-r937-wjx7-w2jp lists only
+            org.jetbrains.kotlin:kotlin-gradle-plugin < 2.4.20-Beta1 as affected (CVSS 3.1
+            AV:L/AC:H/PR:H). kotlin-reflect is a runtime library with no build-cache code; it is on
+            runtimeClasspath at 2.1.21 (chronicle-api, chronicle-models, rhizome-client) and 2.4.10
+            (chronicle-server, rhizome). cbc35f3d dropped it from this selector when pinning
+            versions, which turned gradle-depcheck red on all five modules.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-(stdlib|stdlib-jdk7|stdlib-jdk8|reflect)@.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/(kotlin-(stdlib|stdlib-jdk7|stdlib-jdk8|reflect)@2\.4\.10|kotlin-reflect@2\.1\.21)$</packageUrl>
         <cve>CVE-2026-53914</cve>
     </suppress>
 
@@ -123,57 +94,42 @@
          CPE. Genuine advisories for these Java artifacts remain gating.
          ==================================================================== -->
 
-    <suppress>
-        <notes><![CDATA[
-            CVE-2021-4277 affects fredsmith/utils screenshot_sync. OWASP
-            Dependency-Check assigns its generic utils_project:utils CPE to
-            the unrelated org.latencyutils:LatencyUtils Java histogram library.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.latencyutils/LatencyUtils@.*$</packageUrl>
-        <cve>CVE-2021-4277</cve>
-    </suppress>
 
-    <suppress>
+    <suppress until="2026-12-11Z">
         <notes><![CDATA[
             flyway-database-postgresql is Flyway's Java database adapter, not
             the PostgreSQL server. Its coincidental version 11.20.3 caused the
             postgresql:postgresql CPE to attach server CVEs to the adapter.
+            Owner: uzaira0. Rechecked 2026-11-06: the runtime still resolves 11.20.3.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.flywaydb/flyway-database-postgresql@.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.flywaydb/flyway-database-postgresql@11\.20\.3$</packageUrl>
         <cpe>cpe:/a:postgresql:postgresql</cpe>
     </suppress>
 
-    <suppress>
-        <notes><![CDATA[
-            CVE-2026-33186 affects the Go module google.golang.org/grpc and its
-            Go server path authorization. These are io.grpc Java artifacts;
-            they do not contain the vulnerable grpc-go implementation.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.grpc/grpc-(api|context|core|netty-shaded|protobuf|protobuf-lite|services|stub|util)@.*$</packageUrl>
-        <cve>CVE-2026-33186</cve>
-    </suppress>
 
-    <suppress>
+    <suppress until="2026-12-11Z">
         <notes><![CDATA[
             CVE-2026-42154 affects the Go Prometheus server's /api/v1/read
             endpoint. The io.prometheus:simpleclient Java metrics libraries
             neither implement nor expose that Prometheus server endpoint.
+            Owner: uzaira0. Rechecked 2026-11-06: the runtime resolves simpleclient 0.16.0.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.prometheus/simpleclient(_.*)?@.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.prometheus/simpleclient(_[a-z_]+)?@0\.16\.0$</packageUrl>
         <cve>CVE-2026-42154</cve>
     </suppress>
 
-    <suppress>
+    <suppress until="2026-12-18Z">
         <notes><![CDATA[
             CVE-2022-40152 affects the Woodstox parser implementation before
             the patched releases. org.codehaus.woodstox:stax2-api is only the
             API contract; Chronicle resolves woodstox-core 7.2.0 separately.
+            Owner: uzaira0. Rechecked 2026-11-06: the runtime resolves stax2-api 4.3.0.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.codehaus\.woodstox/stax2-api@.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.codehaus\.woodstox/stax2-api@4\.3\.0$</packageUrl>
         <cve>CVE-2022-40152</cve>
     </suppress>
 
-    <suppress until="2026-11-08Z">
+    <suppress until="2026-12-04Z">
         <notes><![CDATA[
             Hazelcast 5.7.0 bundles jackson-databind 2.21.2 and 3.1.2 under
             com.hazelcast.shaded.com.fasterxml.jackson.databind (812 classes) and
@@ -183,6 +139,8 @@
             Jar SHA-256: 241ec66cea8491787f68c3336f069ac463877af50bdb7676cd9d538f1940dc33.
             Covers every databind advisory on these two unreachable bundled copies until the review date.
             Exact package/version pairs exclude Chronicle's direct jackson-databind 2.22.3.
+            Carried by com.hazelcast:hazelcast:5.7.0. Owner: uzaira0. Rechecked 2026-11-06: Hazelcast
+            OSS 5.7.0 is still the newest release on Maven Central.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/(com\.fasterxml\.jackson\.core/jackson-databind@2\.21\.2|tools\.jackson\.core/jackson-databind@3\.1\.2)$</packageUrl>
         <vulnerabilityName regex="true">.*</vulnerabilityName>

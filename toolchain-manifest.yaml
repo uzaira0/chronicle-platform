@@ -26,7 +26,7 @@ gradle:
 
 kotlin: "2.4.10"
 
-bun: "1.3.12"               # sole JS runtime — Node is not a dependency of this repo
+bun: "1.4.4"               # sole JS runtime — Node is not a dependency of this repo
 
 python: "3.12"              # floor for scripts/ tests/ selfhost/ helpers; python3 on PATH must be >= this, with requirements-dev.txt installed
                             # (RHEL 9 ships 3.9 as /usr/bin/python3: `uv python install 3.14 --default`; then `uv pip install --system --break-system-packages --python "$(command -v python3)" --require-hashes -r requirements-dev.txt`)
@@ -52,16 +52,20 @@ keycloak_postgres:
   image: "postgres:18.6-alpine"  # SSO tier only — stock Postgres, no pg_tde, no participant data
   index_digest: "sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395"
 
+# Release images are linux/amd64 only: scripts/publish-images.sh builds with --platform linux/amd64 and
+# scripts/scan-selfhost-release-images.sh scans that platform (the ignore file's purls name x86_64).
+release_platform: "linux/amd64"
+
 selfhost_images:
   backup: "ghcr.io/uzaira0/chronicle-selfhost-backup:2026.10.5@sha256:1bdf966c4c3327d99c3ae13d2cf46f3ffa1834b5dc63b745c1a0949de8ab95c3"
   # GET-only Docker API for cadvisor (monitoring overlay). Not in the stale-image sweep:
   # the dogfood compose still references it by tag.
   docker_socket_proxy: "tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459"
   cadvisor: "ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a"
-  victoria_metrics: "victoriametrics/victoria-metrics:v1.153.0@sha256:5eff7af5341e401471002f58d106d399e614a62f3d240f2dbc21901e49eed5dd"
+  victoria_metrics: "victoriametrics/victoria-metrics:v1.155.0@sha256:f60dc268b54ecf87f6e09d740c2b732838aa9193090cc741417c9f6386a130df"
   victoria_logs: "victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d"
   fluent_bit: "fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845"
-  grafana: "grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f"
+  grafana: "grafana/grafana:13.2.5@sha256:9f7aa1e1e3246aade5792d35a738049f7f32f89cd51d1956cf426a4e86268a84"
   keycloak: "quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc"
 
 semgrep: "1.182.0"

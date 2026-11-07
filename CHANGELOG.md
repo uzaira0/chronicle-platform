@@ -5,13 +5,174 @@ matching the `chronicle-selfhost-<version>` bundle, its image tags, and `./chron
 One bundle per calendar day: a same-day suffix such as `-2` is a semver prerelease and
 would sort below the day's release, so `./chronicle update` would refuse it.
 
-## [2026.11.5]
+## [2026.11.6]
 
 Server, dashboard and self-host bundle, updated in place from 2026.11.2 with `./chronicle update`;
 Android open flavor (versionCode 85) on Play internal testing.
 
+### Security
+
+- Self-host: containers that hold participant data or credentials can no longer send anything
+  off the host: they sit only on internal networks, with no default route, and resolve no
+  external name (every service carries `dns: 192.0.2.53`, which also covers Docker Engines
+  before 25.0.5). Web and the backend move to an internal `core` network, and PostgreSQL with
+  its users (backend, backups, the database jobs) to an internal `database` network that web is
+  not on, so the TLS edge cannot open `postgres:5432` (both derived from `CHRONICLE_CORE_PREFIX`,
+  chosen by setup and by `./chronicle update`, which needs no operator step). Published ports now belong to two small forwarders built into the
+  Caddy image, `web-forward` and `monitoring-forward`, which hold no data, credential or volume;
+  web-forward passes the client address to Caddy with the PROXY protocol, accepted only from its
+  fixed address. Monitoring is internal; the public URL check moved into a new credential-free
+  `public-probe`. The only container with a route out is a new `egress-proxy`, an allowlisting
+  CONNECT proxy in the same binary that tunnels only to the public URL's host and an off-host
+  alert webhook's host, both derived from `.env`, and refuses any other target before resolving
+  it. public-probe, and Grafana when the alert webhook is off this host
+  (`CHRONICLE_ALERT_EGRESS`, derived and kept in `.env`), reach the internet only through it. The backend trusts `X-Forwarded-For`
+  only from web's fixed core address. A rollback restores the previous networks. See
+  `selfhost/docs/NETWORK-EGRESS.md`, which also lists the hosts an update must reach;
+  `./chronicle update --check` names the first one it cannot.
+- Self-host: study webhooks are off. Registering one returns 409 with the reason, and no
+  delivery is attempted. Other deployments are unchanged (`webhooks.enabled`, default true).
+- Self-host: every container except the two one-shots that copy them from `.env` reads its
+  credentials from files (a new one-shot `secrets-init` writes them, one volume per consumer,
+  including web, config-guard, db-init, migrate and restore), so `docker inspect` of them shows
+  none; web's entrypoint hands its secret to Caddy's process only. The Docker socket proxy blanks
+  every container's environment in what it returns. A conftest rule refuses a credential
+  substituted into any other service.
+- Self-host: the one-shot jobs mount only the bundle files they read, read-only; none of them
+  can read `.env`.
+- Self-host: cAdvisor runs unprivileged (65532) and no longer mounts the host root or Docker's
+  storage directory, so it cannot read container configurations or volumes. Per-container disk
+  usage is no longer collected; host and backups filesystem usage, which the alerts use, are.
+- Self-host: web has no route out in any mode, and Caddy staples no OCSP response (request a
+  certificate without OCSP Must-Staple). Grafana's plugin preinstall and news feed are off.
+- Self-host: every container has a CPU ceiling (a CFS quota, which Docker accepts on a host with
+  fewer CPUs, unlike `cpus`), and thread pools follow it rather than the host: the JVM sees 4
+  processors, Go services set `GOMAXPROCS` to their ceiling. Pid limits are at least twice the
+  peak measured on a 32-CPU host under load; README "Container limits" lists both.
+- Self-host: setup and `guard-config.sh` refuse a plain-HTTP alert webhook unless it points at
+  this host's loopback.
+- New conftest rules: published ports bind loopback unless set otherwise (web-forward's 443/80
+  excepted), only edge services join a network with a way out, every other networked service
+  uses the blackhole resolver, seccomp stays on, and a secret's substitution carries no literal
+  default.
+- Self-host: `./chronicle update` follows a release signing key rotation with no operator step. A
+  release signed by a new key carries `release-signing.pub` and the installed key's signature over
+  it (`release-signing.pub.sig`, namespace `chronicle-release-key`, made by
+  `scripts/endorse-release-key.sh`); the updater accepts the new key only through that signature
+  and only when the bundle ships the same key, which then becomes the installed one. Updaters before
+  this release cannot rotate, so the key stays unchanged until no server runs 2026.11.2.
+- Self-host: `./chronicle deletion-status` and doctor's reviewer-scope row pass the study and
+  operation ids to `psql` as bound variables instead of splicing them into the SQL text.
+- Release images are signed with cosign (the key beside the release-signing key; public key
+  `selfhost/image-signing.pub`) and each carries a signed SLSA v0.2 provenance attestation from
+  BuildKit. Both Sigstore bundles ship in the release under `selfhost/image-signatures/`, and
+  `./chronicle update` checks them against the pinned key and the manifest's digests before it
+  pulls anything. A release from before 2026.11.6 carries none and updates as before.
+- Every image a release runs, built or third-party (cAdvisor, the socket proxy, VictoriaMetrics,
+  VictoriaLogs, busybox), is checked before publishing for an SSH server, undeclared listeners, a
+  root user, a missing HEALTHCHECK, setuid/setgid files and compilers, linkers or debuggers
+  (`scripts/check-image-policy.py`, `config/image-policy.toml`; every exception has a written
+  reason, and an unused one fails). Trivy scans for secrets as well as vulnerabilities. The
+  frontend and Fluent Bit images run as non-root users, the backup image as `postgres` (26), and
+  the database and backup images no longer contain make, binutils or setuid/setgid files.
+- Every Trivy, OSV and Dependency-Check waiver names an owner and a recheck date, expires at most
+  62 (Trivy) or 90 (Dependency-Check) days after it, and no more than a quarter of them share an
+  expiry date. Publishing fails on a waiver that no longer matches anything in the scans or the
+  locked dependencies; the stale Guava, Log4j, LatencyUtils and gRPC suppressions are removed.
+- A release writes its version into every Compose file that reads `RELEASE_VERSION`, including
+  the backup and monitoring overlays, so a `.env` value cannot turn off the image digest guard.
+- The release manifest records the images' platform (`linux/amd64`); building a release from an
+  image built for another platform fails.
+- Dependency updates arrive automatically but only after a wait: 7 days for routine updates,
+  14 for major versions, 3 for security fixes. Renovate (self-hosted, `scripts/renovate-run.sh`)
+  proposes them on a `deps/auto` branch, and `scripts/dependency-gate-runner.py` admits each one
+  only after the age gate, OSV (any malicious-package advisory fails), the local security jobs and
+  a rebuild and scan of every affected image pass. Nothing reaches `main`, is tagged or published
+  without the user. Policy and the exception process: `docs/SUPPLY-CHAIN.md`.
+- `scripts/check-dependency-age.py` (local CI `dependency-age`, and the publish path) refuses any
+  changed pin younger than its wait, any new package name without a reviewed entry in
+  `dependency-additions.toml`, and any version with an OSV `MAL-` advisory.
+- Bun installs never run package lifecycle scripts (`--ignore-scripts` everywhere, checked by the
+  supply-chain guardrails, Dockerfiles included) and `chronicle-web/bunfig.toml` holds back npm
+  versions younger than 7 days.
+- Publishing runs dependency installs and scans in a container without credentials, logs in to
+  GHCR only right before the first push and logs out after the last.
+- The Caddy and backup images build Go code from committed `go.mod`/`go.sum` with `-mod=readonly`;
+  the Caddy edge links golang.org/x/net 0.62.0 and klauspost/compress 1.20.2.
+- The dependency gate runner decides with its own checkout only: the candidate is cloned as data
+  (with none of the checkout's other branches, so full-history scans see only its history), a
+  candidate that changes `scripts/`, `tests/`, `renovate.json`, the exception, addition or scanner
+  files fails before anything of it runs, and `deps/auto` is gated from the last commit the runner
+  itself pushed rather than trusted as Renovate's token left it.
+- No dependency code runs on the host during gating: verify-toolchain, every security job, the
+  web job and Gradle's download run in the gate sandbox (`scripts/sandbox/Dockerfile.gate`), each on
+  a fresh copy of the candidate; builds and tests have no network, installs and the database
+  scanners reach only allowlisted registries through `scripts/sandbox/egress-proxy.py`, and the host
+  steps run with an empty `HOME` and no credentials.
+- The runner pushes `deps/auto` only to the URL it validated, from a repository of its own with no
+  system or global Git configuration, no tags and no submodule recursion, so a `pushurl`,
+  `pushInsteadOf` or `followTags` setting cannot send anything elsewhere. Failed candidates are
+  gated again once the wait has run out or the base or gate inputs changed.
+- Renovate runs no package manager and merges nothing (`skipArtifactsUpdate`, no
+  `postUpdateOptions`, `automerge: false`); lockfiles, `go.sum` and checksums are regenerated in the
+  sandbox by `scripts/deps-regenerate.py`.
+- Dependency age gate: npm packages from git, github, tarball URLs, other registries or paths outside
+  the repository are no longer skipped; each needs a reviewed `npm-source` row naming the exact source.
+- Dependency age gate: a lockfile approval admits only the names the file held at its reviewed `revision`.
+- Dependency age gate: Docker Hub tag time dates a pin only while the tag holds that digest; Go versions
+  are dated by when proxy.golang.org first cached them (index.golang.org) instead of the commit time.
+- Dependency age gate: OSV results are read to the last page; a malicious version being removed no longer
+  blocks its replacement.
+- The 7/14/3-day waits and the 30-day exception limit have one owner
+  (`check-dependency-age.py --print-policy`), and a test fails when any copy disagrees.
+- Release images install, upgrade and download OS packages (Alpine, Debian/Ubuntu, UBI RPM) only at
+  exact versions older than the dependency wait, through the helpers in `selfhost/os-packages/`; the
+  unpinned `apk upgrade` steps are gone. The age gate dates them from the APK index, snapshot.debian.org,
+  Launchpad and the UBI repository metadata, and `scripts/os-package-pins.py` proposes the pins (run by
+  `deps-regenerate.py` when a base image changes).
+- `deps-freshness.sh`: a repository without GitHub releases is compared by its newest version tag
+  again (the tag filter was an invalid jq expression and every such lookup failed).
+- The engineering job passes where it actually runs: the gate runner's own tests no longer need a
+  `docker` or `gh` CLI (the gate sandbox has neither), and the ast-grep proxy rule for operator
+  Python now exempts the release download in `chronicle_ops/update.py`, which
+  `config_inventory.proxy_violations` (verify-config.sh) requires to honour `HTTPS_PROXY`. Before,
+  the two checks contradicted each other and no tree could pass both. The curl part is its own rule,
+  `selfhost-curl-ignores-proxy-environment`.
+
+### Fixed
+
+- Self-host incident runbook: the audit-table export failed (the postgres container has only
+  `POSTGRES_PASSWORD_FILE`); it now reads the file, and the collect block runs in a subshell so a
+  failing step stops it without closing the operator's shell.
+- Self-host docs: study webhooks are described as off on self-host (CONFIGURATION,
+  UNINSTALL-DATA-DELETION); `.env.example` and the README no longer say a host firewall
+  restricts published ports (Docker's rules run before UFW and firewalld; the README gives the
+  bind address, `POOL_ALLOWED_IPS` and `DOCKER-USER`); the MFA comment matches its default; the
+  runbook's privilege table matches the Compose files; unused docker-socket-proxy settings are
+  gone; NETWORK-EGRESS and the monitoring runbook name the unauthenticated loopback log forward
+  input as a limit (Docker's fluentd driver cannot authenticate).
+- Self-host: Grafana's own HEALTHCHECK probes HTTPS with the served certificate when the
+  monitoring overlay serves HTTPS; it probed plain HTTP and failed. Every release image's
+  HEALTHCHECK uses exec form.
+- Self-host backups: every dump's restore self-check failed with "No such file or directory:
+  '/.env.example'" because the backup container did not know its release; it now gets
+  `RELEASE_VERSION`.
+- Self-host update and rollback recognise their own recovery records when the installation
+  path was reached through a symlink.
+- Self-host: a scheduled `up` that finds reconciliation paused records success instead of a
+  failure receipt.
+- The self-host test runner stops with the command to run (`git submodule update --init
+  --recursive`) when the submodule files it needs are missing, instead of failing dozens of tests.
+- Local CI runs mypy with `--check-untyped-defs` over the operator package; the 27 errors it found
+  are fixed.
+
 ### Changed
 
+- Self-host: `setup`, `check`, `up`, `update` and `doctor` warn when Docker Engine is older than
+  29.8.2, containerd older than 2.2.10, 2.3.7 or 2.4.2 (1.7 has no fix), runc older than 1.3.6 or
+  1.4.3, or the kernel has no upstream fix for CVE-2026-31431 and CVE-2026-53362 (both on CISA's
+  exploited list). Each warning names the CVEs and how to upgrade; none of them stops a command, so
+  `./chronicle update` keeps working on an older host. The README lists the minimums.
 - Spanish: the dashboard's notes-loading error, reviewer-secret length message, settings-audit
   "App version" column and unavailable study end date, and ten server error messages, now have
   Spanish; the diagnostics-history error has its full Spanish text. These drafts follow BAND's
@@ -23,11 +184,72 @@ Android open flavor (versionCode 85) on Play internal testing.
 - The backend, web frontend and Grafana plugin stage now build on Alpine 3.24 (from 3.23), and
   the Temurin JDK, Caddy and Keycloak Postgres base images are pinned to their current upstream
   builds.
-- Publishing refuses any Chronicle image that contains an SSH server (OpenSSH or Dropbear). None
-  does; reach a container with `docker exec` from the host.
+- Publishing refuses any Chronicle image that contains an SSH server (OpenSSH or Dropbear), or
+  that listens on a TCP port it does not declare when started on `--network none` (which also
+  catches a server compiled into a binary). None does; reach a container with `docker exec` from
+  the host.
+- The database and backup images carry Red Hat's fixed Python 3.9, expat and ca-certificates
+  packages, and no longer contain the unused Python 3.12 stack, RPM build macros or
+  vim-filesystem. The Fluent Bit image carries Debian's fixed libcurl; the Caddy edge is 2.11.9.
+- Release images are published for linux/amd64 only, and `release-manifest.json` now says so
+  (`"platform": "linux/amd64"`; 2026.11.2's updater, run from its tag in a test, still accepts the
+  manifest). On another Docker daemon the launcher runs the bundled Caddy image with
+  `--platform linux/amd64 --network none`: where it runs (Docker Desktop or OrbStack on Apple
+  silicon, a Linux host with amd64 emulation) every command proceeds with a warning that
+  performance is emulated. Only a daemon that cannot run amd64 images at all makes a fresh
+  `./chronicle setup` refuse and `./chronicle check` fail; `up`, re-running `setup` and `update`
+  only warn. The bundled `selfhost/README.md` states the rule under Requirements.
+- Monitoring with no configuration now reaches the host: every 15 minutes the scheduled
+  reconciliation's doctor reads the firing alerts from Grafana and writes each to the system log
+  (`logger`, `user.crit`, again after 24 hours while it fires, `user.notice` when it resolves).
+  `./chronicle doctor` and `./chronicle status` list firing alerts, and `./chronicle alerts` prints
+  them. No container gains a route out. The webhook remains the way to reach a person
+  (`docs/MONITORING-RUNBOOK.md`, "Where alerts go").
+- `./chronicle doctor` and `./chronicle status` report running containers whose Compose
+  configuration differs from the current `.env` and Compose files (an edit not yet applied by
+  `./chronicle up`), naming them; `./chronicle config-drift` prints the same row.
+- Monitoring: VictoriaMetrics stops writing while less than 8 GiB is free (was 2 GiB), so metrics
+  alone cannot push the disk below the floor `up` and `update` need. Update moves the old shipped
+  value to the new one and keeps any other value; config-guard warns when the reserve is below the
+  update floor. `METRICS_MAX_DISK_BYTES` is renamed `METRICS_DISK_BUDGET_BYTES` (it is an alert
+  budget, not a cap), and update renames it in `.env`.
+- Each setting has one default across the shipped files (a test enforces it): the Compose default
+  of `DASHBOARD_ALLOWED_IPS` now matches `.env.example`, and config-guard's
+  `RATE_LIMIT_GUARD_WINDOW` default is 1m like the services'. The memory check sums the
+  `mem_limit` of every long-running service Compose would start (web-forward and
+  monitoring-forward included) instead of a fixed allowance, and `up` and `update` warn when the
+  host has less.
+- `./chronicle setup`: the monitoring and `.env` overwrite questions accept y/yes/n/no in any case
+  and stop on any other answer; "no" no longer turns monitoring on.
+- Reconcile and update-check receipts are pruned like the other routine receipts (one reconcile
+  every 15 minutes left about 35,000 files a year), and release discovery stops after 20 catalog
+  pages.
+- Monitoring: Grafana is 13.2.5, and of Grafana's bundled datasource plugins the image keeps only
+  Prometheus. The twelve others were already disabled and are now removed from the image.
+- The directory the operator installed stays the one place to run `./chronicle`. After an update commits, its `chronicle` forwards to the release that owns the deployment (and runs its own release again after a rollback to it; the original launcher is kept as `chronicle.release`). Updates install each release at `chronicle-releases/<version>/` instead of a new random `chronicle-update-*` directory. The update from 2026.11.2 is staged by 2026.11.2's updater and gets the front door from this release's apply step; a test runs 2026.11.2's `update.py` from its tag for that handoff.
+- Bun 1.4.4 (from 1.3.12) for chronicle-web, its Docker builds and CI.
 
 ### Fixed
 
+- Self-host: an unhealthy or slow monitoring container no longer fails `./chronicle up` or makes
+  `./chronicle update` roll back. Chronicle's `cert-init` no longer waits on `monitoring-cert-init`
+  (the two serialize their shared backend certificate on the volume instead), `./chronicle up`
+  warns instead of stopping when `monitoring-cert-init` fails, and `./chronicle update` pulls
+  Chronicle's images and the monitoring images separately: a monitoring image the registry cannot
+  serve is reported and the update continues. Startup, update, rollback and restore wait only for Chronicle's
+  own services, then start the monitoring overlay's services with a separate wait of at most
+  300 seconds; each one still unhealthy is named in a warning with the command to read its log (for example `./chronicle logs grafana`).
+  The monitoring services are the ones `overlays/monitoring.yml` adds, as Compose reports with and
+  without that overlay, so a rollback to an older release is decoupled the same way. `./chronicle
+  doctor` reports every monitoring service's health as a warning (it listed five, and only whether
+  they ran), and `./chronicle monitoring status` lists them all.
+- Self-host monitoring: Grafana's health check tests only Grafana. It also required every
+  VictoriaMetrics scrape target to be up and VictoriaLogs to answer, so Grafana was reported
+  unhealthy whenever another service was; those keep their own checks and `doctor` checks delivery.
+- Self-host: a failed update recovery or rollback no longer leaves ingress closed (503) and
+  reconciliation paused. Its journal stays for `./chronicle update`; reconciliation resumes and logs
+  the refusal on every run; ingress reopens on the data in place, except while resuming would
+  restore the safety dump, which would discard uploads accepted meanwhile.
 - Self-host monitoring: Grafana no longer stays unhealthy on hosts with many CPUs. Its twelve
   unused bundled datasource plugins each ran a process with about one thread per CPU; on a
   32-CPU host they filled 509 of Grafana's 512 process slots and its health check could not
@@ -40,6 +262,32 @@ Android open flavor (versionCode 85) on Play internal testing.
 - Self-host README: the battery steps name each Android version's own Settings path (Battery
   optimization > Don't optimize on Android 8–14; App battery usage > Allow background usage >
   Unrestricted on 15 and later).
+- Self-host update: an update that rolled back automatically, including one finished by a rerun
+  after an interruption, now exits non-zero (it exited 0). A leftover handoff to a staged candidate
+  that no longer exists is cleared and the update starts again, instead of failing on every run.
+  An `.env` readable by other accounts is set to mode 0600 with a warning instead of refusing.
+- A host without Linux cron (a macOS trial, a minimal image, a stopped `cron` service) no longer stops setup or update. A new install starts with `CHRONICLE_RECONCILE_ENABLED=false`; on a deployment that has it enabled, setup, update and `doctor` warn and name what is missing. A crontab the update cannot read or write warns after verification instead of rolling the update back. `./chronicle up` installs a missing schedule once cron is available.
+- A `CHRONICLE_SUBNET` overlap with a host route, VPN or another project's Docker network warns instead of stopping `up`, `setup` or `update`, and so does a network table the check cannot read. This deployment's own network is recognised by its Compose labels under any name.
+- `CHRONICLE_CORE_PREFIX` has one owner, `network-subnet.py`: setup and update write it to `.env`, Compose refuses to start without it (it fell back to `10.252.0` in four other places), and `.env.example` leaves it empty for setup. The config guard's check that the backend trusts web's core address compared two values Compose derives from the same prefix; it now checks only that the prefix is a private /24, and `./chronicle verify` compares the running core and ingress subnets, web's address on core and web-forward's on ingress with what `network-subnet.py` derives from `.env`'s prefix, so a network left on another range is reported instead of silently leaving the backend or Caddy trusting nobody.
+- Post-start verification (update, rollback, recovery) reruns a verification whose failures are new for up to
+  three minutes before it counts them, since a backend still warming up can fail a probe once; this covers a
+  previous release's verify too, which a rollback runs and cannot change. This release's edge rate-limit probe
+  also repeats its burst before it reports that nothing was rate limited.
+- Rewriting the operator crontab on Alpine and Fedora (cronie 1.7) no longer prints
+  `~/.cache/crontab: mkdir: No such file or directory`: the cache directory cronie keeps its backup of the
+  previous schedule in is created first.
+- `./chronicle doctor` and the daily update check warn when the state or Docker filesystem has room to start Chronicle but not for an update's safety dump and staged release, so the space can be freed before `./chronicle update` refuses for it. The startup floor stays a refusal.
+- A file edited or removed inside the installed release no longer stops `./chronicle update` with a checksum mismatch. The update installs the new release's copy, keeps the edited file and a diff against the new copy in `<state>/local-edits/<version>/`, and names each one. Downloaded releases are still verified strictly.
+- `./chronicle update` performs every settings migration it can derive instead of sending the operator to `setup`: renamed timeout keys move to their `_MS` names, an empty JWT, metrics, internal-web or Grafana secret is generated, a cleartext dashboard password is hashed with the release's Caddy image, and empty, repeated or unshipped `COMPOSE_FILE` entries are dropped (an unshipped file is copied to `<state>/local-edits/`). The running release is still stopped, dumped and, on a rollback, restarted with the operator's own Compose files, so a writer one adds is stopped before the safety dump; a file that moves PostgreSQL's volumes stops the update before anything stops, since the new release would start on another database. It refuses, before stopping anything, only on an empty database password or a missing dashboard password.
+- A verification check that already failed before an update (a backup directory mode, unconfirmed storage encryption, an unreachable load balancer) no longer rolls the update back. The update runs the previous release's `./chronicle verify` first and passes those failures to the new release's verify as warnings; only a check the update breaks rolls it back. A check that got worse is a regression, not the old failure: more tables on plain heap, more unwritable backup directories, or a backup directory mode with a new permission bit. The pre-update results are kept in the recovery journal, so a resumed recovery and a rollback judge the previous release's own verify output the same way. When the pre-update verification cannot run (timeout, or an exit without a named check), the update no longer treats that as "nothing failed before": a check failing afterwards is reported and does not roll it back.
+- `./chronicle update` reaches releases through an HTTPS proxy (`https_proxy`/`HTTPS_PROXY`, `no_proxy`); every probe of the deployment still bypasses proxies, and `verify-config.sh` now checks the Python curl calls for both rules. Downloads retry with backoff inside the transfer deadline. Discovery falls back from `CHRONICLE_RELEASES_URL` to the GitHub API to the GitHub releases feed (no API rate limit), and skips a malformed release or one whose assets are still uploading instead of failing (a release whose asset list holds a malformed row is now skipped too; it stopped discovery). The GitHub API and the releases feed now offer the same releases by one rule, the stable version tag; the API no longer also consults GitHub's pre-release flag, which the feed cannot see. A test checks that each supported installed release (from its git tag) discovers the release being published.
+- A PostgreSQL major change no longer stops `./chronicle update`. A release on a new major names new database volumes; the update restores its safety dump into them before migrations run and keeps the old volumes, which a rollback starts the previous release on without a restore. It refuses, before stopping anything, only when the disk cannot hold a second copy of the database or the release reuses the old volumes. Publishing refuses a release whose database volumes do not follow its PostgreSQL major against every supported published release. An automatic rollback removes the volumes the failed attempt created (new-major database, new secrets volumes), so the retry starts clean; a guarded rollback after a committed major update restores the dump into the previous release's own volumes, which it starts on, instead of the new ones.
+- `./chronicle update` records the new owning release and installs the front-door forwarder before its durable commit, inside the update's recovery journal. A failure writing either rolls the update back; an interruption after the commit leaves the original directory forwarding to the new release, and the rerun finishes the commit (it re-installs both) instead of leaving the original `./chronicle` refusing every command as "superseded". A failure after the commit is finished forward and reported as success, and the apply step never deletes the release that owns the deployment. A front door the operator moved or deleted is replaced by the directory the update runs from, and the record is rewritten. The forwarder no longer falls back to the old launcher when the ownership record is missing or names a release that is gone; it stops and lists the releases installed for the deployment. Release cleanup counts repeated stagings of one version (`<version>.1`, `.2`, left by interrupted downloads) once and removes the copies, so they no longer push the rollback release out.
+- A rerun of `./chronicle update` after an interruption while it prepared the new release's settings (before anything stopped) derives those settings again instead of failing with "new release file inventory is not exact".
+- An automatic rollback whose crontab cannot be read or written now finishes: it records the previous release as the owner (read back), starts and verifies it and reopens ingress, and only warns about the schedule. It stopped after the new release was down, with nothing serving. After an update or a rollback that could not write the crontab, the next `./chronicle up` installs the schedule, and `./chronicle doctor` warns until it does.
+- Update and rollback no longer wait for `db-backup`'s first dump before reopening ingress. Its health needs a fresh full dump plus a restore check (up to `BACKUP_VERIFY_TIMEOUT_SECONDS`), so a slow dump kept participants out and could roll a good update back; the update has already taken its own safety dump. `db-backup` is started once the other services are healthy, and after the commit the update says whether it is still taking that backup or has failed. Scheduled backups run as before; `./chronicle doctor` reports `service-db-backup` (a first backup in progress is a warning) and `./chronicle verify` still checks the newest restore-verified backup, a backup already missing before the update remaining a warning.
+- A deployment with no alert recipient (`CHRONICLE_ALERT_WEBHOOK_URL` unset, the default) no longer makes `./chronicle doctor` exit 1 and every scheduled reconciliation record a failure. `alert-route` is a warning that says to add the setting to `.env` and run `./chronicle up`.
+- The first update from 2026.11.2 is discovered and downloaded by 2026.11.2's own code, which does not use a proxy or retry; `docs/UPGRADE-ROLLBACK.md` now says proxy support and retries apply to updates run by 2026.11.6 and later, and gives a host that reaches GitHub only through a proxy a one-time path: the release's three files and a one-row `releases.json` on a server it reaches directly, named by `CHRONICLE_RELEASES_URL`. Publishing a release now runs every supported installed release's own discovery, from its git tag, on the catalog as it will be published, and refuses if any of them would not select the release (2026.11.2 rejects the whole catalog for one row it cannot parse).
 
 ### Android (open flavor, versionCode 85)
 

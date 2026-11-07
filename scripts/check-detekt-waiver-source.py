@@ -2,22 +2,25 @@
 """Verify SARIF-derived metadata for existing detekt allowances and suppression directives."""
 
 import argparse
-from collections import Counter
-from functools import lru_cache
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
+import os
+import re
+import shutil
 import subprocess
 import sys
-from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
+from collections import Counter
+from functools import lru_cache
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 METADATA = ROOT / "detekt-baseline.sources.json"
 BASELINE_BASE = "5dc62f05"
 # Pin the reviewed Git blob so the first metadata commit cannot authorize its own refresh.
-METADATA_REVISION = "b4419cdc4e2510b76259046d85316395711ce06d"
+METADATA_BLOB = "8bdfba663095bf42930357cbe1421d7b6f2ee229"
 FUNCTION_RULES = {"LongMethod", "NestedBlockDepth", "CyclomaticComplexMethod", "ReturnCount", "ThrowsCount",
                   "FunctionOnlyReturningConstant"}
 FUNCTION_KINDS = {"function_declaration", "getter", "setter", "secondary_constructor", "anonymous_function"}
@@ -46,6 +49,22 @@ def region_text(source, region):
     return source[start:end]
 
 
+@lru_cache(maxsize=1)
+def ast_grep_binary():
+    """The ast-grep toolchain-manifest.yaml pins: CHRONICLE_AST_GREP (local-ci's detekt job passes the one it
+    resolved) or the first on PATH, refused unless it reports that version. Pins hash the spans ast-grep
+    finds, and another version splits Kotlin differently."""
+    pinned = re.search(r'^  ast-grep:\n    version: "([^"]+)"', (ROOT / "toolchain-manifest.yaml").read_text(), re.MULTILINE)
+    binary = os.environ.get("CHRONICLE_AST_GREP") or shutil.which("ast-grep")
+    if not pinned or not binary:
+        raise ValueError("ast-grep or its toolchain-manifest.yaml pin is missing")
+    version = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=30,
+                             check=False).stdout.strip()
+    if version != f"ast-grep {pinned.group(1)}":
+        raise ValueError(f"{binary} is {version or 'unknown'}; toolchain-manifest.yaml pins {pinned.group(1)}")
+    return binary
+
+
 @lru_cache(maxsize=256)
 def ast_nodes(source):
     kinds = sorted(FUNCTION_KINDS | CLASS_KINDS | {"annotation", "file_annotation", "parenthesized_expression"})
@@ -62,7 +81,7 @@ def ast_nodes(source):
     rules = "\n---\n".join(map(encoded, definitions))
     # Diagnostic ignore comments cannot hide this source inventory; their byte offsets remain identical.
     parsed = source.replace("ast-grep-ignore", "ast-grep-search")
-    result = subprocess.run(["ast-grep", "scan", "--inline-rules", rules, "--json=compact", "--stdin"],
+    result = subprocess.run([ast_grep_binary(), "scan", "--inline-rules", rules, "--json=compact", "--stdin"],
                             input=parsed, text=True, capture_output=True, timeout=30)
     if result.returncode not in (0, 1):
         raise ValueError("cannot parse Kotlin source: " + result.stderr)
@@ -322,7 +341,7 @@ def main():
     coverage = diff_coverage()
     reports = [json.loads(path.read_text()) for path in (args.all_sarif, args.filtered_sarif)]
     ids = {node.text for node in ET.parse(ROOT / "detekt-baseline.xml").iter("ID")}
-    accepted = accepted_metadata(ROOT, METADATA_REVISION)
+    accepted = accepted_metadata(ROOT, METADATA_BLOB)
     authorized = coverage.git(ROOT, "rev-parse", BASELINE_BASE)
     expected = accepted["baselineBase"]
     metadata = ({"baselineBase": expected, "baselineIds": sorted(ids),

@@ -13,6 +13,25 @@ and private researcher access during setup.
 
 - A Linux host with Docker and the Docker Compose plugin **2.17 or newer**. The `./chronicle` script
   also runs on macOS for a local trial; deploy on Linux. See [Supported hosts](#supported-hosts).
+- An **amd64 (x86_64)** Docker host for production. The release images are
+  published for `linux/amd64` only; there are no arm64 images. On a Docker daemon that reports
+  another architecture, the launcher runs the bundled Caddy image once with
+  `--platform linux/amd64 --network none` and a no-op command. Where that works (Docker Desktop
+  or OrbStack on an Apple silicon Mac, or a Linux host with amd64 binfmt/QEMU emulation), every
+  command proceeds with a warning that performance is emulated and slower: fine for a trial. Only
+  a daemon that cannot run amd64 images at all (`exec format error`) makes a fresh
+  `./chronicle setup` refuse and `./chronicle check` fail. On a deployment that already exists,
+  `up`, re-running `setup` and `update` only warn, so an update is never refused for it.
+- Container runtime and kernel at or above the releases that fix the 2026 container-escape and
+  kernel CVEs: Docker Engine **29.8.2**, containerd **2.2.10, 2.3.7 or 2.4.2** (the 1.7 line has no
+  fix), runc **1.3.6 or 1.4.3**, and a kernel at **6.1.177, 6.6.144, 6.12.95, 6.18.38 or 7.1.3** or
+  newer in its series (5.10.254 and 5.15.204 also carry both fixes), or a distribution kernel with
+  the CVE-2026-31431 and CVE-2026-53362 fixes backported; both are on CISA's exploited list and
+  reachable from a container under Docker's default seccomp profile. Install Docker from Docker's own
+  repository (`docker-ce`, `containerd.io`) and upgrade with your package manager. `setup`, `check`,
+  `up`, `update` and `doctor` warn when a version is older, naming the CVEs; they never refuse to
+  run because of it. Only the Compose 2.17 floor is enforced, because older Compose cannot start
+  the stack.
 - Bash, **Python 3.9 or newer**, curl, OpenSSL, and OpenSSH tools with
   `ssh-keygen -Y` signing/verification support. Install these before verifying the signed
   download or running setup. The Linux recipes also use GNU coreutils, gzip, tar and
@@ -30,9 +49,11 @@ and private researcher access during setup.
   institutional server this is normally your institution's load balancer + institutional
   cert; you do **not** need a public Let's Encrypt setup. See
   [Required configuration](#required-configuration).
-- Outbound HTTPS to pull the images. Automatic reconciliation also requires `cron`/`cronie`,
-  `logger`, and an enabled, active `cron`/`crond` service;
-  use `CHRONICLE_RECONCILE_ENABLED=false` only for an explicitly managed alternative.
+- Outbound HTTPS to pull the images. Automatic reconciliation (restart after a reboot or a
+  failed container) needs Linux with `cron`/`cronie`, `logger`, and an enabled, active
+  `cron`/`crond` service. Without them nothing is refused: a new install starts with
+  `CHRONICLE_RECONCILE_ENABLED=false`, and setup, update and doctor warn on a deployment that
+  has it enabled. Install and enable cron, and the next `./chronicle up` or `./chronicle update` installs the schedule.
 
 ### Supported hosts
 
@@ -40,7 +61,7 @@ and private researcher access during setup.
 |---|---|---|---|---|
 | RHEL 9 / Rocky / Alma 9, Docker CE | yes | 5.1 | Enforcing on the host; Docker daemon without `selinux-enabled` | Supported production host |
 | Ubuntu 22.04 / 24.04, Docker CE | no | 5.1 / 5.2 | n/a (AppArmor) | Expected to work; report issues |
-| macOS with OrbStack or Docker Desktop | trial only | 3.2 (`/bin/bash`) | n/a | Deploy on Linux |
+| macOS with OrbStack or Docker Desktop on an Intel Mac | trial only | 3.2 (`/bin/bash`) | n/a | Deploy on Linux; an Apple silicon Mac's Docker is arm64, which setup refuses |
 
 SELinux: the bundle and state-directory bind mounts carry the shared `z` relabel option.
 A daemon without `selinux-enabled` ignores it (checked on RHEL 9.8: file labels are
@@ -156,8 +177,10 @@ gitlinks and let the operator command build the new revision:
 )
 ```
 
-Post-reset installations upgrade in place with `./chronicle update`. Pre-reset releases
-(2026.10.9 and earlier) require a fresh installation; see [upgrade and rollback](docs/UPGRADE-ROLLBACK.md).
+Post-reset installations upgrade in place with `./chronicle update`, run from the directory you
+installed; after an update, its `./chronicle` forwards to the new release, so that directory stays
+the one place you run commands. Pre-reset releases (2026.10.9 and earlier) require a fresh
+installation; see [upgrade and rollback](docs/UPGRADE-ROLLBACK.md).
 
 `./chronicle setup` is the recommended path for a first-time operator. Copying
 `.env.example` manually remains available for automation.
@@ -382,6 +405,40 @@ an upstream TLS proxy or HTTPS using your certificate/private trial CA; there is
 Let's Encrypt. Caddy reaches the backend over HTTPS, verified against the backend service
 certificate that cert-init issues.
 
+### What can leave the host
+
+Containers that hold participant data or credentials cannot open a connection off the host
+or resolve an external name. Web and the backend sit on an internal `core` network, and
+PostgreSQL with its users (backend, backups, database jobs) on an internal `database` network
+that web is not on. Two small forwarders that hold nothing carry the published ports. Monitoring
+is internal too. The one container with a route out is `egress-proxy`, which tunnels only to
+the hosts your settings name: your public URL, which `public-probe` checks, and, when
+`CHRONICLE_ALERT_WEBHOOK_URL` points off this host, the webhook, which Grafana calls. Study
+webhooks are off for that reason: registering one is refused and says why. Long-running
+containers read their credentials from files, so `docker inspect` shows none. `./chronicle
+update` applies all of this itself. Details, limits and a runtime check:
+[docs/NETWORK-EGRESS.md](docs/NETWORK-EGRESS.md).
+
+### Host firewalls and published ports
+
+Only `web-forward` (and `monitoring-forward`, on loopback) publish ports. Docker opens a
+published port with its own iptables/nftables rules in the `nat` and `FORWARD` paths, which run
+before the input rules that UFW and firewalld manage, so a UFW or firewalld rule does not
+stop traffic to a published port. Restrict who reaches the participant listener in one of
+three places:
+
+- the bind address: `HTTP_BIND`, `INTERNAL_BIND` and `GRAFANA_BIND` default to `127.0.0.1`;
+  only the own-TLS and local-HTTPS modes publish 443/80 on every interface;
+- `POOL_ALLOWED_IPS` (behind-proxy mode): Caddy refuses any other source, using the client
+  address `web-forward` passes it;
+- the `DOCKER-USER` chain, which Docker evaluates before its own rules, for example
+  `iptables -I DOCKER-USER -i eth0 ! -s 203.0.113.0/24 -p tcp --dport 8080 -j DROP`
+  (and the `ip6tables` equivalent; Docker's documentation, "Packet filtering and firewalls").
+
+Check the result from another machine, for IPv4 and IPv6, with `nmap -Pn -p 1-65535 HOST`
+(or `nc -vz HOST PORT` for each published port): only the ports your mode publishes on a
+non-loopback address may answer.
+
 Two traffic paths share the server:
 - Mobile ingest (`/chronicle/v3/*`, `/chronicle/v4/*`); public clients authenticate
   with the per-device API key returned by one-time enrollment, never by a dashboard login.
@@ -441,11 +498,13 @@ never appear in command arguments or receipts:
 ```
 
 Firing and historical alert states are visible in Grafana. By default no notification leaves
-the host; set `CHRONICLE_ALERT_WEBHOOK_URL` to deliver alerts to a person (see the runbook
-section "Attach a notification channel"). Setup calls out that delivery starts disabled, and
-`./chronicle doctor` reports `alert-route` as a failure and exits 1 while monitoring is
-enabled without a destination; scheduled reconciliation also records this failure. The
-check confirms only that a destination is present; test delivery in Grafana using the bundled
+the host, and none needs configuring to be recorded: every 15 minutes the scheduled
+reconciliation writes each firing alert to the host's system log (`journalctl -t chronicle`,
+priority `crit`, repeated daily while it fires, plus a `resolved` line), and `./chronicle doctor`
+(`alerts-firing`) and `./chronicle status` list them. Set `CHRONICLE_ALERT_WEBHOOK_URL` to also
+deliver alerts to a person (runbook sections "Where alerts go" and "Attach a notification
+channel"). `alert-route` in doctor warns only when there is neither a webhook nor a schedule; it
+never makes doctor or scheduled reconciliation fail. Test webhook delivery in Grafana using the bundled
 [monitoring runbook](docs/MONITORING-RUNBOOK.md). Each alert links to that runbook.
 
 Backend and Caddy emit structured JSON envelopes, PostgreSQL emits a parseable timestamp and
@@ -787,7 +846,10 @@ it before giving the reviewer a link, or issue a fresh link afterward.
   directory, Docker data root and database volume filesystems, because Postgres stops
   hard on a full disk. `./chronicle doctor` fails on the same floor, and also warns when the
   host filesystem or the running database volume has less than 15% free, including when
-  monitoring is disabled.
+  monitoring is disabled. `./chronicle update` needs 3 GiB more than the floor on the state and
+  Docker filesystems (its safety dump and the staged release) and refuses below that;
+  `doctor` and the daily update check warn ahead of time (the daily check also logs to
+  syslog) so the space can be freed before the update.
 - Converge after a host or daemon restart: Docker does not restart an unhealthy
   container, and a restart after a failed start (for example a full disk) is not retried.
   Production setup installs operator crontab entries at boot and every 15 minutes.
@@ -891,7 +953,7 @@ until completing the [TDE-to-plain database migration](docs/BACKUP-RESTORE.md#td
   `3` when a newer release exists, and any other status indicates a check failure.
   It refuses a superseded bundle. If reconciliation is disabled, schedule the check
   from the active bundle and alert on both `3` and failure statuses.
-- Applying a fix: run `./chronicle update` from the active post-reset release. It verifies the
+- Applying a fix: run `./chronicle update` from the directory you installed. It verifies the
   signed release, preserves data, and automatically rolls back failed verification. Apply critical fixes within 48 hours of publication, high-severity fixes within
   7 days, medium-severity fixes within 30 days, and low-severity fixes within 90 days.
   Record the advisory, deadline, installed version and verification evidence in the
@@ -1021,6 +1083,44 @@ indexes):
 Ten devices with continuous accelerometer use roughly 7 GB/month. Sampling rate and
 duty cycle are per-study settings in the dashboard.
 
+### Container limits
+
+Every container has a CPU ceiling, a memory ceiling and a process (pid) limit. The CPU
+ceiling is a CFS quota (`cpu_period`/`cpu_quota`), not `cpus`: Docker refuses `cpus` above
+the host's CPU count when it creates the container, so `cpus: 4` would stop a 2-vCPU pilot
+host, while a quota is accepted on any host and still binds on a large one. Thread pools
+follow the ceiling, not the host: the JVM reads the quota (4 processors for the backend),
+Go services set `GOMAXPROCS` to their ceiling, and HAProxy runs `nbthread 2`. Without that,
+a 32-CPU host started one thread per host CPU in each of them and ran into the pid limits.
+
+The pid column is the limit; the measured column is the highest count seen on a 32-CPU host
+over 90 seconds of concurrent requests to the participant, internal and Grafana listeners
+(`docker stats`, every 2 s), with the default mode and the backup and monitoring overlays.
+Each limit is at least twice that peak. The one-shot jobs (config, certificate, secret and
+database setup, migrations, restore) have the same kind of ceilings and are not listed.
+
+| Service | CPUs | Memory | Pids | Measured peak |
+|---|---|---|---|---|
+| `backend` | 4 | `BACKEND_MEM_LIMIT` (3 GB) | 1024 | 187 |
+| `postgres` | 4 | `POSTGRES_MEM_LIMIT` (2 GB) | 512 | 29 |
+| `web` | 2 | `WEB_MEM_LIMIT` (256 MB) | 256 | 10 |
+| `web-forward` | 2 | 64 MB | 64 | 5 |
+| `db-backup` | 2 | `BACKUP_MEM_LIMIT` (512 MB) | 128 | 7 |
+| `grafana` | 2 | `GRAFANA_MEM_LIMIT` (512 MB) | 512 | 28 |
+| `victoriametrics` | 2 | `VICTORIAMETRICS_MEM_LIMIT` (512 MB) | 256 | 13 |
+| `victorialogs` | 2 | `VICTORIALOGS_MEM_LIMIT` (512 MB) | 256 | 23 |
+| `monitoring-forward` | 2 | 64 MB | 64 | 5 |
+| `cadvisor` | 1 | `CADVISOR_MEM_LIMIT` (256 MB) | 256 | 21 |
+| `fluent-bit` | 1 | `FLUENT_BIT_MEM_LIMIT` (128 MB) | 128 | 6 |
+| `operational-probe` | 1 | `OPERATIONAL_PROBE_MEM_LIMIT` (192 MB) | 128 | 2 |
+| `metrics-exporter` | 1 | 64 MB | 64 | 6 |
+| `docker-socket-proxy` | 1 | 64 MB | 64 | 3 |
+| `public-probe` | 1 | 64 MB | 64 | 2 |
+| `egress-proxy` | 1 | 64 MB | 32 | 3 |
+
+PostgreSQL starts one process per connection, so its pid limit also bounds connections;
+keep `max_connections` well under 512 if you raise it.
+
 ### Scale in this order
 
 1. Add disk when the Database and Storage dashboard shows capacity or predicted-growth
@@ -1035,8 +1135,8 @@ duty cycle are per-study settings in the dashboard.
 
 The bundle normally uses GitHub's signed release catalog, the host's memory probe, and
 the configured Caddy image when hashing a dashboard password. Process-environment
-overrides are unset by default: `CHRONICLE_RELEASES_URL` selects an HTTP(S) catalog
-(downloaded releases still require the installed signing key), `CHRONICLE_MEMINFO`
+overrides are unset by default: `CHRONICLE_RELEASES_URL` selects an HTTP(S) catalog that is
+tried before GitHub (downloaded releases still require the installed signing key), `CHRONICLE_MEMINFO`
 selects a Linux-format meminfo file for sizing fixtures, and `CADDY_SETUP_HASH_IMAGE`
 selects the password-hash helper image. That image receives the dashboard password on
 stdin; use only a trusted, digest-pinned Caddy image. These overrides are read from the

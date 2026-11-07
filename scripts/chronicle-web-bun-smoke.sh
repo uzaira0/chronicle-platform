@@ -19,7 +19,7 @@ printf 'web: %s\n' "$WEB_DIR"
 
 if [[ "${CHRONICLE_WEB_SKIP_INSTALL:-0}" != "1" ]]; then
   printf '\n== bun-install ==\n'
-  (cd "$WEB_DIR" && bun install --frozen-lockfile)
+  (cd "$WEB_DIR" && bun install --frozen-lockfile --ignore-scripts)
 fi
 
 printf '\n== bun-check ==\n'

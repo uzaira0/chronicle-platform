@@ -439,6 +439,10 @@ destroyed.
 
 ## Copies delivered to study webhooks
 
+On self-host, study webhooks are off (registration is refused and nothing is delivered), so
+a self-host deployment has no such copies. The rest of this section applies only where webhooks
+were deliberately re-enabled.
+
 Enabled study webhooks send keyed participant references and enrollment/data-submission event metadata to
 external HTTPS recipients. Local erasure removes Chronicle's delivery records and prevents
 further delivery, but cannot recall copies already delivered. Use the controlled recipient
