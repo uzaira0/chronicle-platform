@@ -3,13 +3,23 @@ FROM eclipse-temurin:25-jdk@sha256:2d5d5e9b533342a565907c84f47a2ec298c40cde7b13a
 
 WORKDIR /app
 
-# Install necessary tools (including dos2unix for line ending conversion, git for build scripts)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    unzip \
-    dos2unix \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# Install necessary tools (including dos2unix for line ending conversion, git for build scripts), only at
+# exact versions older than the dependency wait (selfhost/os-packages/apt-install-aged.sh; the pins are
+# refreshed by scripts/os-package-pins.py and aged by scripts/check-dependency-age.py).
+RUN --mount=type=bind,source=selfhost/os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
+    sh /usr/local/sbin/apt-install-aged.sh ubuntu 20261023T000000Z \
+      --add curl unzip dos2unix git \
+      --pin curl=8.18.0-1ubuntu2.8 dos2unix=7.5.4-1 git-man=1:2.53.0-1ubuntu1.1 git=1:2.53.0-1ubuntu1.1 \
+        libcurl3t64-gnutls=8.18.0-1ubuntu2.8 libcurl4t64=8.18.0-1ubuntu2.8 liberror-perl=0.17030-1 \
+        libgdbm-compat4t64=1.26-1build1 libgdbm6t64=1.26-1build1 libgnutls30t64=3.8.12-2ubuntu1.1 \
+        libgssapi-krb5-2=1.22.1-2ubuntu4.1 libhogweed6t64=3.10.2-1 libidn2-0=2.3.8-4build1 \
+        libk5crypto3=1.22.1-2ubuntu4.1 libkeyutils1=1.6.3-6ubuntu3 libkrb5-3=1.22.1-2ubuntu4.1 \
+        libkrb5support0=1.22.1-2ubuntu4.1 libldap-common=2.6.10+dfsg-1ubuntu5 libldap2=2.6.10+dfsg-1ubuntu5 \
+        libnettle8t64=3.10.2-1 libnghttp2-14=1.68.0-2ubuntu0.2 libperl5.40=5.40.1-7ubuntu0.3 \
+        libpsl5t64=0.21.2-1.1build2 librtmp1=2.4+20151223.gitfa8646d.1-3 libsasl2-2=2.1.28+dfsg1-9ubuntu3 \
+        libsasl2-modules-db=2.1.28+dfsg1-9ubuntu3 libssh2-1t64=1.11.1-1ubuntu0.26.04.4 \
+        libunistring5=1.3-2build1 perl-modules-5.40=5.40.1-7ubuntu0.3 perl=5.40.1-7ubuntu0.3 \
+        unzip=6.0-29ubuntu1
 
 # --- Layer 1: Dependency resolution (cached when deps unchanged) ---
 # Copy only build config files first so dependencies are cached independently
@@ -79,8 +89,8 @@ RUN jlink --no-header-files --no-man-pages --compress=zip-6 --strip-debug \
     --output /opt/jre-minimal
 
 # CVE-2026-91403: distrust the compromised eMudhra intermediates (8 certificates, each also cross-signed under
-# AAA Certificate Services). OpenJDK fixes it in 25.0.5.0.2; Temurin 25.0.4.1 still trusts them. Remove this step
-# once the base image is a Temurin build that ships these entries.
+# AAA Certificate Services). OpenJDK fixes it in 25.0.5.0.2; the jlink base above (Temurin 25.0.5+8) predates that
+# and still trusts them. Remove this step once the base image is a Temurin build that ships these entries.
 RUN printf '%s\n' \
     42C4ACCD12C4F59597925E1A08A7A90102608543809308D50EC427E118BA1493 \
     45A883F349AEDFD5F3A649B5498FFB121712BA8B448F3F2A91DBC5A766FCDDBE \
@@ -113,9 +123,15 @@ COPY --from=jlinker /opt/jre-minimal /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Install gettext (envsubst) + su-exec (lightweight user switching); use wget (busybox) for healthchecks
-RUN apk upgrade --no-cache && \
-    apk add --no-cache gettext su-exec && \
+# Install gettext (envsubst) + su-exec (lightweight user switching); use wget (busybox) for healthchecks.
+# OS packages enter only at versions older than the dependency wait, base packages included
+# (selfhost/os-packages/apk-install-aged.sh; scripts/os-package-pins.py refreshes the pins).
+RUN --mount=type=bind,source=selfhost/os-packages/apk-install-aged.sh,target=/usr/local/sbin/apk-install-aged.sh \
+    sh /usr/local/sbin/apk-install-aged.sh v3.24 \
+      --add gettext su-exec \
+      --pin gettext=1.0-r0 gettext-envsubst=1.0-r0 gettext-libs=1.0-r0 libgomp=15.2.0-r5 libintl=1.0-r0 \
+        libncursesw=6.6_p20260516-r0 libunistring=1.4.2-r0 libxml2=2.13.9-r2 \
+        ncurses-terminfo-base=6.6_p20260516-r0 su-exec=0.3-r0 xz-libs=5.8.4-r0 && \
     addgroup -S chronicle && adduser -S -G chronicle -h /server -s /sbin/nologin chronicle && \
     mkdir -p /var/log/chronicle /var/lib/chronicle/exports /usr/share/doc/chronicle && \
     chown -R chronicle:chronicle /var/log/chronicle /var/lib/chronicle
@@ -140,7 +156,7 @@ ENV CHRONICLE_SERVER_ARGS="local postgres medialocal"
 EXPOSE 40320
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
-    CMD wget --quiet --tries=1 -O /dev/null http://127.0.0.1:40320/chronicle/internal/health/ready || exit 1
+    CMD ["wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:40320/chronicle/internal/health/ready"]
 
 LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic"
 LABEL org.opencontainers.image.vendor="Chronicle Project"

@@ -1,17 +1,41 @@
 # Database and one-shot image: the pinned Percona server minus packages it never runs.
 # Build with selfhost/ as context. User, entrypoint, command and labels stay the base image's.
 # Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.
+#checkov:skip=CKV_DOCKER_2: The same image runs the database and the one-shot config-guard, cert-init, db-init and restore services; selfhost/docker-compose.yml gives the database service its pg_isready healthcheck.
 FROM percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
 
 USER 0
 
-# Unused base packages with HIGH findings: BIND client tools, kernel headers, emacs-filesystem,
-# Patroni and its etcd client with their unpackaged dnspython (CVE-2026-114605).
-RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem percona-patroni python3.12-etcd && \
+# Fixed RHEL builds the pinned Percona image predates (same pins and drop conditions as Dockerfile.backup):
+# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214) and ca-certificates (CVE-2026-114406).
+# os-packages/dnf-upgrade-aged.sh: only these builds, aged; the base version stays once one has left the repositories.
+RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
+    sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
+      --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
+        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-6.el9_8.7 \
+        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8
+
+# Unused base packages with HIGH findings, and make and binutils (no build runs here): BIND client tools, kernel headers,
+# emacs-filesystem, vim-filesystem,
+# the RPM build macros (go-srpm-macros and the macro packages that need it), and Patroni with its etcd client and
+# the Python 3.12 stack only they used (pip wheel, urllib3, unpackaged dnspython CVE-2026-114605). Same list as
+# Dockerfile.backup.
+RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem vim-filesystem make binutils \
+        go-srpm-macros fonts-srpm-macros python-srpm-macros redhat-rpm-config \
+        percona-patroni python3.12-etcd python3.12 python3.12-libs python3.12-pip-wheel && \
     dnf clean all && \
-    rm -rf /usr/lib/python3.12/site-packages/dns /usr/lib/python3.12/site-packages/dnspython-*.dist-info
+    rm -rf /usr/lib/python3.12 /usr/lib64/python3.12 && \
+    test ! -e /usr/bin/python3.12
 
 # Package-manager libraries (CVE-2026-120194, CVE-2026-119373, CVE-2026-119586); no dnf or rpm after this.
 RUN rpm -e --nodeps json-glib librhsm sqlite-libs
+
+# CVE-2026-114406: the same eMudhra intermediate blocklist as Dockerfile.backup, on top of the fixed ca-certificates.
+COPY backup-image/emudhra-distrusted-2026-10.pem /etc/pki/ca-trust/source/blocklist/
+RUN update-ca-trust extract
+
+# No setuid or setgid program (su, mount, umount, newgrp, chage, gpasswd, write, utempter, unix_chkpwd,
+# pam_timestamp_check in the base): the database and the one-shot jobs never switch users through them.
+RUN find / -xdev -type f -perm /6000 -exec chmod a-s {} + && test -z "$(find / -xdev -type f -perm /6000)"
 
 USER 26

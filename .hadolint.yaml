@@ -5,11 +5,11 @@
 failure-threshold: warning
 
 ignored:
-  # DL3008: Pin versions in apt-get — we use --no-install-recommends and clear cache; pinning
-  # distro packages in build stages adds maintenance burden without security benefit (images use
-  # digest-pinned base images).
+  # DL3008/DL3018: Pin versions in apt-get / apk add. Release Dockerfiles install OS packages only
+  # through selfhost/os-packages/ at exact, aged versions (tests/quality/test_os_package_pins.py holds
+  # them to it; docs/SUPPLY-CHAIN.md "OS packages in images"). The rules stay off for the dependency
+  # sandbox images under scripts/sandbox/, which are not release images.
   - DL3008
-  # DL3018: Pin versions in apk add — same rationale as DL3008 for Alpine packages.
   - DL3018
 
 trustedRegistries:

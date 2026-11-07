@@ -12,10 +12,11 @@
 # Unbound, the build fails: no such image exists in a registry.
 FROM chronicle-selfhost-frontend:release AS frontend
 
-FROM caddy:2.11.7-builder-alpine@sha256:95a5e7e2692b5eb9545aadc5b90a39f6f509bee59c9508a493f83ee902eaef63 AS builder
+FROM caddy:2.11.9-builder-alpine@sha256:7d56ec51429d46ff6495db1542cc20e0a4e1559e766b2f4fc48ae25eeca16167 AS builder
 
-# golang.org/x/net and go-jose v4 raised past Caddy 2.11.7's pins for fixed HIGH advisories
-# (trivy gate in scripts/publish-images.sh). Drop each replace once Caddy's go.mod reaches it.
+# Caddy 2.11.9 requires go-jose v4.1.6; module/go.mod raises golang.org/x/net to v0.62.0 (GO-2026-6860, GO-2026-6866,
+# x/net/html is linked) and klauspost/compress to v1.20.2 (GO-2026-6865). The build checks these as floors, so a
+# later Renovate bump of go.mod still builds.
 # go-jose v3 (via smallstep/certificates, the local-https CA) has no fixed release: build it from
 # v3.0.5 plus go-jose's own v4 fix a0111f82 (bound RSA modulus, check p*q == n) for CVE-2026-116587.
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
@@ -24,12 +25,31 @@ RUN dir="$(go mod download -json github.com/go-jose/go-jose/v3@v3.0.5 | sed -n '
     cp -R "$dir" /go-jose-v3 && chmod -R u+w /go-jose-v3
 WORKDIR /go-jose-v3
 RUN git apply /patches/go-jose-v3-rsa-bounds.patch && CGO_ENABLED=0 go test ./...
-WORKDIR /usr/bin
-RUN xcaddy build v2.11.7 \
-    --with github.com/mholt/caddy-ratelimit@v0.1.0 \
-    --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
-    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.8 \
-    --replace github.com/go-jose/go-jose/v3=/go-jose-v3
+# selfhost/caddy/module is the main package xcaddy generates, with go.mod and go.sum fixing Caddy v2.11.9,
+# caddy-ratelimit v0.1.0 and every dependency (go.mod replaces go-jose v3 with /go-jose-v3). xcaddy's build
+# flags are kept; -mod=readonly fails the build if a module version would change.
+COPY selfhost/caddy/module/ /src/caddy/
+WORKDIR /src/caddy
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly \
+        go build -o /usr/bin/caddy -ldflags '-w -s' -trimpath -tags nobadger,nomysql,nopgx . && \
+    go version -m /usr/bin/caddy > /tmp/caddy-buildinfo && \
+    for floor in golang.org/x/net=v0.62.0 github.com/go-jose/go-jose/v4=v4.1.6 github.com/klauspost/compress=v1.20.2; do \
+      linked="$(awk -v m="${floor%=*}" '$1 == "dep" && $2 == m { print $3 }' /tmp/caddy-buildinfo)" && \
+      [ -n "$linked" ] && printf '%s\n%s\n' "${floor#*=}" "$linked" | sort -V -c 2>/dev/null || \
+        { echo "FATAL: ${floor%=*} ${linked:-missing} is below ${floor#*=}" >&2; exit 1; }; \
+    done
+
+# chronicle-forward holds the published ports for web, Grafana and Fluent Bit, which sit on internal
+# networks only (docs/NETWORK-EGRESS.md). Standard library only: its go.mod requires no module.
+COPY selfhost/caddy/forward/ /src/forward/
+WORKDIR /src/forward
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly go vet ./... && \
+    CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly go test -count=1 ./... && \
+    CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly \
+        go build -o /usr/bin/chronicle-forward -ldflags '-w -s' -trimpath . && \
+    [ -z "$(go version -m /usr/bin/chronicle-forward | awk '$1 == "dep"')" ] || \
+        { echo "FATAL: chronicle-forward links a third-party module" >&2; exit 1; }
+WORKDIR /src/caddy
 
 # The binary links BSD- and MIT-licensed Go modules whose notices must ship with it. Copy the
 # license files of every module the binary records (after replacements) from the module cache;
@@ -46,13 +66,14 @@ RUN cache="$(go env GOMODCACHE)" && \
       [ -n "$(ls -A "/licenses/$module")" ] || { echo "FATAL: no license file for $module" >&2; exit 1; }; \
     done
 
-FROM caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+FROM caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
 
 ARG SOURCE_REF=unknown
 
 USER root
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+COPY --from=builder /usr/bin/chronicle-forward /usr/bin/chronicle-forward
 COPY --from=builder /licenses /usr/share/licenses/caddy-modules
 COPY LICENSE /usr/share/doc/chronicle/LICENSE
 
@@ -60,8 +81,12 @@ COPY LICENSE /usr/share/doc/chronicle/LICENSE
 # stack's own CA before it will talk to it, and a LAN URL is error-prone to type into a
 # phone by hand. The ca-export service renders the download URL as
 # a QR code in the logs. ~60 KB, and nothing else in the image depends on it.
-# apk upgrade picks up Alpine security fixes published after the base digest was cut.
-RUN apk upgrade --no-cache && apk add --no-cache libqrencode-tools && \
+# Alpine fixes published after the base digest was cut enter once older than the dependency wait
+# (selfhost/os-packages/apk-install-aged.sh; scripts/os-package-pins.py refreshes the pins).
+RUN --mount=type=bind,source=selfhost/os-packages/apk-install-aged.sh,target=/usr/local/sbin/apk-install-aged.sh \
+    sh /usr/local/sbin/apk-install-aged.sh v3.24 \
+      --add libqrencode-tools \
+      --pin libpng=1.6.59-r0 libqrencode=4.1.1-r3 libqrencode-tools=4.1.1-r3 && \
     printf 'Corresponding Chronicle source: https://github.com/uzaira0/methodic/tree/%s\n' "$SOURCE_REF" \
         > /usr/share/doc/chronicle/SOURCE-CODE
 LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic" \
@@ -81,4 +106,4 @@ USER 10001:0
 
 # Compose overrides this with readiness checks for each listener configuration.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1
+    CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]

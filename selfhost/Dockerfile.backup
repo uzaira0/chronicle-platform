@@ -4,16 +4,25 @@
 # Keep upstream scripts, defaults, scheduler version and Debian hook semantics intact.
 FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS builder
 
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go install -trimpath \
+# go-cron v0.0.11 and its dependencies are fixed by backup-image/go-cron/go.mod and go.sum (a module whose
+# only content is the `tool` requirement); -mod=readonly fails the build if they would change.
+COPY backup-image/go-cron/go.mod backup-image/go-cron/go.sum /src/go-cron/
+WORKDIR /src/go-cron
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly go build -trimpath \
         -ldflags='-s -w -X main.version=v0.0.11' \
-        github.com/prodrigestivill/go-cron@v0.0.11
+        -o /go/bin/go-cron github.com/prodrigestivill/go-cron
+WORKDIR /
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # RHEL run-parts lacks Debian's -a, --reverse and --exit-on-error. Build the
 # same debianutils version shipped by the upstream image, statically, so its
 # glibc requirement does not depend on the builder's newer Debian release.
-RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
+# xz-utils only at an exact version older than the dependency wait (os-packages/apt-install-aged.sh).
+RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
+    sh /usr/local/sbin/apt-install-aged.sh debian 20261106T000000Z \
+      --add xz-utils \
+      --pin xz-utils=5.4.1-1+deb12u2 \
     && mkdir -p /tmp/debianutils /out \
     && curl --fail --show-error --location --retry 4 --retry-all-errors \
         -o /tmp/debianutils.tar.xz \
@@ -26,34 +35,52 @@ RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
 # Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.
 FROM percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
 
-# Runtime user comes from overlays/backups.yml (host UID); root is only the unset default.
-# hadolint ignore=DL3002
+# Package changes need root; the image's default user is postgres (26) below, and overlays/backups.yml
+# runs it as the operator's UID.
 USER 0
 WORKDIR /
 
-# Fixed builds of base packages the pinned Percona image predates (trivy gate in
-# scripts/publish-images.sh). Drop once Percona ships a base that carries them.
-RUN dnf -y upgrade python3.12-urllib3-1.26.19-3.el9_8.2 && \
-    dnf clean all
+# Fixed builds of base packages the pinned Percona image predates (trivy gate in scripts/publish-images.sh):
+# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214) and ca-certificates (CVE-2026-114406).
+# Red Hat's builds from the UBI repositories (exact NEVRAs, so not the Oracle Linux rebuilds the base also
+# lists). Same pins in Dockerfile.postgres. Drop each once the pinned Percona base ships that build or newer.
+# os-packages/dnf-upgrade-aged.sh installs only these builds (aged by scripts/check-dependency-age.py) and
+# keeps the base version once a build has left the repositories.
+RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
+    sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
+      --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
+        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-6.el9_8.7 \
+        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8
 
 # Base packages the backup never runs, removed instead of waived: BIND client tools (CVE-2026-19630,
 # CVE-2026-94300, CVE-2026-96888, CVE-2026-97313), kernel headers (CVE-2026-98614), emacs-filesystem
-# (CVE-2026-108976). dnf also removes what only they support: gcc, cmake, perl-devel.
-RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem && \
+# (CVE-2026-108976), and make and binutils (no build runs here). dnf also removes what only they support: gcc, cmake,
+# perl-devel, perl-CPAN.
+RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem make binutils && \
     dnf clean all
 
-# Patroni and its etcd client are never run here; their unpackaged dnspython (CVE-2026-114605) goes with them.
-RUN dnf -y remove percona-patroni python3.12-etcd && \
+# Also never run: vim-filesystem (CVE-2026-43961), the RPM build macros go-srpm-macros (CVE-2026-56860),
+# fonts-srpm-macros, python-srpm-macros and redhat-rpm-config, and the Python 3.12 stack that only Patroni and
+# its etcd client used (python3.12-pip-wheel CVE-2026-57585, python3.12-urllib3 CVE-2026-97687/97689, and
+# Patroni's unpackaged dnspython CVE-2026-114605). The backup's own scripts run Python 3.9 (python3).
+RUN dnf -y remove vim-filesystem go-srpm-macros fonts-srpm-macros python-srpm-macros redhat-rpm-config \
+        percona-patroni python3.12-etcd python3.12 python3.12-libs python3.12-pip-wheel && \
     dnf clean all && \
-    rm -rf /usr/lib/python3.12/site-packages/dns /usr/lib/python3.12/site-packages/dnspython-*.dist-info
+    rm -rf /usr/lib/python3.12 /usr/lib64/python3.12 && \
+    test ! -e /usr/bin/python3.12
 
 # Package-manager libraries (CVE-2026-120194, CVE-2026-119373, CVE-2026-119586); no dnf or rpm after this.
 RUN rpm -e --nodeps json-glib librhsm sqlite-libs
 
-# CVE-2026-114406: distrust the compromised eMudhra intermediates in the system trust store until Red Hat
-# ships the ca-certificates update. Remove with the .trivyignore.yaml entry once it does.
+# CVE-2026-114406: Red Hat's ca-certificates 2026.2.92 (upgraded above) drops the AAA Certificate Services root
+# that cross-signed the compromised eMudhra intermediates; the blocklist also distrusts the 16 intermediates
+# themselves (tests/container/selfhost-backup.yaml), so a store that still chains them elsewhere cannot use them.
 COPY backup-image/emudhra-distrusted-2026-10.pem /etc/pki/ca-trust/source/blocklist/
 RUN update-ca-trust extract
+
+# No setuid or setgid program: the base ships su, mount, umount, newgrp, chage, gpasswd, write, utempter,
+# unix_chkpwd and pam_timestamp_check, none of which a backup run uses (scripts/check-image-policy.py).
+RUN find / -xdev -type f -perm /6000 -exec chmod a-s {} + && test -z "$(find / -xdev -type f -perm /6000)"
 
 # dnf in the pinned Percona image supplies Python; fail the build if that contract changes.
 RUN python3 -c 'import sys; assert sys.version_info >= (3, 9)' && command -v flock
@@ -65,6 +92,8 @@ COPY --from=builder /usr/share/common-licenses/GPL-2 /usr/share/common-licenses/
 COPY --from=builder /go/pkg/mod/github.com/prodrigestivill/go-cron@v0.0.11/LICENSE /usr/share/doc/go-cron/LICENSE
 COPY backup-image/LICENSE /usr/share/doc/postgres-backup-local/LICENSE
 
+# "**None**" is the upstream scripts' unset marker, not a credential; real values arrive at run time as files.
+# hadolint ignore=DL3064
 ENV POSTGRES_DB="**None**" \
     POSTGRES_DB_FILE="**None**" \
     POSTGRES_HOST="**None**" \
@@ -103,8 +132,11 @@ RUN chmod 0755 /selfcheck.sh /selfcheck.py
 
 VOLUME /backups
 
+# Never root by default: overlays/backups.yml sets the operator's UID, and a bare `docker run` gets postgres.
+USER 26:26
+
 ENTRYPOINT []
 CMD ["/init.sh"]
 
 HEALTHCHECK --interval=5m --timeout=3s \
-    CMD python3 /selfcheck.py health && curl -f "http://localhost:$HEALTHCHECK_PORT/" || exit 1
+    CMD ["/bin/sh", "-c", "python3 /selfcheck.py health && exec curl -fsS -o /dev/null \"http://127.0.0.1:${HEALTHCHECK_PORT}/\""]

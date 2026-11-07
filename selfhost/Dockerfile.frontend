@@ -9,10 +9,9 @@
 # volume that Caddy mounts at /srv) and exits. It copies when the release changes, so
 # a rebuilt frontend actually reaches Caddy — a named volume is only auto-populated from an
 # image when it is empty, which would otherwise silently serve a stale dashboard forever.
-#checkov:skip=CKV_DOCKER_2: One-shot bundle publisher exits after copying; compose waits for successful completion.
-#checkov:skip=CKV_DOCKER_3: Root is required to replace files in the root-owned frontend_build volume; compose drops all capabilities.
+#checkov:skip=CKV_DOCKER_2: Build-only image: Dockerfile.caddy copies /dist from it and no Compose service runs it.
 
-FROM oven/bun:1.3.12-alpine@sha256:26d8996560ca94eab9ce48afc0c7443825553c9a851f40ae574d47d20906826d AS builder
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS builder
 
 ARG GIT_SHA=selfhost
 
@@ -20,10 +19,10 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 WORKDIR /app
 
-COPY chronicle-web/package.json chronicle-web/bun.lock ./
+COPY chronicle-web/package.json chronicle-web/bun.lock chronicle-web/bunfig.toml ./
 COPY chronicle-web/vendor ./vendor
 
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --ignore-scripts
 
 COPY chronicle-web/ ./
 
@@ -37,7 +36,11 @@ FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71
 
 ARG SOURCE_REF=unknown
 
-RUN apk upgrade --no-cache && mkdir -p /usr/share/doc/chronicle
+# Alpine fixes enter only once older than the dependency wait (selfhost/os-packages/apk-install-aged.sh;
+# scripts/os-package-pins.py refreshes the pins).
+RUN --mount=type=bind,source=selfhost/os-packages/apk-install-aged.sh,target=/usr/local/sbin/apk-install-aged.sh \
+    sh /usr/local/sbin/apk-install-aged.sh v3.24 && \
+    mkdir -p /usr/share/doc/chronicle
 
 COPY LICENSE /usr/share/doc/chronicle/LICENSE
 COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web
@@ -49,4 +52,5 @@ LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic" \
 COPY --from=builder /app/dist /dist
 
 # Build artifact consumed by Dockerfile.caddy; the serving tree is immutable.
+USER 65534:65534
 CMD ["true"]

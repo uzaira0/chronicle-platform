@@ -1,7 +1,7 @@
 # Production Dockerfile for chronicle-web frontend
 # Multi-stage build: Bun for building, nginx for serving
 
-FROM oven/bun:1.3.12-alpine@sha256:26d8996560ca94eab9ce48afc0c7443825553c9a851f40ae574d47d20906826d AS builder
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS builder
 
 ARG GIT_SHA=unknown
 
@@ -10,11 +10,11 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 WORKDIR /app
 
 # Copy package files and vendored dependencies
-COPY chronicle-web/package.json chronicle-web/bun.lock ./
+COPY chronicle-web/package.json chronicle-web/bun.lock chronicle-web/bunfig.toml ./
 COPY chronicle-web/vendor ./vendor
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # Copy source files
 COPY chronicle-web/ ./
