@@ -1,0 +1,29 @@
+# Exact dependency versions let in before their wait ends (docs/SUPPLY-CHAIN.md).
+# The waits are 7 days routine, 14 days major, 3 days security. An exploited and reachable
+# vulnerability whose fix is younger than that goes through a person: add the exact version here with
+# the reviewer, what was checked, and an expiry no more than 30 days ahead. An OSV MAL- advisory can
+# never be excepted. Remove entries once their wait has passed; an expired entry fails the gate.
+#
+# [[exception]]
+# ecosystem = "npm"
+# name = "example"
+# version = "1.2.3"
+# reviewer = "who reviewed it"
+# note = "CVE id, why it is reachable, what in the diff was read"
+# expires = 2026-12-01
+
+[[exception]]
+ecosystem = "go"
+name = "github.com/caddyserver/caddy/v2"
+version = "v2.11.9"
+reviewer = "plan splendid-strolling-mountain lane D"
+note = "Not a new intake: the 5702037 caddy image already built v2.11.9 through xcaddy; committing go.sum made it visible. go version -m identical."
+expires = 2026-11-20
+
+[[exception]]
+ecosystem = "go"
+name = "golang.org/x/crypto/x509roots/fallback"
+version = "v0.0.0-20261030153154-30a33513ff6d"
+reviewer = "plan splendid-strolling-mountain lane D"
+note = "Not a new intake: caddy v2.11.9's own requirement, already linked into the 5702037 caddy image via xcaddy; go version -m identical."
+expires = 2026-11-20

@@ -2,13 +2,13 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 
 from test_gate_tool_digests import manifest
 
@@ -33,22 +33,28 @@ class GateToolRuntimePinTests(unittest.TestCase):
             (root / 'scripts/chronicle-web-bun-smoke.sh').write_text('')
             security = root / 'tests/security'
             security.mkdir(parents=True)
-            (security / 'supply-chain-guardrails.sh').write_text('BUN_VERSION="1.3.12"\n')
+            # The guard reads its Bun pin from toolchain-manifest.yaml; verify-toolchain refuses a literal copy.
+            (security / 'supply-chain-guardrails.sh').write_text(
+                'BUN_VERSION="$(sed -nE \'s/^bun: "([^"]+)".*/\\1/p\' "$ROOT_DIR/toolchain-manifest.yaml")"\n')
             (web / 'bun.lock').write_text('"bun-types@1.3.12"\n')
             bun = root / 'bun'
             package = {'engines': {'bun': '1.3.12'}, 'devDependencies': {'bun-types': '1.3.12'}}
+            # package_version: the `bun` npm package in devDependencies, which must be absent (None): installs
+            # run with --ignore-scripts, so its placeholder bin would shadow the runtime in nested `bun run`.
             for version, engine, types, package_version in (
+                ('1.3.12', '1.3.12', '1.3.12', None),
+                ('1.3.14', '1.3.12', '1.3.12', None),
+                ('1.3.12', '>=1.3.12', '1.3.12', None),
+                ('1.3.12', '1.3.12', '1.3.14', None),
                 ('1.3.12', '1.3.12', '1.3.12', '1.3.12'),
-                ('1.3.14', '1.3.12', '1.3.12', '1.3.12'),
-                ('1.3.12', '>=1.3.12', '1.3.12', '1.3.12'),
-                ('1.3.12', '1.3.12', '1.3.14', '1.3.12'),
-                ('1.3.12', '1.3.12', '1.3.12', '1.3.14'),
             ):
                 with self.subTest(version=version, engine=engine, types=types, package_version=package_version):
                     bun.write_text('#!/bin/sh\nprintf "%s\\n" ' + shlex.quote(version) + '\n')
                     bun.chmod(0o755)
                     package['engines']['bun'] = engine
-                    package['devDependencies'] = {'bun-types': types, 'bun': package_version}
+                    package['devDependencies'] = {'bun-types': types}
+                    if package_version is not None:
+                        package['devDependencies']['bun'] = package_version
                     manifest = web / 'package.json'
                     manifest.write_text(json.dumps(package))
                     environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'])
@@ -56,13 +62,13 @@ class GateToolRuntimePinTests(unittest.TestCase):
                               'fail() { echo "$*"; FAILURES=$((FAILURES + 1)); }\n'
                               'ok() { echo "$*"; }\n# ── 3. Bun pins' + section + '\nexit "$FAILURES"\n')
                     result = subprocess.run(['bash', '-s', '--', str(root)], input=script,
-                                            capture_output=True, text=True, timeout=20, env=environment)
-                    self.assertEqual(any(pin != '1.3.12' for pin in (version, engine, types, package_version)),
+                                            capture_output=True, text=True, timeout=20, env=environment, check=False)
+                    self.assertEqual(any(pin != '1.3.12' for pin in (version, engine, types)) or package_version is not None,
                                      result.returncode != 0, result.stdout + result.stderr)
                     result = subprocess.run([sys.executable, '-', str(manifest), '1.3.12', str(root / 'report')],
-                                            input=policy, capture_output=True, text=True, timeout=20)
-                    self.assertEqual(any(pin != '1.3.12' for pin in (engine, types, package_version)), result.returncode != 0,
-                                     result.stdout + result.stderr)
+                                            input=policy, capture_output=True, text=True, timeout=20, check=False)
+                    self.assertEqual(any(pin != '1.3.12' for pin in (engine, types)) or package_version is not None,
+                                     result.returncode != 0, result.stdout + result.stderr)
 
     def run_tool(self, tool, *, cached=None, global_version=None, downloaded=None, prime_global=False):
         pins = manifest()
@@ -120,7 +126,7 @@ download_asset() {
                 script += 'hash -p "$FIXTURE/global/' + tool + '" ' + tool + '\n'
             function = 'ensure_ast_grep' if tool == 'ast-grep' else 'ensure_hadolint'
             script += function + '\nprintf "resolved:%s\\n" "$(' + tool + ' --version)"\n'
-            result = subprocess.run(['bash', '-s'], input=script, capture_output=True, text=True, timeout=20,
+            result = subprocess.run(["bash", "-s"], input=script, capture_output=True, text=True, timeout=20, check=False,
                                     env=dict(os.environ, GATE_SCRIPT=str(GATE), FIXTURE=str(root), FIXTURE_DIGEST=digest,
                                              TMPDIR=str(root), CHRONICLE_LOCAL_BIN_DIR=str(local),
                                              PATH=str(global_bin) + os.pathsep + os.environ['PATH']))

@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import os_packages  # scripts/os_packages.py: the OS-package helper calls in Dockerfiles
 
 
 def inventory(root):
@@ -65,9 +67,15 @@ def inventory(root):
     grafana = (root / "selfhost/Dockerfile.grafana").read_text()
     for module, pin in re.findall(r'go\s+work\s+edit\s+-replace=(\S+)=\S+@(\S+)', grafana):
         found["selfhost/Dockerfile.grafana::" + module] = pin
+    # Every build the Percona-based images upgrade (selfhost/os-packages/dnf-upgrade-aged.sh --upgrade
+    # NAME=VERSION-RELEASE), keyed by package name, recorded as the NEVRA NAME-VERSION-RELEASE.
+    for dockerfile in ("selfhost/Dockerfile.backup", "selfhost/Dockerfile.postgres"):
+        for call in os_packages.helper_calls((root / dockerfile).read_text()):
+            if call.helper == "dnf-upgrade-aged.sh":
+                for word in call.sections["upgrade"]:
+                    name, version = os_packages.split_pin(word)
+                    found[dockerfile + "::" + name] = name + "-" + version
     backup = (root / "selfhost/Dockerfile.backup").read_text()
-    for package in re.findall(r'\bdnf\s+-y\s+upgrade\s+(\S+)', backup):
-        found["selfhost/Dockerfile.backup::" + package.split("-1.")[0]] = package
     found["selfhost/backup-image::fork"] = re.search(r'^# Commit: ([0-9a-f]{40})', backup, re.MULTILINE).group(1)
     return found
 

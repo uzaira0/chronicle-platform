@@ -1,0 +1,42 @@
+# Hosts the dependency sandbox may reach through scripts/sandbox/egress-proxy.py (HTTPS only).
+# One name per line; a leading "." admits that domain's subdomains. Everything else is refused.
+# A gate input (scripts/ is protected): the gate runner fails a candidate that changes it.
+
+# npm registry: bun install, bun audit
+registry.npmjs.org
+# PyPI: the gate's requirements-dev.txt install (wheels, hashes required)
+pypi.org
+files.pythonhosted.org
+# Maven repositories gradles/repos.gradle and settings.gradle.kts declare (Gradle fails a resolution
+# on a refused repository rather than skipping it), the Gradle distribution and the plugin portal
+repo.maven.apache.org
+repo1.maven.org
+plugins.gradle.org
+plugins-artifacts.gradle.org
+services.gradle.org
+downloads.gradle.org
+repo.spring.io
+oss.sonatype.org
+repository.apache.org
+maven.pkg.github.com
+dl.google.com
+maven.google.com
+# Debian and Ubuntu snapshots: scripts/os-package-pins.py resolving apt pins in a base image
+# (apt-install-aged.sh --https; apt checks every index against the base image's archive keys)
+snapshot.debian.org
+snapshot.ubuntu.com
+# Go module proxy and checksum database: go mod tidy
+proxy.golang.org
+sum.golang.org
+# Scanner databases and APIs: osv-scanner, grype, deps-freshness, Bearer's rules (from the
+# bearer-rules release through the GitHub API; deps-freshness's GitHub lookups come from the runner)
+api.osv.dev
+osv-vulnerabilities.storage.googleapis.com
+api.deps.dev
+grype.anchore.io
+hub.docker.com
+api.github.com
+# Gate tool releases (local-ci.sh ensure_*, checked against toolchain-manifest.yaml sha256)
+github.com
+objects.githubusercontent.com
+release-assets.githubusercontent.com

@@ -181,31 +181,121 @@
     "source_commit": "080357d712d0e28260d72ae77ade4ba3a552c16e",
     "recorded_advisories": []
   },
-  "selfhost/Dockerfile.backup::python3.12-urllib3": {
-    "pin": "python3.12-urllib3-1.26.19-3.el9_8.2",
-    "reason": "The pinned Percona base predates the patched python3.12-urllib3 RPM.",
-    "remove_when": "Remove when the pinned Percona base rpm query reports python3.12-urllib3-1.26.19-3.el9_8.2 or newer without dnf upgrade.",
-    "reviewed_on": "2026-11-01",
-    "review_after": "2026-12-01",
-    "source_commit": "6c168665d6c77491a4aa14b77295c3a0b28bd123",
-    "recorded_advisories": []
+  "selfhost/Dockerfile.backup::python3": {
+    "pin": "python3-3.9.25-7.el9_8.6",
+    "reason": "The pinned Percona base predates Red Hat's fixed python3 RPM (CVE-2026-19445, CVE-2026-19553); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python3-3.9.25-7.el9_8.6 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-19445",
+      "CVE-2026-19553"
+    ]
   },
-  "selfhost/Dockerfile.caddy::golang.org/x/net": {
-    "pin": "v0.60.0",
-    "reason": "The pinned Caddy go.mod predates x/net v0.60.0; preserve the security update until the natural module requirement reaches it.",
-    "remove_when": "Remove when the pinned Caddy go.mod requires golang.org/x/net v0.60.0 or newer; verify with go version -m on the unpatched binary.",
-    "reviewed_on": "2026-11-01",
-    "review_after": "2026-12-01",
-    "source_commit": "8e1ed2463a0b71556ba50ed0a7cfc921efcde2b4",
-    "recorded_advisories": []
+  "selfhost/Dockerfile.backup::python3-libs": {
+    "pin": "python3-libs-3.9.25-7.el9_8.6",
+    "reason": "The pinned Percona base predates Red Hat's fixed python3-libs RPM (CVE-2026-19445, CVE-2026-19553); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python3-libs-3.9.25-7.el9_8.6 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-19445",
+      "CVE-2026-19553"
+    ]
   },
-  "selfhost/Dockerfile.caddy::github.com/go-jose/go-jose/v4": {
-    "pin": "v4.1.8",
-    "reason": "Caddy 2.11.7 requires go-jose v4.1.5; v4.1.6 fixes a HIGH advisory (trivy gate).",
-    "remove_when": "Remove when the pinned Caddy go.mod requires github.com/go-jose/go-jose/v4 v4.1.6 or newer; verify with go version -m on the unpatched binary.",
-    "reviewed_on": "2026-11-02",
-    "review_after": "2026-12-02",
-    "recorded_advisories": []
+  "selfhost/Dockerfile.backup::python-unversioned-command": {
+    "pin": "python-unversioned-command-3.9.25-7.el9_8.6",
+    "reason": "The pinned Percona base predates Red Hat's fixed python-unversioned-command RPM (CVE-2026-19445, CVE-2026-19553 (moves with python3)); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python-unversioned-command-3.9.25-7.el9_8.6 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-19445",
+      "CVE-2026-19553"
+    ]
+  },
+  "selfhost/Dockerfile.backup::expat": {
+    "pin": "expat-2.5.0-6.el9_8.7",
+    "reason": "The pinned Percona base predates Red Hat's fixed expat RPM (CVE-2026-77214); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports expat-2.5.0-6.el9_8.7 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-77214"
+    ]
+  },
+  "selfhost/Dockerfile.backup::ca-certificates": {
+    "pin": "ca-certificates-2026.2.92_v9.0.319-90.3.el9_8",
+    "reason": "The pinned Percona base predates Red Hat's ca-certificates 2026.2.92, which drops the AAA Certificate Services root that cross-signed the compromised eMudhra intermediates (CVE-2026-114406); the exact NEVRA selects the UBI build.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports ca-certificates-2026.2.92_v9.0.319-90.3.el9_8 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-114406"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::python3": {
+    "pin": "python3-3.9.25-7.el9_8.6",
+    "reason": "The pinned Percona base predates Red Hat's fixed python3 RPM (CVE-2026-19445, CVE-2026-19553); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python3-3.9.25-7.el9_8.6 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-19445",
+      "CVE-2026-19553"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::python3-libs": {
+    "pin": "python3-libs-3.9.25-7.el9_8.6",
+    "reason": "The pinned Percona base predates Red Hat's fixed python3-libs RPM (CVE-2026-19445, CVE-2026-19553); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python3-libs-3.9.25-7.el9_8.6 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-19445",
+      "CVE-2026-19553"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::python-unversioned-command": {
+    "pin": "python-unversioned-command-3.9.25-7.el9_8.6",
+    "reason": "The pinned Percona base predates Red Hat's fixed python-unversioned-command RPM (CVE-2026-19445, CVE-2026-19553 (moves with python3)); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports python-unversioned-command-3.9.25-7.el9_8.6 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-19445",
+      "CVE-2026-19553"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::expat": {
+    "pin": "expat-2.5.0-6.el9_8.7",
+    "reason": "The pinned Percona base predates Red Hat's fixed expat RPM (CVE-2026-77214); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports expat-2.5.0-6.el9_8.7 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-77214"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::ca-certificates": {
+    "pin": "ca-certificates-2026.2.92_v9.0.319-90.3.el9_8",
+    "reason": "The pinned Percona base predates Red Hat's ca-certificates 2026.2.92, which drops the AAA Certificate Services root that cross-signed the compromised eMudhra intermediates (CVE-2026-114406); the exact NEVRA selects the UBI build.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports ca-certificates-2026.2.92_v9.0.319-90.3.el9_8 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
+    "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
+    "recorded_advisories": [
+      "CVE-2026-114406"
+    ]
   },
   "selfhost/Dockerfile.caddy::patch:selfhost/caddy/go-jose-v3-rsa-bounds.patch": {
     "pin": "sha256:20fe1efb5e4293a06804ddcebdd0fa2f0f5025aca5d20e7e2a55fd56503967be",
@@ -219,10 +309,10 @@
   },
   "selfhost/Dockerfile.grafana::github.com/go-jose/go-jose/v4": {
     "pin": "v4.1.8",
-    "reason": "Grafana 13.2.4 server binary links go-jose v4.1.4; v4.1.6 fixes a HIGH advisory (trivy gate). Image rebuilds the same tag with Grafana's release flags and this replace.",
+    "reason": "Grafana 13.2.5 server binary links go-jose v4.1.4; v4.1.6 fixes a HIGH advisory (trivy gate) and carries the RSA modulus bound (a0111f82). Image rebuilds the same tag with Grafana's release flags, Go 1.27.3 and this replace.",
     "remove_when": "Remove the server build stage when the pinned Grafana release image's binary reports go-jose v4.1.6 or newer in go version -m and passes the trivy gate unmodified.",
-    "reviewed_on": "2026-11-02",
-    "review_after": "2026-12-02",
+    "reviewed_on": "2026-11-06",
+    "review_after": "2026-12-06",
     "recorded_advisories": [
       "CVE-2026-116587"
     ]

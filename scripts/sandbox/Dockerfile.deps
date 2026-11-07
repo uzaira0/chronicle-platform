@@ -1,0 +1,55 @@
+# Dependency sandbox: where dependency installs and dependency scans run, with no secrets.
+# scripts/deps-sandbox.sh builds and runs it with only the source tree mounted: no host environment,
+# no Docker socket or credentials, no SSH agent, no home directory, all capabilities dropped. It also
+# runs the sandbox's egress proxy (scripts/sandbox/egress-proxy.py, Python).
+# Base: the Bun image Dockerfile.gate uses (Renovate groups oven/bun as "bun runtime"), Debian rather
+# than the Alpine variant because its OS packages come from a snapshot that keeps every version: Alpine's
+# index keeps only the newest build, so an added package whose newest build is younger than the wait
+# (libexpat 2.10.0-r0, built 2026-11-02, under python3 and git) leaves no version to pin.
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# What scripts/local-ci.sh bun-audit/osv and tests/security/supply-chain-guardrails.sh call, only at
+# exact versions older than the dependency wait (selfhost/os-packages/apt-install-aged.sh from the
+# os-packages build context deps-sandbox.sh passes; scripts/os-package-pins.py refreshes the pins);
+# bash, coreutils, findutils and grep are the base image's own.
+RUN --mount=type=bind,from=os-packages,source=apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
+    sh /usr/local/sbin/apt-install-aged.sh debian 20261106T000000Z \
+      --add curl git jq python3 ripgrep unzip \
+      --pin curl=8.14.1-2+deb13u7 git-man=1:2.47.3-0+deb13u1 git=1:2.47.3-0+deb13u1 jq=1.7.1-6+deb13u4 \
+        libbrotli1=1.1.0-2+b7 libcom-err2=1.47.2-3+b12 libcurl3t64-gnutls=8.14.1-2+deb13u7 \
+        libcurl4t64=8.14.1-2+deb13u7 liberror-perl=0.17030-1 libexpat1=2.9.0-1~deb13u1 libffi8=3.4.8-2 \
+        libgdbm-compat4t64=1.24-2 libgdbm6t64=1.24-2 libgnutls30t64=3.8.9-3+deb13u4 \
+        libgssapi-krb5-2=1.21.3-5+deb13u1 libidn2-0=2.3.8-2 libjq1=1.7.1-6+deb13u4 \
+        libk5crypto3=1.21.3-5+deb13u1 libkeyutils1=1.6.3-6 libkrb5-3=1.21.3-5+deb13u1 \
+        libkrb5support0=1.21.3-5+deb13u1 libldap2=2.6.10+dfsg-1 libncursesw6=6.5+20250216-2 \
+        libnghttp2-14=1.64.0-1.1+deb13u1 libnghttp3-9=1.8.0-1 libngtcp2-16=1.11.0-1+deb13u1 \
+        libngtcp2-crypto-gnutls8=1.11.0-1+deb13u1 libonig5=6.9.9-1+b1 libp11-kit0=0.25.5-3 \
+        libperl5.40=5.40.1-6+deb13u1 libpsl5t64=0.21.2-1.1+b1 libpython3-stdlib=3.13.5-1 \
+        libpython3.13-minimal=3.13.5-2+deb13u5 libpython3.13-stdlib=3.13.5-2+deb13u5 libreadline8t64=8.2-6 \
+        librtmp1=2.4+20151223.gitfa8646d.1-2+b5 libsasl2-2=2.1.28+dfsg1-9 libsasl2-modules-db=2.1.28+dfsg1-9 \
+        libssh2-1t64=1.11.1-1+deb13u2 libtasn1-6=4.20.0-2+deb13u1 libunistring5=1.3-2 media-types=13.0.0 \
+        netbase=6.5 perl-modules-5.40=5.40.1-6+deb13u1 perl=5.40.1-6+deb13u1 python3-minimal=3.13.5-1 \
+        python3.13-minimal=3.13.5-2+deb13u5 python3.13=3.13.5-2+deb13u5 python3=3.13.5-1 readline-common=8.2-6 \
+        ripgrep=14.1.1-1+b4 unzip=6.0-29+deb13u1 && \
+    mkdir -p /cache && chown bun:bun /cache
+
+# yq is mikefarah's (Debian's yq package is a different program), the same release Dockerfile.gate fetches,
+# checked against the sha256 its project publishes.
+ARG TARGETARCH
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      arm64) yq=arm64; yq_sum=189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b ;; \
+      amd64) yq=amd64; yq_sum=8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f ;; \
+      *) echo "unsupported TARGETARCH $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 -o /usr/local/bin/yq \
+      "https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_${yq}"; \
+    echo "$yq_sum  /usr/local/bin/yq" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/yq; \
+    yq --version
+
+USER bun
+WORKDIR /work
+HEALTHCHECK NONE

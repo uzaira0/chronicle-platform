@@ -9,22 +9,66 @@
 # `freshness.web_stale_accepted` (scripts/web_dependency_age.py).
 # Read-only; needs curl, jq, yq, gh (for GitHub release lookups).
 #
-#   scripts/deps-freshness.sh            # table + gate
-#   scripts/deps-freshness.sh --json     # machine output
+#   scripts/deps-freshness.sh                       # table + gate
+#   scripts/deps-freshness.sh --json                # machine output
+#   scripts/deps-freshness.sh --fetch-github DIR    # only the GitHub lookups, saved to DIR
+#
+# The dependency gate runner's sandbox has no gh login: the runner saves the GitHub lookups with
+# --fetch-github (the repositories are named below, nothing is read from the checkout) and the
+# sandboxed report reads them from CHRONICLE_GITHUB_API_CACHE instead of calling gh. A lookup missing
+# from that directory is a failed lookup.
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# GitHub repositories whose newest release (or, with none, newest version tag) is compared below,
+# and the other GitHub API paths the report reads.
+GH_LATEST_REPOS=(gradle/gradle JetBrains/kotlin oven-sh/bun flyway/flyway grafana/grafana
+                 VictoriaMetrics/VictoriaMetrics fluent/fluent-bit google/cadvisor keycloak/keycloak)
+GH_PATHS=(repos/adoptium/temurin25-binaries/releases/latest 'repos/python/cpython/tags?per_page=40'
+          repos/VictoriaMetrics/VictoriaLogs/releases/latest)
+for repo in "${GH_LATEST_REPOS[@]}"; do GH_PATHS+=("repos/$repo/releases/latest" "repos/$repo/tags?per_page=60"); done
+cache_file() { printf '%s/%s.json' "$1" "$(tr -c 'A-Za-z0-9._-' '_' <<<"$2")"; }
+
+if [[ "${1:-}" == "--fetch-github" ]]; then
+  dir="${2:?--fetch-github takes a directory}"
+  [[ -d "$dir" ]] || { echo "[fail] $dir is not a directory" >&2; exit 2; }
+  command -v gh >/dev/null 2>&1 || { echo "[fail] missing gh" >&2; exit 127; }
+  saved=0
+  for path in "${GH_PATHS[@]}"; do
+    file="$(cache_file "$dir" "$path")"
+    # A repository without releases answers 404 for releases/latest: no file, the report reads its tags.
+    if gh api "$path" > "$file.part" 2>/dev/null && jq -e . "$file.part" >/dev/null 2>&1; then
+      mv "$file.part" "$file"; saved=$((saved + 1))
+    else
+      rm -f "$file.part"
+    fi
+  done
+  echo "[ok] saved $saved of ${#GH_PATHS[@]} GitHub lookups to $dir" >&2
+  exit 0
+fi
+
 python3 "$ROOT_DIR/scripts/check-dependency-overrides.py" >&2 || exit $?
 MANIFEST="$ROOT_DIR/toolchain-manifest.yaml"
 JSON=0; [[ "${1:-}" == "--json" ]] && JSON=1
-for c in curl jq yq gh; do command -v "$c" >/dev/null 2>&1 || { echo "[fail] missing $c" >&2; exit 127; }; done
+needed=(curl jq yq); [[ -n "${CHRONICLE_GITHUB_API_CACHE:-}" ]] || needed+=(gh)
+for c in "${needed[@]}"; do command -v "$c" >/dev/null 2>&1 || { echo "[fail] missing $c" >&2; exit 127; }; done
 
+github_api() { # path: the API response, from CHRONICLE_GITHUB_API_CACHE when set, else from gh
+  if [[ -n "${CHRONICLE_GITHUB_API_CACHE:-}" ]]; then
+    cat "$(cache_file "$CHRONICLE_GITHUB_API_CACHE" "$1")" 2>/dev/null
+  else
+    gh api "$1" 2>/dev/null
+  fi
+}
 pin() { yq -r ".$1 // \"\"" "$MANIFEST"; }
 gh_latest() { # repo [tag-regex-to-keep]
   local v
-  v="$(gh api "repos/$1/releases/latest" --jq .tag_name 2>/dev/null)"
+  v="$(github_api "repos/$1/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null)"
   if [[ -z "$v" ]]; then
-    v="$(gh api "repos/$1/tags?per_page=60" --jq '[.[].name | select(test("'"${2:-^v?[0-9]+\\.[0-9]+(\\.[0-9]+)?$}"'"))] | .[0]' 2>/dev/null)"
+    # The pattern goes in with --arg: spliced into the filter text, its \. was an invalid jq string escape.
+    v="$(github_api "repos/$1/tags?per_page=60" \
+      | jq -r --arg re "${2:-^v?[0-9]+\.[0-9]+(\.[0-9]+)?$}" '[.[].name | select(test($re))] | .[0] // empty' 2>/dev/null)"
   fi
   printf '%s' "$v"
 }
@@ -63,19 +107,19 @@ row() { # name pinned latest
 }
 
 # --- manifest pins -----------------------------------------------------------
-row jdk            "$(pin jdk.build_runtime)"       "$(gh api repos/adoptium/temurin25-binaries/releases/latest --jq .tag_name 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+row jdk            "$(pin jdk.build_runtime)"       "$(github_api repos/adoptium/temurin25-binaries/releases/latest | jq -r '.tag_name // empty' 2>/dev/null | grep -oE '[0-9]+' | head -1)"
 row gradle         "$(pin gradle.wrapper)"          "$(gh_latest gradle/gradle)"
 row gradle-android "$(pin gradle.android_wrapper)"  "$(gh_latest gradle/gradle)"
 row kotlin         "$(pin kotlin)"                  "$(gh_latest JetBrains/kotlin)"
 row bun            "$(pin bun)"                     "$(gh_latest oven-sh/bun)"
-row python         "$(pin python)"                  "$(gh api 'repos/python/cpython/tags?per_page=40' --jq '[.[].name | select(test("^v3\\.[0-9]+\\.[0-9]+$"))] | .[0]' 2>/dev/null)"
+row python         "$(pin python)"                  "$(github_api 'repos/python/cpython/tags?per_page=40' | jq -r '[.[].name | select(test("^v3\\.[0-9]+\\.[0-9]+$"))] | .[0] // empty' 2>/dev/null)"
 row flyway         "$(pin flyway.version)"          "$(gh_latest flyway/flyway)"
 pg="$(pin postgres.image)";            row postgres-percona   "${pg##*:}"                "$(hub_latest_major percona/percona-distribution-postgresql '\.[0-9]+\.[0-9]+-[0-9]+$' "${pg##*:}")"
 kpg="$(pin keycloak_postgres.image)";  row postgres-keycloak  "${kpg##*:}"              "$(hub_latest_major library/postgres '\.[0-9]+-alpine$' "${kpg##*:}")"
 img() { local v; v="$(pin "selfhost_images.$1")"; v="${v%%@*}"; printf '%s' "${v##*:}"; }
 row grafana          "$(img grafana)"          "$(gh_latest grafana/grafana)"
 row victoria-metrics "$(img victoria_metrics)" "$(gh_latest VictoriaMetrics/VictoriaMetrics)"
-row victoria-logs    "$(img victoria_logs)"    "$(gh api 'repos/VictoriaMetrics/VictoriaLogs/releases/latest' --jq .tag_name 2>/dev/null)"
+row victoria-logs    "$(img victoria_logs)"    "$(github_api 'repos/VictoriaMetrics/VictoriaLogs/releases/latest' | jq -r '.tag_name // empty' 2>/dev/null)"
 row fluent-bit       "$(img fluent_bit)"       "$(gh_latest fluent/fluent-bit)"
 row cadvisor         "$(img cadvisor)"         "$(gh_latest google/cadvisor)"
 row keycloak         "$(img keycloak)"         "$(gh_latest keycloak/keycloak)"

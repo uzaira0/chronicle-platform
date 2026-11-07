@@ -6,7 +6,9 @@ results depend on their versions, so the lock pins each one with hashes and this
 
 - an entry in requirements-dev.txt is not `name==version` with at least one --hash;
 - the python3 that runs the gate has a different version installed, or none;
-- a tracked .py file imports a third-party module the lock does not pin.
+- a tracked .py file imports a third-party module the lock does not pin;
+- a machine module (MACHINE_MODULES: a helper this workstation provides, not a PyPI distribution) is
+  missing from the directory the importing scripts load it from.
 
 Run by scripts/verify-toolchain.sh. Stdlib only, so it runs before the pins are installed.
 """
@@ -14,6 +16,7 @@ Run by scripts/verify-toolchain.sh. Stdlib only, so it runs before the pins are 
 from __future__ import annotations
 
 import ast
+import os
 import pkgutil
 import re
 import subprocess
@@ -29,6 +32,13 @@ INSTALL_HINT = ('uv pip install --system --break-system-packages --python "$(com
                 '--require-hashes -r requirements-dev.txt')
 # Import name -> distribution name where they differ.
 IMPORT_DISTRIBUTION = {'yaml': 'pyyaml'}
+# Import name -> (environment variable naming its directory, default directory). These are the
+# workstation's shared helpers, loaded by path; a missing file fails here before a gate needs it.
+MACHINE_MODULES = {
+    # Network fetches with retries, IPv4/IPv6 fallback and a deadline (scripts/check-dependency-age.py,
+    # scripts/deps-regenerate.py).
+    'robust_fetch': ('ROBUST_FETCH_DIR', Path.home() / 'agent-skills' / 'lib'),
+}
 REQUIREMENT = re.compile(r'^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s\\;]+)')
 
 
@@ -111,11 +121,21 @@ def unpinned_imports(root: Path, files: list[str], pinned: set[str]) -> dict[str
     found: dict[str, set[str]] = {}
     for name in files:
         for module in _imports((root / name).read_text(encoding='utf-8')):
-            if module in stdlib or module in local:
+            if module in stdlib or module in local or module in MACHINE_MODULES:
                 continue
             if normalize(IMPORT_DISTRIBUTION.get(module, module)) not in pinned:
                 found.setdefault(module, set()).add(name)
     return {module: sorted(names) for module, names in sorted(found.items())}
+
+
+def machine_module_problems(environ: dict[str, str] | None = None) -> list[str]:
+    environ = dict(os.environ) if environ is None else environ
+    problems = []
+    for module, (variable, default) in sorted(MACHINE_MODULES.items()):
+        path = Path(environ.get(variable, default)) / f'{module}.py'
+        if not path.is_file():
+            problems.append(f'{module} is imported from {path}, which does not exist (set {variable})')
+    return problems
 
 
 def main() -> int:
@@ -124,7 +144,7 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f'[fail] {error}', file=sys.stderr)
         return 1
-    problems = version_problems(lock)
+    problems = version_problems(lock) + machine_module_problems()
     for module, names in unpinned_imports(ROOT, tracked_python_files(ROOT), set(lock)).items():
         problems.append(f'{module} is imported by {", ".join(names)} but {LOCK_FILE} does not pin it')
     for problem in problems:

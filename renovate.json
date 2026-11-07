@@ -1,156 +1,248 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Renovate config for Chronicle monorepo (bun + Gradle + Docker + GitHub Actions)",
+  "description": [
+    "Chronicle dependency intake (docs/SUPPLY-CHAIN.md). Self-hosted: scripts/renovate-run.sh runs this file as the global",
+    "config for every repository (requireConfig=ignored), so a stale renovate.json on another branch never applies.",
+    "Waits: 7 days routine, 14 days major, 3 days security; no timestamp means no update (timestamp-required).",
+    "Renovate only edits the pins and pushes renovate/* branches: it holds the GitHub token, so it runs no package",
+    "manager (skipArtifactsUpdate; no postUpdateOptions) and never merges (automerge false). Lockfiles, go.sum and",
+    "derived pins are regenerated in the dependency sandbox by scripts/deps-regenerate.py, and deps/auto moves only",
+    "when scripts/dependency-gate-runner.py has gated a branch. Nothing here merges into main, publishes or tags."
+  ],
   "extends": [
-    "config:recommended",
-    "docker:pinDigests",
-    "helpers:pinGitHubActionDigestsToSemver"
+    ":dependencyDashboard",
+    ":semanticPrefixFixDepsChoreOthers",
+    "group:monorepos",
+    "group:recommended",
+    "workarounds:all",
+    "docker:pinDigests"
   ],
 
+  "baseBranchPatterns": ["deps/auto"],
   "labels": ["dependencies", "automated"],
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
+  "branchConcurrentLimit": 10,
   "timezone": "America/New_York",
-  "schedule": ["before 8am on weekday", "after 6pm on weekday"],
+
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "internalChecksAsSuccess": false,
+  "ignoreTests": false,
+  "lockFileMaintenance": { "enabled": false },
 
   "automerge": false,
-  "platformAutomerge": true,
+  "skipArtifactsUpdate": true,
+  "rebaseWhen": "behind-base-branch",
 
   "ignorePaths": [
     "**/node_modules/**",
     "**/build/**",
-    "**/dist/**"
+    "**/dist/**",
+    "docs/**",
+    "docker/docker-compose*.yml",
+    "tests/**",
+    "chronicle-ios/**"
   ],
 
   "enabledManagers": [
     "npm",
     "gradle",
+    "gradle-wrapper",
     "dockerfile",
     "docker-compose",
-    "github-actions"
+    "gomod",
+    "pip_requirements",
+    "custom.regex"
   ],
 
   "npm": {
-    "fileMatch": ["chronicle-web/package\\.json$"]
+    "managerFilePatterns": ["/(^|/)vendor/equal/packages/[^/]+/package\\.json$/"]
   },
-
-  "gradle": {
-    "fileMatch": [
-      "(^|/)build\\.gradle(\\.kts)?$",
-      "(^|/)settings\\.gradle(\\.kts)?$",
-      "(^|/)gradle\\.properties$",
-      "(^|/)gradles/[^/]+\\.gradle$"
-    ]
-  },
-
-  "dockerfile": {
-    "fileMatch": ["docker/Dockerfile[^/]*$"]
-  },
-
   "docker-compose": {
-    "fileMatch": ["docker/docker-compose[^/]*\\.ya?ml$"]
+    "managerFilePatterns": ["/(^|/)selfhost/overlays/[^/]+\\.ya?ml$/"]
   },
+
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml selfhost_images: name: \"repo:tag@sha256:digest\"",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": [
+        "\\n  [a-z_]+: \"(?<depName>[^\"@\\s]+):(?<currentValue>[^\":@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml postgres / keycloak_postgres: image tag plus index_digest on the next line",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": [
+        "\\n  image: \"(?<depName>[^\":]+):(?<currentValue>[^\"]+)\"[^\\n]*\\n  index_digest: \"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml Bun runtime (scripts/deps-regenerate.sh carries it into the web pins)",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": ["\\nbun: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "bun",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml semgrep",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": ["\\nsemgrep: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "semgrep",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml kotlin (the Gradle files carry the same version)",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": ["\\nkotlin: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "org.jetbrains.kotlin:kotlin-stdlib",
+      "datasourceTemplate": "maven"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml Gradle wrapper versions",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": ["\\n  (?<depType>wrapper|android_wrapper): \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "gradle",
+      "datasourceTemplate": "gradle-version",
+      "versioningTemplate": "gradle"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml flyway.version",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": ["\\nflyway:\\n  version: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "org.flywaydb:flyway-core",
+      "datasourceTemplate": "maven"
+    },
+    {
+      "customType": "regex",
+      "description": "toolchain-manifest.yaml gate_tools versions. Their per-platform sha256 values are refreshed by hand (docs/SUPPLY-CHAIN.md), so these never automerge",
+      "managerFilePatterns": ["/(^|/)toolchain-manifest\\.yaml$/"],
+      "matchStrings": [
+        "\\n  (?<depName>container-structure-test|hadolint|osv-scanner):\\n    version: \"(?<currentValue>v[^\"]+)\"",
+        "\\n  (?<depName>ast-grep|bearer|grype|syft):\\n    version: \"(?<currentValue>[^\"]+)\""
+      ],
+      "packageNameTemplate": "{{#if (equals depName 'container-structure-test')}}GoogleContainerTools/container-structure-test{{else if (equals depName 'hadolint')}}hadolint/hadolint{{else if (equals depName 'osv-scanner')}}google/osv-scanner{{else if (equals depName 'ast-grep')}}ast-grep/ast-grep{{else if (equals depName 'bearer')}}Bearer/bearer{{else if (equals depName 'grype')}}anchore/grype{{else}}anchore/syft{{/if}}",
+      "datasourceTemplate": "github-releases",
+      "depTypeTemplate": "gate_tool"
+    },
+    {
+      "customType": "regex",
+      "description": "Digest-pinned image constants in shell scripts (scripts/flyway-migrate.sh)",
+      "managerFilePatterns": ["/(^|/)scripts/flyway-migrate\\.sh$/"],
+      "matchStrings": ["FLYWAY_IMAGE=\"(?<depName>[^\":]+):(?<currentValue>[^\"@]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""],
+      "datasourceTemplate": "docker"
+    }
+  ],
 
   "packageRules": [
     {
-      "description": "Auto-merge patch updates (requires CI to pass)",
-      "matchUpdateTypes": ["patch", "pin", "digest"],
-      "automerge": true,
-      "automergeType": "pr"
-    },
-    {
-      "description": "Separate PRs for major updates",
+      "description": "Major updates wait 14 days; the gate runner still decides the merge",
       "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "14 days"
+    },
+    {
+      "description": "Gate tool bumps need the per-platform digests in toolchain-manifest.yaml and the versions in scripts/local-ci.sh refreshed by hand",
+      "matchDepTypes": ["gate_tool"],
       "automerge": false,
-      "separateMajorMinor": true
-    },
-
-    {
-      "description": "Group @radix-ui packages",
-      "matchPackagePrefixes": ["@radix-ui/"],
-      "groupName": "radix-ui"
+      "addLabels": ["manual-digests"]
     },
     {
-      "description": "Group @babel packages",
-      "matchPackagePrefixes": ["@babel/"],
-      "groupName": "babel"
+      "description": "go-jose v3 is replaced by a patched local copy (selfhost/Dockerfile.caddy); OSV proposes v4, a different module path",
+      "matchPackageNames": ["github.com/go-jose/go-jose/v3"],
+      "enabled": false
     },
     {
-      "description": "Group @fortawesome packages",
-      "matchPackagePrefixes": ["@fortawesome/"],
-      "groupName": "fortawesome"
+      "description": "Images this project publishes itself move with its own releases",
+      "matchPackageNames": ["ghcr.io/uzaira0/**"],
+      "enabled": false
     },
     {
-      "description": "Group @nivo chart packages",
-      "matchPackagePrefixes": ["@nivo/"],
-      "groupName": "nivo"
+      "description": "Images built locally from this repository (localhost/...) have no registry to update from",
+      "matchPackageNames": ["localhost/**"],
+      "enabled": false
     },
+    {
+      "description": "A PostgreSQL major is a dump/restore migration (selfhost/docs/POSTGRES-18-UPGRADE.md), never an image swap",
+      "matchPackageNames": ["percona/percona-distribution-postgresql", "docker.io/percona/percona-distribution-postgresql", "postgres"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Android wrapper pairs with AGP in chronicle/ (toolchain-manifest.yaml: do not unify); chronicle-dev is not in the Renovate run",
+      "matchDepTypes": ["android_wrapper"],
+      "enabled": false
+    },
+    {
+      "description": "Flyway 12 changed licensing terms (toolchain-manifest.yaml freshness.accepted_behind)",
+      "matchPackageNames": ["/^org\\.flywaydb[.:]/", "flyway/flyway"],
+      "allowedVersions": "<12",
+      "groupName": "flyway"
+    },
+    {
+      "description": "Kotlin moves as one: Gradle plugins, stdlib forces and the toolchain manifest",
+      "matchPackageNames": ["/^org\\.jetbrains\\.kotlin[.:]/"],
+      "groupName": "kotlin"
+    },
+    {
+      "description": "Bun runtime: manifest pin and builder images move together",
+      "matchPackageNames": ["bun", "oven/bun"],
+      "groupName": "bun runtime"
+    },
+    {
+      "description": "Gradle wrapper: root wrapper and manifest pin together (deps-regenerate.sh copies it into the JVM submodules)",
+      "matchDatasources": ["gradle-version"],
+      "matchPackageNames": ["gradle"],
+      "groupName": "gradle wrapper"
+    },
+    { "description": "Group @radix-ui packages", "matchPackageNames": ["@radix-ui/**"], "groupName": "radix-ui" },
+    { "description": "Group @babel packages", "matchPackageNames": ["@babel/**"], "groupName": "babel" },
+    { "description": "Group @fortawesome packages", "matchPackageNames": ["@fortawesome/**"], "groupName": "fortawesome" },
+    { "description": "Group @nivo chart packages", "matchPackageNames": ["@nivo/**"], "groupName": "nivo" },
     {
       "description": "Group Redux ecosystem",
-      "matchPackageNames": [
-        "@reduxjs/toolkit",
-        "@redux-saga/core",
-        "react-redux",
-        "redux",
-        "redux-immutable",
-        "redux-reqseq"
-      ],
+      "matchPackageNames": ["@reduxjs/toolkit", "@redux-saga/core", "react-redux", "redux", "redux-immutable", "redux-reqseq"],
       "groupName": "redux"
     },
+    { "description": "Group i18next packages", "matchPackageNames": ["i18next**", "react-i18next"], "groupName": "i18next" },
     {
-      "description": "Group i18next packages",
-      "matchPackagePrefixes": ["i18next"],
-      "matchPackageNames": ["react-i18next"],
-      "groupName": "i18next"
+      "description": "Group Grafana images",
+      "matchPackageNames": ["grafana/**"],
+      "matchManagers": ["docker-compose", "dockerfile", "custom.regex"],
+      "groupName": "grafana"
     },
     {
-      "description": "Group webpack packages",
-      "matchPackagePrefixes": ["webpack"],
-      "groupName": "webpack"
+      "description": "Group VictoriaMetrics images",
+      "matchPackageNames": ["victoriametrics/**"],
+      "matchManagers": ["docker-compose", "dockerfile", "custom.regex"],
+      "groupName": "victoriametrics"
     },
-    {
-      "description": "Group Grafana stack (Loki, Promtail, Grafana)",
-      "matchPackagePrefixes": ["grafana/"],
-      "groupName": "grafana-stack",
-      "matchManagers": ["docker-compose", "dockerfile"]
-    },
-    {
-      "description": "Group Prometheus stack",
-      "matchPackagePrefixes": ["prom/"],
-      "groupName": "prometheus-stack",
-      "matchManagers": ["docker-compose", "dockerfile"]
-    },
-    {
-      "description": "Group GitHub Actions (actions/*)",
-      "matchPackagePrefixes": ["actions/"],
-      "groupName": "github-actions-official",
-      "matchManagers": ["github-actions"]
-    },
-    {
-      "description": "Group Gradle Actions",
-      "matchPackagePrefixes": ["gradle/"],
-      "groupName": "gradle-actions",
-      "matchManagers": ["github-actions"]
-    },
-
     {
       "description": "Pin node-fetch at 2.7.0 (override in package.json for CJS compat)",
       "matchPackageNames": ["node-fetch"],
-      "allowedVersions": "2.7.0",
       "enabled": false
     },
     {
       "description": "Pin path-to-regexp at 1.9.0 (override in package.json for react-router v5 compat)",
       "matchPackageNames": ["path-to-regexp"],
-      "allowedVersions": "1.9.0",
       "enabled": false
     }
   ],
 
+  "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["dependencies", "security"],
-    "schedule": ["at any time"],
-    "prPriority": 10
+    "minimumReleaseAge": "3 days",
+    "labels": ["dependencies", "security"]
   }
 }

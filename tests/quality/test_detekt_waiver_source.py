@@ -261,7 +261,7 @@ class DetektWaiverSourceTest(unittest.TestCase):
         base = subprocess.run(["git", "-C", str(ROOT), "rev-parse", CHECK.BASELINE_BASE],
                               capture_output=True, text=True, check=True).stdout.strip()
         self.assertEqual(base, json.loads(CHECK.METADATA.read_text())["baselineBase"])
-        self.assertEqual(base, CHECK.accepted_metadata(ROOT, CHECK.METADATA_REVISION)["baselineBase"])
+        self.assertEqual(base, CHECK.accepted_metadata(ROOT, CHECK.METADATA_BLOB)["baselineBase"])
 
     def test_accepted_pins_come_from_the_reviewed_revision_not_head(self):
         def store(document):
@@ -275,7 +275,7 @@ class DetektWaiverSourceTest(unittest.TestCase):
         self.path.write_text(self.source.replace("old()", "edited()"))
         refreshed = self.metadata()
         store(refreshed)
-        self.assertNotEqual("HEAD", CHECK.METADATA_REVISION)
+        self.assertNotEqual("HEAD", CHECK.METADATA_BLOB)
         accepted = CHECK.accepted_metadata(self.root, revision)
         self.assertEqual(reviewed, accepted)
         self.assertTrue(any("refresh" in error for error in CHECK.metadata_policy(refreshed, accepted, self.ids)))
@@ -310,6 +310,32 @@ class DetektWaiverSourceTest(unittest.TestCase):
         errors = CHECK.metadata_policy(pin, None, set(), historical)
         self.assertTrue(any("new suppression" in error for error in errors))
 
+
+
+class PinnedAstGrepTest(unittest.TestCase):
+    """The waiver hashes depend on how ast-grep splits Kotlin: the check uses the manifest's ast-grep only, so a
+    different one first on PATH (Homebrew's, say) fails by name instead of moving every pin."""
+
+    def test_an_ast_grep_other_than_the_manifest_pin_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "ast-grep"
+            fake.write_text("#!/bin/sh\necho 'ast-grep 0.39.0'\n")
+            fake.chmod(0o755)
+            CHECK.ast_grep_binary.cache_clear()
+            CHECK.ast_nodes.cache_clear()
+            try:
+                with patch.dict("os.environ", {"CHRONICLE_AST_GREP": str(fake)}):
+                    with self.assertRaisesRegex(ValueError, r"ast-grep 0\.39\.0; toolchain-manifest\.yaml pins 0\.42\.1"):
+                        CHECK.ast_nodes("class Changed {}\n")
+            finally:
+                CHECK.ast_grep_binary.cache_clear()
+                CHECK.ast_nodes.cache_clear()
+
+    def test_the_detekt_job_hands_the_check_its_resolved_ast_grep(self):
+        text = (ROOT / "scripts/local-ci.sh").read_text()
+        job = text[text.index("job_detekt() {"):]
+        job = job[:job.index("\n}\n")]
+        self.assertIn('CHRONICLE_AST_GREP="$(command -v ast-grep)" python3 "$ROOT_DIR/scripts/check-detekt-waiver-source.py"', job)
 
 if __name__ == "__main__":
     unittest.main()

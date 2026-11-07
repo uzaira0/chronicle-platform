@@ -79,6 +79,15 @@ class UnpinnedImportTests(unittest.TestCase):
         with mock.patch.object(pins.sys, 'stdlib_module_names', None, create=True):
             self.assertEqual(pins.unpinned_imports(root, files, {'openpyxl'}), {'requests': ['scripts/a.py']})
 
+    def test_a_machine_module_is_not_a_distribution_but_must_exist(self):
+        root, files = self.tree({'scripts/a.py': 'import robust_fetch\n'})
+        self.assertEqual(pins.unpinned_imports(root, files, set()), {})
+        self.assertEqual(pins.machine_module_problems({'ROBUST_FETCH_DIR': str(root)}),
+                         [(f'robust_fetch is imported from {root}/robust_fetch.py, which does not exist '
+                          '(set ROBUST_FETCH_DIR)')])
+        (root / 'robust_fetch.py').write_text('')
+        self.assertEqual(pins.machine_module_problems({'ROBUST_FETCH_DIR': str(root)}), [])
+
     def test_the_shipped_lock_pins_every_third_party_import_in_the_repo(self):
         lock = pins.parse_lock((ROOT / 'requirements-dev.txt').read_text())
         self.assertEqual(pins.unpinned_imports(ROOT, pins.tracked_python_files(ROOT), set(lock)), {})
