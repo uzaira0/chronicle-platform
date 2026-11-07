@@ -81,12 +81,18 @@ if [[ -n "${POSTGRES_TLS_DIR:-}" ]]; then
   prepare_service_pair "$POSTGRES_TLS_DIR" postgres 'DNS:postgres,DNS:localhost,IP:127.0.0.1' "$(id -u postgres):$(id -g postgres)" 600
 fi
 if [[ -n "${BACKEND_TLS_DIR:-}" ]]; then
+  # cert-init and the optional monitoring-cert-init both prepare this pair. Neither waits on the
+  # other in Compose (monitoring must never gate Chronicle), so they serialize on the volume.
+  mkdir -p "$BACKEND_TLS_DIR"
+  exec 9>"$BACKEND_TLS_DIR/.cert-init.lock"
+  flock 9
   prepare_service_pair "$BACKEND_TLS_DIR" backend 'DNS:backend,DNS:localhost,IP:127.0.0.1' 100:101
   openssl pkcs12 -export -in "$BACKEND_TLS_DIR/backend.crt" -inkey "$BACKEND_TLS_DIR/backend.key" \
     -name rhizomessl -passout pass: -out "$BACKEND_TLS_DIR/.backend.p12.new"
   chown 100:101 "$BACKEND_TLS_DIR/.backend.p12.new"
   chmod 600 "$BACKEND_TLS_DIR/.backend.p12.new"
   mv -f "$BACKEND_TLS_DIR/.backend.p12.new" "$BACKEND_TLS_DIR/backend.p12"
+  exec 9>&-
 fi
 if [[ "${MONITORING_ENABLED:-false}" == true ]]; then
   monitoring_directory=${MONITORING_TLS_DIR:-$TLS_DIR}

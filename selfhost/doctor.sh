@@ -6,7 +6,7 @@
 reviewer_scope_state() {
   local study_id="$1" participant_id="$2"
   dc exec -T postgres /bin/bash -euc '
-    : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is unavailable in the postgres container}"
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(cat "${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD is unavailable in the postgres container}")}"
     IFS= read -r study_id
     IFS= read -r participant_id
     uuid_pattern="^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
@@ -14,28 +14,29 @@ reviewer_scope_state() {
     [[ "$study_id" =~ $uuid_pattern ]]
     [[ "$participant_id" =~ $participant_pattern ]]
     export PGPASSWORD="$POSTGRES_PASSWORD"
-    exec psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 \
-      -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" <<SQL
+    # The values reach the SQL only as psql variables, never spliced into its text (AF-P11).
+    exec psql -X -qAt -v ON_ERROR_STOP=1 -v study_id="$study_id" -v participant_id="$participant_id" \
+      -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" <<'"'"'SQL'"'"'
 SELECT CASE
   WHEN NOT EXISTS (
-    SELECT 1 FROM studies WHERE study_id = '\''${study_id}'\''::uuid
+    SELECT 1 FROM studies WHERE study_id = (:'\''study_id'\'')::uuid
   ) THEN '\''missing-study'\''
   WHEN NOT EXISTS (
     SELECT 1 FROM studies
-    WHERE study_id = '\''${study_id}'\''::uuid
+    WHERE study_id = (:'\''study_id'\'')::uuid
       AND lifecycle_status = '\''ACTIVE'\''
       AND CURRENT_TIMESTAMP >= started_at
       AND CURRENT_TIMESTAMP < ended_at
   ) THEN '\''inactive-study'\''
   WHEN NOT EXISTS (
     SELECT 1 FROM study_participants
-    WHERE study_id = '\''${study_id}'\''::uuid
-      AND participant_id = '\''${participant_id}'\''
+    WHERE study_id = (:'\''study_id'\'')::uuid
+      AND participant_id = :'\''participant_id'\''
   ) THEN '\''missing-participant'\''
   WHEN NOT EXISTS (
     SELECT 1 FROM study_participants
-    WHERE study_id = '\''${study_id}'\''::uuid
-      AND participant_id = '\''${participant_id}'\''
+    WHERE study_id = (:'\''study_id'\'')::uuid
+      AND participant_id = :'\''participant_id'\''
       AND participation_status = '\''ENROLLED'\''
   ) THEN '\''inactive-participant'\''
   ELSE '\''ok'\''
@@ -72,11 +73,43 @@ doctor_check_runtime() {
     doctor_add compose fail "Compose configuration does not render" "Run docker compose config and correct the reported .env or YAML error"
   fi
 
+  # Reconcile starts with --no-recreate, so an unapplied .env or Compose edit is reported here (PR-O13).
+  local drift
+  if drift="$(ops_python config-drift 2>/dev/null)" && [[ -n "$drift" ]]; then
+    doctor_add_rows "$drift"
+  else
+    doctor_add config-drift warn "Could not compare running services with the configuration" "Run docker compose config and correct the reported error"
+  fi
+
   local public_check
   if public_check="$(ops_python public-check 2>&1)"; then
     doctor_add public-readiness ok "Public HTTPS has dependency-aware readiness" "none"
   else
     doctor_add public-readiness fail "${public_check:-Public HTTPS could not be checked}" "Resolve the reported public HTTPS check and rerun doctor"
+  fi
+}
+
+doctor_check_reconcile_host() {
+  local reason
+  reason="$(ops_python reconcile host 2>/dev/null)" || reason="could not check the cron prerequisites"
+  [[ -n "$reason" ]] || return 0
+  doctor_add reconciliation-host warn "Automatic reconciliation is unavailable: $reason" \
+    "Install and enable cron (cron or cronie), then run ./chronicle up; or set CHRONICLE_RECONCILE_ENABLED=false"
+}
+
+doctor_check_host_versions() {
+  local rows row_status message
+  if rows="$(ops_python host-versions 2>/dev/null)" && [[ -n "$rows" ]]; then
+    while IFS=$'\t' read -r row_status message; do
+      [[ -n "$row_status" ]] || continue
+      if [[ "$row_status" == ok ]]; then
+        doctor_add host-versions ok "$message" "none"
+      else
+        doctor_add host-versions warn "$message" "Upgrade Docker or the kernel as described; Chronicle keeps running meanwhile"
+      fi
+    done <<<"$rows"
+  else
+    doctor_add host-versions warn "Could not read the Docker Engine, containerd, runc and kernel versions" "Run docker version and docker info"
   fi
 }
 
@@ -168,6 +201,20 @@ PY_DISK
 
 doctor_check_backups() {
   if [[ "${COMPOSE_FILE:-}" == *overlays/backups.yml* ]]; then
+    # Update and rollback start db-backup without waiting for its first dump
+    # (chronicle_ops/services.py UNAWAITED_BY_UPDATE), so its state is reported here.
+    local backup_state
+    backup_state=$(dc ps -a -q db-backup | xargs -r docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>/dev/null) || backup_state=unknown
+    case "$backup_state" in
+      'running healthy')
+        doctor_add service-db-backup ok "db-backup is healthy: its last dump passed the restore check" "none" ;;
+      'running starting')
+        doctor_add service-db-backup warn "db-backup is taking its first backup since it started" \
+          "Nothing to do; rerun ./chronicle doctor later. ./chronicle logs db-backup shows its progress" ;;
+      *)
+        doctor_add service-db-backup fail "db-backup is ${backup_state:-not running}: scheduled backups are not running" \
+          "Run ./chronicle logs db-backup, correct the first error, then run ./chronicle up" ;;
+    esac
 
     if ! ops_python backup-storage >/dev/null 2>&1; then
       doctor_add backup-encryption fail "Backup backing-device encryption is unconfirmed" \
@@ -223,16 +270,22 @@ PY_SECRET_AGES
 }
 
 doctor_check_monitoring() {
-  local running="$1"
   if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
-    local monitor_service
-    for monitor_service in victoriametrics victorialogs fluent-bit grafana operational-probe; do
-      if grep -Fxq "$monitor_service" <<<"$running"; then
-        doctor_add "monitor-${monitor_service}" ok "${monitor_service} is running" "none"
-      else
-        doctor_add "monitor-${monitor_service}" fail "${monitor_service} is not running" "Run ./chronicle logs ${monitor_service}, correct the first error, then docker compose up -d ${monitor_service}"
-      fi
-    done
+    # Optional monitoring never gates Chronicle, so its services are warnings; the pipeline
+    # check below still fails when metrics or logs are not delivered.
+    local health monitor_service monitor_state
+    if health="$(ops_python monitoring-health 2>/dev/null)" && [[ -n "$health" ]]; then
+      while IFS=$'\t' read -r monitor_service monitor_state; do
+        [[ -n "$monitor_service" ]] || continue
+        if [[ "$monitor_state" == healthy || "$monitor_state" == completed ]]; then
+          doctor_add "monitor-${monitor_service}" ok "${monitor_service} is ${monitor_state}" "none"
+        else
+          doctor_add "monitor-${monitor_service}" warn "${monitor_service} is ${monitor_state}" "Run ./chronicle logs ${monitor_service}, correct the first error, then docker compose up -d ${monitor_service}"
+        fi
+      done <<<"$health"
+    else
+      doctor_add monitoring-services warn "Could not read monitoring service health" "Run ./chronicle monitoring status"
+    fi
     local rows
     if rows="$(ops_python - <<'PY_MONITORING'
 from chronicle_ops.verify import monitoring_checks
@@ -248,14 +301,41 @@ PY_MONITORING
     else
       doctor_add monitoring-pipeline fail "Could not qualify metrics/log delivery" "Inspect monitoring service logs"
     fi
-    if [[ -n "${CHRONICLE_ALERT_WEBHOOK_URL:-}" ]]; then
-      doctor_add alert-route ok "A human alert destination is configured" "none"
+    doctor_check_alerts
+    # Where alerts go. With no webhook, the scheduled doctor writes firing alerts to the host's
+    # system log (chronicle_ops/alerts.py); with no schedule either, they stay in Grafana only.
+    # Never a failure: a failing row here made every reconciliation record a failure (AF-P2).
+    local schedule_gap=""
+    if [[ "${CHRONICLE_RECONCILE_ENABLED:-true}" != true ]]; then
+      schedule_gap="scheduled reconciliation is off"
     else
-      doctor_add alert-route fail "Alerts reach no one: CHRONICLE_ALERT_WEBHOOK_URL is unset, so firing alerts stay in Grafana only" \
-        "Set CHRONICLE_ALERT_WEBHOOK_URL in .env, apply it with docker compose up -d grafana, then test the contact point in Grafana"
+      schedule_gap="$(ops_python reconcile host 2>/dev/null)" || schedule_gap="the cron prerequisites could not be checked"
+    fi
+    if [[ -n "${CHRONICLE_ALERT_WEBHOOK_URL:-}" ]]; then
+      local also=", and to the host system log"
+      [[ -z "$schedule_gap" ]] || also=""
+      doctor_add alert-route ok "Alerts go to the configured webhook${also}" "none"
+    elif [[ -z "$schedule_gap" ]]; then
+      doctor_add alert-route ok "Firing alerts go to the host system log every 15 minutes (journalctl -t chronicle, priority crit); no webhook is set" "none"
+    else
+      doctor_add alert-route warn "Alerts reach no one: no CHRONICLE_ALERT_WEBHOOK_URL, and ${schedule_gap}, so nothing writes them to the system log" \
+        "Install and enable cron, then run ./chronicle up; or add CHRONICLE_ALERT_WEBHOOK_URL=<your alert receiver's https URL> to .env and run ./chronicle up (docs/MONITORING-RUNBOOK.md, Where alerts go)"
     fi
   else
     doctor_add monitoring warn "Monitoring overlay is disabled" "Run ./chronicle setup to enable it, or add overlays/monitoring.yml as documented"
+  fi
+}
+
+# Firing alerts from Grafana (chronicle_ops/alerts.py). The scheduled run (reconcile.sh sets
+# CHRONICLE_ALERT_SYSLOG=true) also writes them to the host's system log.
+doctor_check_alerts() {
+  local rows
+  local -a flags=()
+  [[ "${CHRONICLE_ALERT_SYSLOG:-}" != true ]] || flags=(--syslog)
+  if rows="$(ops_python alerts "${flags[@]}" 2>/dev/null)" && [[ -n "$rows" ]]; then
+    doctor_add_rows "$rows"
+  else
+    doctor_add alerts-firing warn "Could not read alerts from Grafana" "Run ./chronicle monitoring status"
   fi
 }
 

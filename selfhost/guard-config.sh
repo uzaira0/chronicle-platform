@@ -166,6 +166,38 @@ validate_compose_proxy_subnet() {
   [[ "$private" == true ]]
 }
 
+# CHRONICLE_CORE_PREFIX is the first three octets of the internal core /24 (docker-compose.yml);
+# web holds .2 there and the backend trusts forwarded client addresses from that address only
+# (Compose derives both from the prefix; ./chronicle verify compares them with the live network).
+validate_core_prefix() {
+  local prefix="$1" octet first second
+  [[ "$prefix" =~ ^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]] || return 1
+  for octet in "${BASH_REMATCH[@]:1}"; do ((10#$octet <= 255)) || return 1; done
+  first=${BASH_REMATCH[1]} second=${BASH_REMATCH[2]}
+  ((first == 10 || (first == 172 && second >= 16 && second <= 31) || (first == 192 && second == 168)))
+}
+
+# CHRONICLE_ALERT_WEBHOOK_URL carries alert text (and often a token in its path). Off this host it
+# must be HTTPS; plain HTTP only to loopback (the default discard port, or a local relay). No
+# credentials in the authority, and nothing a shell or YAML quote could break on.
+alert_webhook_is_allowed() {
+  local url="$1" scheme rest authority host
+  [[ -n "$url" && "$url" != *[[:space:]\'\"\\]* ]] || return 1
+  [[ "$url" =~ ^(https?)://([^/?#]+)([/?#].*)?$ ]] || return 1
+  scheme="${BASH_REMATCH[1]}" authority="${BASH_REMATCH[2]}"
+  [[ "$authority" != *@* ]] || return 1
+  if [[ "$authority" == \[* ]]; then
+    host="${authority%%]*}]"
+    rest="${authority#"$host"}"
+  else
+    host="${authority%%:*}"
+    rest="${authority#"$host"}"
+  fi
+  [[ -n "$host" && ( -z "$rest" || "$rest" =~ ^:[0-9]{1,5}$ ) ]] || return 1
+  [[ "$scheme" == https ]] && return 0
+  [[ "${host,,}" =~ ^(localhost|.+\.localhost|\[::1\]|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})$ ]]
+}
+
 # A reviewed risk-register reference; setup reads the same rule when it decides POOL_LISTENER_TLS.
 pool_plaintext_waived() {
   [[ -n "$1" && "$1" != *CHANGE_ME* ]]
@@ -178,11 +210,36 @@ valid_session_idle_minutes() {
   ((numeric >= 1 && numeric <= 120))
 }
 
+# VictoriaMetrics has no byte cap; it stops writing when free space on the Docker data filesystem
+# falls to METRICS_MIN_FREE_DISK_BYTES. Below MIN_FREE_DISK_GIB plus an update's 3 GiB peak
+# (chronicle_ops/common.py UPDATE_PEAK_BYTES), metrics alone could fill the disk to the point where
+# ./chronicle update refuses. Prints the warning, or nothing. Warn only: it is a sizing choice.
+metrics_reserve_shortfall() {
+  local floor_gib="${MIN_FREE_DISK_GIB:-}" reserve="${METRICS_MIN_FREE_DISK_BYTES:-8589934592}" needed
+  [[ "$floor_gib" =~ ^(0|[1-9][0-9]{0,8})$ ]] || floor_gib=5
+  [[ "$reserve" =~ ^[1-9][0-9]{0,18}$ ]] || return 0
+  needed=$(( (floor_gib + 3) * 1073741824 ))
+  if (( reserve < needed )); then
+    printf 'METRICS_MIN_FREE_DISK_BYTES=%s lets metrics fill the disk below what ./chronicle update needs (MIN_FREE_DISK_GIB=%s plus 3 GiB = %s bytes); raise it to at least %s\n' \
+      "$reserve" "$floor_gib" "$needed" "$needed"
+  fi
+}
+if [[ "${1:-}" == --metrics-reserve ]]; then
+  [[ $# -eq 1 ]] || exit 2
+  metrics_reserve_shortfall
+  exit 0
+fi
+
 # A narrow diagnostic mode lets verify-config.sh exercise the exact classifier used at
 # startup without reconstructing an otherwise complete deployment environment.
 if [[ "${1:-}" == --validate-public-host ]]; then
   [[ $# -eq 2 ]] || exit 2
   public_deployment_host_is_allowed "$2" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --validate-alert-webhook ]]; then
+  [[ $# -eq 2 ]] || exit 2
+  alert_webhook_is_allowed "$2" && exit 0
   exit 1
 fi
 if [[ "${1:-}" == --validate-listener-address ]]; then
@@ -198,6 +255,11 @@ fi
 if [[ "${1:-}" == --validate-compose-subnet ]]; then
   [[ $# -eq 3 ]] || exit 2
   validate_compose_proxy_subnet "$2" "$3" && exit 0
+  exit 1
+fi
+if [[ "${1:-}" == --validate-core-prefix ]]; then
+  [[ $# -eq 2 ]] || exit 2
+  validate_core_prefix "$2" && exit 0
   exit 1
 fi
 if [[ "${1:-}" == --validate-forwarder-cidrs ]]; then
@@ -221,6 +283,16 @@ fi
 IPV4_STACK_NETWORK="The stack network is IPv4: Docker relays an IPv6 listener through a proxy that shows every client as the Docker gateway"
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; BLD=$'\033[1m'; RST=$'\033[0m'
 FAILED=0
+
+# The credentials to check: files secrets-init wrote from .env just before this guard ran. Unset
+# (a direct run of this script with the values in its environment), they come from the environment.
+if [[ -n "${CHRONICLE_SECRETS_DIR:-}" ]]; then
+  source "$(dirname "${BASH_SOURCE[0]}")/secret-files.sh"
+  load_secret_files "$CHRONICLE_SECRETS_DIR" POSTGRES_PASSWORD:postgres-password \
+    POSTGRES_APP_PASSWORD:postgres-app-password JWT_SECRET:jwt-secret JWT_SECRET_PREVIOUS:jwt-secret-previous \
+    METRICS_PASSWORD:metrics-password CHRONICLE_INTERNAL_WEB_SECRET:internal-web-secret \
+    CHRONICLE_REVIEWER_ACCESS_SECRET:reviewer-access-secret GRAFANA_ADMIN_PASSWORD:grafana-admin-password
+fi
 ok()   { printf '  %sok%s   %s\n' "$GRN" "$RST" "$1"; }
 bad()  { printf '  %sFAIL%s %s\n' "$RED" "$RST" "$1"; FAILED=1; }
 warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
@@ -235,9 +307,9 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${GRAFANA_PORT:=3000}"
 : "${METRICS_RETENTION:=30d}"
 : "${LOGS_RETENTION:=14d}"
-: "${METRICS_MAX_DISK_BYTES:=5368709120}"
+: "${METRICS_DISK_BUDGET_BYTES:=5368709120}"
 : "${LOGS_MAX_DISK_BYTES:=5368709120}"
-: "${METRICS_MIN_FREE_DISK_BYTES:=2147483648}"
+: "${METRICS_MIN_FREE_DISK_BYTES:=8589934592}"
 : "${FLUENT_BIT_FORWARD_PORT:=24224}"
 : "${CHRONICLE_INTERNAL_WEB_SECRET:=}"
 : "${CHRONICLE_REVIEWER_ACCESS_ENABLED:=false}"
@@ -257,7 +329,7 @@ warn() { printf '  %swarn%s %s\n' "$YEL" "$RST" "$1"; }
 : "${DASHBOARD_ALLOWED_IPS:=}"
 : "${CADDY_TRUSTED_PROXIES:=127.0.0.1/32}"
 : "${CHRONICLE_SUBNET:=172.28.0.0/16}"
-: "${CHRONICLE_TRUSTED_PROXY_CIDRS:=$CHRONICLE_SUBNET}"
+: "${CHRONICLE_CORE_PREFIX:=}"
 : "${CHRONICLE_SESSION_IDLE_MINUTES:=15}"
 : "${RELEASE_VERSION:=development}"
 : "${CHRONICLE_PUBLIC_BASE_URL:=}"
@@ -369,7 +441,7 @@ for name, raw in zip(sys.argv[1::2], sys.argv[2::2]):
     if not valid_caddy_duration(raw):
         print(name)' RATE_LIMIT_MOBILE_WINDOW "${RATE_LIMIT_MOBILE_WINDOW:-1s}" \
         RATE_LIMIT_WEB_WINDOW "${RATE_LIMIT_WEB_WINDOW:-1s}" \
-        RATE_LIMIT_GUARD_WINDOW "${RATE_LIMIT_GUARD_WINDOW:-1s}"); then
+        RATE_LIMIT_GUARD_WINDOW "${RATE_LIMIT_GUARD_WINDOW:-1m}"); then
   for setting in $invalid_windows; do
     bad "${setting} must be a positive Caddy duration representable in nanoseconds (at most 128 characters)"
   done
@@ -559,11 +631,13 @@ if [[ "$MONITORING_ENABLED" == true ]]; then
   fi
   [[ "$METRICS_RETENTION" =~ ^[1-9][0-9]*d$ ]] || bad "METRICS_RETENTION must be whole days, for example 30d"
   [[ "$LOGS_RETENTION" =~ ^[1-9][0-9]*d$ ]] || bad "LOGS_RETENTION must be whole days, for example 14d"
-  for budget in METRICS_MAX_DISK_BYTES LOGS_MAX_DISK_BYTES METRICS_MIN_FREE_DISK_BYTES; do
+  for budget in METRICS_DISK_BUDGET_BYTES LOGS_MAX_DISK_BYTES METRICS_MIN_FREE_DISK_BYTES; do
     if [[ ! "${!budget}" =~ ^[1-9][0-9]*$ ]] || (( ${!budget} < 268435456 )); then
       bad "${budget} must be an integer of at least 268435456 bytes (256 MiB)"
     fi
   done
+  metrics_reserve_warning="$(metrics_reserve_shortfall)"
+  [[ -z "$metrics_reserve_warning" ]] || warn "$metrics_reserve_warning"
   if [[ $FAILED -eq 0 ]]; then
     ok "optional monitoring is private, bounded, and uses a non-default Grafana credential"
   fi
@@ -614,10 +688,15 @@ else
 fi
 
 # ------------------------------------------------------------------ trusted proxy subnet
-if validate_compose_proxy_subnet "$CHRONICLE_SUBNET" "$CHRONICLE_TRUSTED_PROXY_CIDRS"; then
-  ok "backend trusts only the Chronicle Compose subnet ${CHRONICLE_TRUSTED_PROXY_CIDRS} for forwarded client IPs"
+if validate_compose_proxy_subnet "$CHRONICLE_SUBNET" "$CHRONICLE_SUBNET"; then
+  ok "edge network subnet ${CHRONICLE_SUBNET} is one canonical private IPv4 CIDR"
 else
-  bad "CHRONICLE_SUBNET must be one canonical, private IPv4 CIDR and exactly match CHRONICLE_TRUSTED_PROXY_CIDRS"
+  bad "CHRONICLE_SUBNET must be one canonical, private IPv4 CIDR"
+fi
+if validate_core_prefix "$CHRONICLE_CORE_PREFIX"; then
+  ok "internal core network ${CHRONICLE_CORE_PREFIX}.0/24 is a private /24"
+else
+  bad "CHRONICLE_CORE_PREFIX must be the first three octets of a private /24, such as setup chooses"
 fi
 validate_dashboard_networks "$CADDY_TRUSTED_PROXIES" ||
   bad "CADDY_TRUSTED_PROXIES must be explicit valid CIDRs and must not trust the entire IPv4 or IPv6 space"
@@ -681,6 +760,18 @@ TLS_CERT_DIR="${CHRONICLE_GUARD_TLS_DIR:-/tls}"
 if [[ "$TLS_MODE" == own-tls ]]; then
   if [[ -s "${TLS_CERT_DIR}/cert.pem" && -s "${TLS_CERT_DIR}/key.pem" ]]; then
     ok "TLS certificate and key present in ./tls"
+    # web has no route off the host, so Caddy staples no OCSP response (docs/NETWORK-EGRESS.md).
+    # Browsers that enforce OCSP Must-Staple (the TLS feature extension, RFC 7633, OID
+    # 1.3.6.1.5.5.7.1.24, whose only features are status requests) refuse a certificate carrying
+    # it without one. LibreSSL prints the OID where OpenSSL prints the name. The text is read
+    # whole first: `grep -q` closing the pipe early would fail it under pipefail.
+    certificate_text=""
+    if command -v openssl >/dev/null 2>&1; then
+      certificate_text=$(openssl x509 -in "${TLS_CERT_DIR}/cert.pem" -noout -text 2>/dev/null) || certificate_text=""
+    fi
+    if grep -qE 'TLS Feature|1\.3\.6\.1\.5\.5\.7\.1\.24' <<<"$certificate_text"; then
+      warn "./tls/cert.pem has OCSP Must-Staple, but web cannot fetch OCSP responses to staple (docs/NETWORK-EGRESS.md); Firefox refuses the site. Replace it with a certificate without Must-Staple."
+    fi
   else
     bad "TLS_MODE=own-tls but ./tls/cert.pem or ./tls/key.pem is missing or empty"
   fi

@@ -15,7 +15,10 @@ from .common import compose, warn
 
 ROUTINE_RECEIPT_KEEP = 96
 OPERATOR_RECEIPTS_DIR = "operator-receipts"
-ROUTINE_OPERATIONS = {"up", "doctor", "status", "check"}
+# The cron schedule's own receipts (reconcile.py): one reconcile every 15 minutes is 35,040 a
+# year, so they are pruned like every other routine operation.
+SCHEDULED_OPERATIONS = frozenset(("update-check", "reconcile"))
+ROUTINE_OPERATIONS = frozenset({"up", "doctor", "status", "check"} | SCHEDULED_OPERATIONS)
 
 
 def durable_replace(temporary, destination):

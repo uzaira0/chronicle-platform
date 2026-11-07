@@ -13,8 +13,16 @@
 
 set -euo pipefail
 
+# The database passwords arrive as files from secrets-init (secret-files.sh); init-tde.sh, run below,
+# inherits the exported variable.
+if [[ -n "${CHRONICLE_SECRETS_DIR:-}" ]]; then
+  source "$(dirname "${BASH_SOURCE[0]}")/secret-files.sh"
+  load_secret_files "$CHRONICLE_SECRETS_DIR" POSTGRES_PASSWORD:postgres-password POSTGRES_APP_PASSWORD:postgres-app-password
+fi
+
 BACKUPS_DIR=/backups
-REFERENCE_DIR=/selfhost
+# Owned by the operator who unpacked the bundle (compose mounts it read-only, alone).
+REFERENCE_PATH=/selfhost/db-init.sh
 KEYRING_SRC=/var/lib/postgresql/tde-keyring/chronicle-keyring.per
 KEYRING_DEST="${BACKUPS_DIR}/keyring/chronicle-keyring.per"
 
@@ -35,11 +43,11 @@ KEYRING_DEST="${BACKUPS_DIR}/keyring/chronicle-keyring.per"
 # bind-mount source as root, and root-owned 0700 locks the operator out too, which breaks the
 # backend image build -- its context is the repository root, and the context sender runs as the
 # operator and dies with "permission denied" rather than skipping the directory. Nothing here
-# knows the operator's uid, so take it from the bundle directory itself, which they own.
+# knows the operator's uid, so take it from a bundle file, which they own.
 prepare_backups_dir() {
   mkdir -p "$BACKUPS_DIR"
-  if [[ -d "$REFERENCE_DIR" ]]; then
-    chown -R "$(stat -c %u "$REFERENCE_DIR")":"$(stat -c %g "$REFERENCE_DIR")" "$BACKUPS_DIR"
+  if [[ -e "$REFERENCE_PATH" ]]; then
+    chown -R "$(stat -c %u "$REFERENCE_PATH")":"$(stat -c %g "$REFERENCE_PATH")" "$BACKUPS_DIR"
   fi
   chmod 700 "$BACKUPS_DIR"
 }
@@ -62,8 +70,8 @@ copy_keyring() {
   rm -f -- "$temporary"
   cp "$KEYRING_SRC" "$temporary"
   chmod 600 "$temporary"
-  if [[ -d "$REFERENCE_DIR" ]]; then
-    chown -R "$(stat -c %u "$REFERENCE_DIR")":"$(stat -c %g "$REFERENCE_DIR")" \
+  if [[ -e "$REFERENCE_PATH" ]]; then
+    chown -R "$(stat -c %u "$REFERENCE_PATH")":"$(stat -c %g "$REFERENCE_PATH")" \
       "$destination_dir"
   fi
   mv -f "$temporary" "$KEYRING_DEST"

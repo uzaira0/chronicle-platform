@@ -21,7 +21,8 @@ def parse_env_text(text):
         if not line or line.startswith("#"):
             continue
         match = assignment.fullmatch(line)
-        require(match and match[1] not in values, f"invalid or duplicate environment assignment on line {number}")
+        if match is None or match[1] in values:
+            raise ValueError(f"invalid or duplicate environment assignment on line {number}")
         raw = match[2]
         require(environment_value.fullmatch(raw),
                 f"unsupported environment value on line {number}; use a literal quoted value, not shell syntax")

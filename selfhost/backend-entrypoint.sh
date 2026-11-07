@@ -18,6 +18,37 @@
 # variable into an empty string, so boolean and numeric fields still need explicit defaults.
 set -eu
 
+# Credentials arrive as files written by secrets-init (CHRONICLE_SECRETS_DIR), so the
+# container's configuration carries none. Each file sets the variable the config templates
+# and Spring read; a variable already set (older Compose files) is left alone.
+if [ -n "${CHRONICLE_SECRETS_DIR:-}" ] && [ "${1:-}" = --migrate ]; then
+  # migrate connects as the schema owner and reads only that password (secrets-init's migrate volume).
+  if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+    if [ ! -r "${CHRONICLE_SECRETS_DIR}/postgres-password" ]; then
+      echo "FATAL: ${CHRONICLE_SECRETS_DIR}/postgres-password is missing; secrets-init writes it before migrate starts" >&2
+      exit 1
+    fi
+    POSTGRES_PASSWORD=$(cat "${CHRONICLE_SECRETS_DIR}/postgres-password")
+    export POSTGRES_PASSWORD
+  fi
+elif [ -n "${CHRONICLE_SECRETS_DIR:-}" ]; then
+  for pair in POSTGRES_APP_PASSWORD:postgres-app-password JWT_SECRET:jwt-secret \
+      JWT_SECRET_PREVIOUS:jwt-secret-previous CHRONICLE_SECURITY_METRICS_PASSWORD:metrics-password \
+      CHRONICLE_INTERNAL_WEB_SECRET:internal-web-secret CHRONICLE_REVIEWER_ACCESS_SECRET:reviewer-access-secret; do
+    variable=${pair%%:*}
+    file="${CHRONICLE_SECRETS_DIR}/${pair#*:}"
+    eval "current=\${${variable}:-}"
+    [ -z "$current" ] || continue
+    if [ ! -r "$file" ]; then
+      echo "FATAL: $file is missing; secrets-init writes it before the backend starts" >&2
+      exit 1
+    fi
+    value=$(cat "$file")
+    export "$variable=$value"
+  done
+  unset pair variable file current value
+fi
+
 if [ "${1:-}" = --migrate ]; then
   [ "$#" -eq 1 ] || exit 1
   : "${POSTGRES_MIGRATION_USER:=${POSTGRES_USER:?POSTGRES_USER is required for migration}}"
@@ -167,7 +198,7 @@ rm -f "$AUDIT_DIR/.write-probe"
 RENDERED=/server/rendered-config
 mkdir -p "$RENDERED"
 
-for name in rhizome chronicle-auth mail mobile-security vault cors jetty; do
+for name in rhizome chronicle chronicle-auth mail mobile-security vault cors jetty; do
   src="/server/config/${name}.yaml.template"
   dst="${RENDERED}/${name}.yaml"
   if [ ! -f "$src" ]; then

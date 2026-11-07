@@ -26,6 +26,12 @@
 set -euo pipefail
 umask 077
 
+# The database password arrives as a file from secrets-init (secret-files.sh).
+if [[ -n "${CHRONICLE_SECRETS_DIR:-}" ]]; then
+  source "$(dirname "${BASH_SOURCE[0]}")/secret-files.sh"
+  load_secret_files "$CHRONICLE_SECRETS_DIR" POSTGRES_PASSWORD:postgres-password
+fi
+
 if [[ "${CHRONICLE_RESTORE_ORCHESTRATED:-}" != true ]]; then
   echo "  FAIL direct restore-service execution is disabled because application writers may still be running" >&2
   echo "       run the guarded operator command instead:" >&2

@@ -38,8 +38,13 @@ WAL_WARNING_FACTOR = 2
 METRICS_MAX_AGE_SECONDS = 120
 RATE_LIMIT_PROBE_WORKERS = 32
 RATE_LIMIT_PROBE_MAX_REQUESTS = 400
+# A burst that drew no 429 is repeated, after a pause, up to this many bursts in all: right after
+# a start the backend can answer too slowly for one burst to fill a rate-limit window, while the
+# window keeps counting the earlier bursts' requests.
+RATE_LIMIT_PROBE_BURSTS = 3
+RATE_LIMIT_PROBE_PAUSE_SECONDS = 5
 MONITORING_JOBS = {"chronicle-backend", "chronicle-containers", "chronicle-host", "chronicle-operational",
-                   "chronicle-log-forwarder", "chronicle-operations", "chronicle-configuration"}
+                   "chronicle-public", "chronicle-log-forwarder", "chronicle-operations", "chronicle-configuration"}
 DATABASE_PRIVILEGES_VIOLATION = 1
 DATABASE_PRIVILEGES_UNAVAILABLE = 2
 DATABASE_PRIVILEGES_RECOVERY = "Recover a reviewed backup that preserves ACLs"
@@ -126,12 +131,45 @@ def disk_rows(settings, state):
                      _("{name}: {available} bytes and {inodes} inodes free; startup requires {required} bytes and {minimum_inodes} inodes").format(
                          name=name, available=available, inodes=inodes, required=required, minimum_inodes=MIN_FREE_INODES),
                      "none" if enough else _("Add filesystem capacity before restarting Chronicle")))
+    if all(row[1] for row in report):
+        # Startup fits; say now, as a warning, when the next update's safety dump would not.
+        try:
+            rows += [(name + "-update-reserve", "warn", message, action)
+                     for name, message, action in update_shortfalls(settings, state)]
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
     return rows
+
+
+def update_shortfalls(settings, state):
+    """Filesystems with room to start Chronicle but not for an update's peak (its safety dump and
+    staged release), as (name, message, action); the update itself still refuses below it."""
+    from .common import UPDATE_PEAK_BYTES
+    project = os.environ.get("CHRONICLE_OPS_PROJECT", compose_project(settings))
+    return [(name, _("{name}: {available} bytes free; an update needs {required} bytes").format(
+                 name=name, available=available, required=required),
+             _("Free or add space before the next ./chronicle update, which refuses to start below it"))
+            for name, enough, available, _inodes, required
+            in storage_report(state, project, free_disk_floor(settings), UPDATE_PEAK_BYTES) if not enough]
+
+
+def update_reserve():
+    """The daily update check's warning: exit 1 when an update would not fit."""
+    from .envfile import read_env
+    settings = read_env(Path.cwd() / ".env") if (Path.cwd() / ".env").exists() else {}
+    try:
+        shortfalls = update_shortfalls(settings, os.environ["CHRONICLE_OPS_STATE"])
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"warning: could not measure the update disk reserve: {error}", file=sys.stderr)
+        return 0  # doctor reports an unreadable reserve; this check only announces a shortfall
+    for _name, message, action in shortfalls:
+        print(f"warning: {message}. {action}", file=sys.stderr)
+    return 1 if shortfalls else 0
 
 
 def capacity_checks(settings, backups):
     command = ('df -Pk "$PGDATA"; '
-               'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -h 127.0.0.1 '
+               'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -h 127.0.0.1 '
                '-U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -c '
                "\"SELECT json_build_object('database_bytes',pg_database_size(current_database()),"
                "'wal_bytes',(SELECT coalesce(sum(size),0) FROM pg_ls_waldir()),"
@@ -637,9 +675,19 @@ def verify_mobile_rate_limit(settings, pub, report):
     require(events > 0, "RATE_LIMIT_MOBILE_ABUSE_EVENTS must be positive")
     # Trusted SNAT has a fleet-sized edge ceiling; the backend still limits anonymous traffic.
     burst = min(events * 2, RATE_LIMIT_PROBE_MAX_REQUESTS)
-    with ThreadPoolExecutor(max_workers=min(RATE_LIMIT_PROBE_WORKERS, burst)) as pool:
-        codes = list(pool.map(lambda _: curl(pub + MOBILE_RATE_PROBE, "-o", "/dev/null", "-w", "%{http_code}")[1], range(burst)))
-    report("429" in codes, "mobile enrollment abuse is rate limited by the edge" if "429" in codes else f"{burst} requests to mobile enrollment were never rate limited")
+    sent, limited = 0, False
+    for attempt in range(RATE_LIMIT_PROBE_BURSTS):
+        if attempt:
+            time.sleep(RATE_LIMIT_PROBE_PAUSE_SECONDS)
+        with ThreadPoolExecutor(max_workers=min(RATE_LIMIT_PROBE_WORKERS, burst)) as pool:
+            codes = list(pool.map(lambda _: curl(pub + MOBILE_RATE_PROBE, "-o", "/dev/null", "-w", "%{http_code}")[1],
+                                  range(burst)))
+        sent += burst
+        if "429" in codes:
+            limited = True
+            break
+    report(limited, "mobile enrollment abuse is rate limited by the edge" if limited
+           else f"{sent} requests to mobile enrollment were never rate limited")
 
 
 def verify_configured_backups(settings, report) -> None:
@@ -688,6 +736,63 @@ def verify_encryption(settings, report):
 
 
 
+# What each fixed address is trusted for, named when it moves.
+ADDRESS_TRUST = {"web": "the backend trusts forwarded client addresses only from",
+                 "web-forward": "Caddy accepts client addresses (PROXY protocol) only from"}
+
+
+def core_network_problems(layout, live):
+    """How the running networks differ from what CHRONICLE_CORE_PREFIX derives (network-subnet.py
+    core_layout): each derived network's subnet, and each fixed address a trust rule names.
+    live: {network: {"subnets": [...], "addresses": {service: address}}}."""
+    problems = []
+    for name, wanted in layout["networks"].items():
+        subnets = (live.get(name) or {}).get("subnets") or []
+        if wanted["subnet"] not in subnets:
+            problems.append(f"the running {name} network is {', '.join(subnets) or 'missing'}, but CHRONICLE_CORE_PREFIX "
+                            f"selects {wanted['subnet']}; run ./chronicle up to recreate it from .env")
+    for service, (network, address) in layout["addresses"].items():
+        held = ((live.get(network) or {}).get("addresses") or {}).get(service)
+        if held != address:
+            problems.append(f"{service} holds {held or 'no address'} on the {network} network, but "
+                            f"{ADDRESS_TRUST.get(service, 'the stack expects')} {address}; run ./chronicle up")
+    return problems
+
+
+def verify_core_network(settings, report):
+    """Compare the live networks derived from CHRONICLE_CORE_PREFIX with .env (guard-config.sh
+    checks only that the prefix is a private /24)."""
+    from .common import network_subnet
+    prefix = value(settings, "CHRONICLE_CORE_PREFIX")
+    if not prefix:
+        report(False, "CHRONICLE_CORE_PREFIX is not set; run ./chronicle setup or update")
+        return
+    layout = network_subnet().core_layout(prefix)
+    project = os.environ.get("CHRONICLE_OPS_PROJECT", compose_project(settings))
+    names = list(layout["networks"])
+    try:
+        containers = {service: compose("ps", "-q", service, capture=True, check=True).stdout.strip()
+                      for service in layout["addresses"]}
+        networks = json.loads(run(["docker", "network", "inspect", *[f"{project}_{name}" for name in names]],
+                                  capture=True, check=True, timeout=30).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        report(False, f"could not inspect the networks {', '.join(f'{project}_{name}' for name in names)}; run ./chronicle up")
+        return
+    live = {}
+    for network in networks:
+        name = network.get("Name", "").removeprefix(f"{project}_")
+        attached = network.get("Containers") or {}
+        live[name] = {"subnets": [entry.get("Subnet") for entry in (network.get("IPAM") or {}).get("Config") or []
+                                  if entry.get("Subnet")],
+                      "addresses": {service: (attached.get(container) or {}).get("IPv4Address", "").split("/")[0]
+                                    for service, container in containers.items() if container in attached}}
+    problems = core_network_problems(layout, live)
+    held = ", ".join(f"{service} {address} on {network}" for service, (network, address) in layout["addresses"].items())
+    report(not problems, "; ".join(problems) or
+           f"the core and ingress networks are {', '.join(n['subnet'] for n in layout['networks'].values())}, "
+           f"and {held}, the addresses the trust rules name")
+
+
 def verify_proxy_surface(settings, mode, external, probe, report):
     if mode is DeploymentMode.BEHIND_PROXY:
         probe("/health", ("204",), "public HTTPS through the LB (strict certificate validation)", origin=external)
@@ -701,6 +806,87 @@ def verify_proxy_surface(settings, mode, external, probe, report):
         code = check_proxy_http_redirect(http + "/health", external + "/health") if http_authority else None
         ok = code is not None
         report(ok, f"{code} redirects to the canonical HTTPS health URL ({external}/health)" if ok else f"HTTP /health must redirect with 301, 302, 307 or 308 to exactly {external}/health")
+
+
+# JSON list of the FAIL messages of the pre-update verification (set by the update).
+BASELINE_ENV = "CHRONICLE_VERIFY_BASELINE"
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+# Checks whose message carries a measurement, with the rule for when it got worse. Every other
+# check that failed before the update and fails after it is the same failure, whatever numbers
+# (an HTTP status, a path) its message shows.
+MEASURED_CHECKS = (
+    ("count", re.compile(r"(\d+) table\(s\) still on plain heap")),
+    ("count", re.compile(r"(\d+) director\(y/ies\) under .+ are not writable")),
+    ("mode", re.compile(r" is ([0-7]{3,4}) — every local account can read")),
+)
+
+
+def check_identity(message):
+    """A check's identity across releases and runs: its message with every number replaced, as
+    any release's verify prints it (older releases know nothing else)."""
+    return re.sub(r"\s+", " ", re.sub(r"\d+", "#", ANSI_ESCAPE.sub("", message))).strip()
+
+
+def measurement(message):
+    """(rule, value) of a measured check's message, or None."""
+    text = ANSI_ESCAPE.sub("", message)
+    for rule, pattern in MEASURED_CHECKS:
+        match = pattern.search(text)
+        if match:
+            return rule, int(match[1], 8 if rule == "mode" else 10)
+    return None
+
+
+def regressed(message, baseline):
+    """Whether a failed check is a regression against the pre-update failures: it did not fail
+    before, or its count grew, or its permission mode gained a bit."""
+    identity = check_identity(message)
+    before = [measurement(old) for old in baseline if check_identity(old) == identity]
+    if not before:
+        return True
+    now = measurement(message)
+    if now is None:
+        return False
+    earlier = [value for rule, value in filter(None, before) if rule == now[0]]
+    if not earlier:
+        return True
+    if now[0] == "count":
+        return now[1] > max(earlier)
+    return all(now[1] & ~old for old in earlier)
+
+
+def failed_checks(output):
+    """The FAIL messages in a ./chronicle verify transcript (any release prints them so)."""
+    return [match[1].strip() for line in output.splitlines()
+            if (match := re.match(r"\s*FAIL\s+(.*)", ANSI_ESCAPE.sub("", line)))]
+
+
+def regressions(returncode, output, baseline):
+    """The failures of one verify run that the update caused: FAIL lines that regressed against
+    the baseline, or the whole run when it failed without naming a check."""
+    if not returncode:
+        return []
+    failed = failed_checks(output)
+    if not failed:
+        return [f"./chronicle verify exited {returncode} without naming a failed check"]
+    return [message for message in failed if regressed(message, baseline)]
+
+
+def reporter(baseline=()):
+    """verify's report function and a failed() query. A check in the baseline failed before the
+    update too; it is reported as a warning so only a regression the update caused fails."""
+    failed = False
+
+    def report(ok, message, *, warning=False):
+        nonlocal failed
+        if not ok and not warning and baseline and not regressed(message, baseline):
+            warning, message = True, message + " (already failing before this update)"
+        status = "ok" if ok else "warn" if warning else "FAIL"
+        color = GRN if ok else YEL if warning else RED
+        print(f"  {color}{status}{RST}   {message}")
+        failed |= not ok and not warning
+
+    return report, lambda: failed
 
 
 def verify(args):
@@ -721,14 +907,7 @@ def verify(args):
     external = setting("CHRONICLE_PUBLIC_BASE_URL") or "https://" + setting("DOMAIN")
     pub = external
     retry_sleep = float(setting("RATE_LIMIT_RETRY_SLEEP", "1.2"))
-    failed = False
-
-    def report(ok, message, *, warning=False):
-        nonlocal failed
-        status = "ok" if ok else "warn" if warning else "FAIL"
-        color = GRN if ok else YEL if warning else RED
-        print(f"  {color}{status}{RST}   {message}")
-        failed |= not ok and not warning
+    report, failed = reporter(json.loads(os.environ.get(BASELINE_ENV) or "[]"))
 
     probe = surface_probe(pub, retry_sleep, report)
     verify_public_surface(pub, probe)
@@ -745,8 +924,9 @@ def verify(args):
                                    setting(STORAGE_ENCRYPTION_WAIVER)) == 0,
            "Database volume storage encryption check")
     verify_proxy_surface(settings, mode, external, probe, report)
+    verify_core_network(settings, report)
     print()
-    if failed:
+    if failed():
         print(f"{RED}Verification failed.{RST} Resolve the failed checks listed above.")
         return 1
     print(f"{GRN}Verified{RST} — exposure matches DASHBOARD_EXPOSURE={exposure}")
@@ -794,28 +974,24 @@ def service_contract_violations(paths):
             if name == "docker-socket-proxy":
                 if service.get("entrypoint") != ["haproxy"] or service.get("networks") != ["docker-api"] or service.get("cap_add"):
                     problems.append(f"{label} violates the documented socket-proxy root exception")
-            elif name == "cadvisor":
-                if service.get("networks") != ["monitoring", "docker-api"] or service.get("cap_add") or \
-                        "--docker=tcp://docker-socket-proxy:2375" not in service.get("command", []) or \
-                        any(not isinstance(volume, str) for volume in service.get("volumes", [])) or \
-                        set(service.get("volumes", [])) != {"/:/rootfs:ro", "/sys:/sys:ro", "/var/lib/docker/:/var/lib/docker:ro"}:
-                    problems.append(f"{label} violates the documented cAdvisor root exception")
             else:
                 problems.append(f"{label} is long-running as root without a reviewed exception")
         for volume in service.get("volumes") or []:
             source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
             if source in ("/var/run", "/var/run/docker.sock", "/run", "/run/docker.sock"):
-                # Only the GET-only proxy on its internal network may hold the socket.
-                environment = service.get("environment") or {}
-                if name != "docker-socket-proxy" or source != "/var/run/docker.sock" or str(environment.get("POST")) != "0" \
-                        or service.get("networks") != ["docker-api"]:
+                # Only the GET-only proxy on its internal network may hold the socket. Its policy is
+                # monitoring/docker-api.cfg, read by the haproxy entrypoint (no environment switches).
+                if name != "docker-socket-proxy" or source != "/var/run/docker.sock" \
+                        or service.get("entrypoint") != ["haproxy"] or service.get("networks") != ["docker-api"]:
                     problems.append(f"{label} mounts the Docker socket directory {source}")
         if service.get("restart") not in (None, "no") and "healthcheck" not in service and name not in {"victoriametrics", "victorialogs", "fluent-bit"}:
             problems.append(f"{label} is long-running with no healthcheck")
-    networks = {}
+    # Containers with data or credentials have no route off the host (docs/NETWORK-EGRESS.md);
+    # chronicle_ops/services.py owns which networks are internal and which services are edges.
+    from .services import egress_violations
+    documents = {}
     for path in paths:
         with open(path, encoding="utf-8") as handle:
-            networks.update((yaml.safe_load(handle) or {}).get("networks") or {})
-    if "docker-api" in networks and (networks["docker-api"] or {}).get("internal") is not True:
-        problems.append("the docker-api network that carries the Docker API proxy is not internal")
+            documents[path] = yaml.safe_load(handle) or {}
+    problems.extend(egress_violations(documents))
     return "\n".join(problems)

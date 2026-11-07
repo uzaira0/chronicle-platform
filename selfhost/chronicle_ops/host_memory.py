@@ -1,12 +1,13 @@
 """Host memory probes, setup sizing and service budget policy."""
 
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 
 from .common import GIB, require
 from .envfile import value
+
 # A 4 GB VM reports less than 4 GiB after kernel reservations.
 MIN_MEMORY_KIB = 3_670_016
 MONITORING_MIN_MEMORY_KIB = 10 * 1024 * 1024
@@ -26,21 +27,43 @@ FLUENT_BIT_CHUNK_SOFT_LIMIT_BYTES = 2 * 1024 ** 2
 
 def memory_bytes(raw):
     match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([kmgt]?)(?:b)?", str(raw).lower())
-    require(match, "invalid memory ceiling")
+    if match is None:
+        raise ValueError("invalid memory ceiling")
     return int(float(match[1]) * 1024 ** ("kmgt".index(match[2]) + 1 if match[2] else 0))
 
 
-def require_memory(settings, available_kib, monitoring=False):
-    keys = ["POSTGRES", "BACKEND", "WEB", "BACKUP"]
-    fixed = 0
-    if monitoring:
-        keys += ["CADVISOR", "VICTORIAMETRICS", "VICTORIALOGS", "FLUENT_BIT", "OPERATIONAL_PROBE", "METRICS_EXPORTER", "GRAFANA"]
-        fixed = (128 + 64) * 1024 ** 2  # Monitoring config and Docker API proxy.
-    required = MEMORY_HEADROOM_BYTES + fixed
-    for key in keys:
-        required += memory_bytes(value(settings, key + "_MEM_LIMIT"))
+def memory_ceilings(services):
+    """Bytes the rendered Compose services may hold at once (AF-P7): the mem_limit of every service
+    Compose keeps running. Read from `docker compose config`, so web-forward, monitoring-forward and
+    any service a later release adds count without a list kept here. One-shot jobs (restart "no")
+    are left out: each finishes before the services that wait on it start
+    (depends_on service_completed_successfully), and the largest, migrate, shares the backend's
+    ceiling and runs before it."""
+    return sum(memory_bytes(service['mem_limit']) for service in services.values()
+               if service.get('mem_limit') not in (None, '', 0, '0')
+               and str(service.get('restart', 'no')) in ('always', 'unless-stopped', 'on-failure'))
+
+
+def require_memory(services, available_kib):
+    required = MEMORY_HEADROOM_BYTES + memory_ceilings(services)
     require(required <= available_kib * 1024, f"selected service ceilings plus host headroom need {required // 1024 ** 2} MiB; host has {available_kib // 1024}. Disable monitoring or review memory ceilings before setup")
     return required
+
+
+def rendered_services(settings, compose_file):
+    """The services Compose would run with settings (not yet written to .env) and compose_file."""
+    import json
+
+    from .common import run
+    environment = {key: value(settings, key) for key in settings}
+    environment.update(COMPOSE_FILE=compose_file)
+    files = [argument for name in compose_file.split(':') if name for argument in ('-f', name)]
+    result = run(['docker', 'compose', '--env-file', os.devnull, *files, 'config', '--format', 'json'],
+                 capture=True, stderr=subprocess.PIPE, timeout=30, env=dict(os.environ, **environment))
+    try:
+        return None if result.returncode else json.loads(result.stdout)['services']
+    except (ValueError, KeyError, TypeError):
+        return None
 
 
 def total_memory_kib(*, native_fallback=False):
@@ -58,14 +81,21 @@ def total_memory_kib(*, native_fallback=False):
 
 
 def host_memory(action):
-    if action == 'logging':
+    if action in ('logging', 'ceilings'):
         import json
+
         from .common import compose
         services = json.loads(compose('config', '--format', 'json', capture=True, timeout=30, check=True).stdout)['services']
         try:
-            require_logging_budget(services)
+            if action == 'logging':
+                require_logging_budget(services)
+            else:
+                # Warn only: up and update never refuse on sizing; setup refuses a new install.
+                available_kib = total_memory_kib(native_fallback=True)
+                if available_kib is not None:
+                    require_memory(services, available_kib)
         except ValueError as error:
-            print(error)
+            print(str(error).replace(' before setup', ''))
         return 0
     available_kib = total_memory_kib(native_fallback=action == 'check')
     if action == 'monitoring-default':

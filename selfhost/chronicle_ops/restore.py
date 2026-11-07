@@ -9,6 +9,7 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -16,10 +17,11 @@ import time
 from .reconcile import RECOVERY_FILE, RESTORE_LOCK, ROTATION_MARKER, UPGRADE_LOCK, recovery_command
 
 from .dump import RESTORE_MUTATION_MARKER, DumpError, EXIT_RESTORE_TRANSACTION_ROLLED_BACK, validate_dump
-from .common import BLD, GRN, RED, RST, Interrupted, acquire_operation_lock, release_operation_lock, application_services, compose, compose_project, require, warn, OPERATION_LOCK_CREATE_ERROR
+from .common import BLD, GRN, RED, RST, Interrupted, acquire_operation_lock, release_operation_lock, application_services, compose, compose_project, require, same_path, warn, OPERATION_LOCK_CREATE_ERROR
 from .receipts import OPERATOR_RECEIPTS_DIR, durable_replace, finish_operation, json_text, publish_journal, write_text, write_json
 from .envfile import read_env, value
 from .reconcile import STOP_MARKER
+from .services import environment_monitoring, environment_roles, start_split
 from .startup import DEFAULT_STARTUP_TIMEOUT_SECONDS, startup_timeout
 
 class RestoreError(Exception):
@@ -83,6 +85,9 @@ class RestoreOutcome(Enum):
     UNCERTAIN = "uncertain"
 
 
+RESTORED_STOP = "restored; explicit up required\n"
+
+
 class Restore:
     LOCK_FIELDS = ("owner-pid", "phase", "restore-file")
 
@@ -113,6 +118,24 @@ class Restore:
     def dc(self, *args, **kwargs):
         result = compose(*args, **kwargs)
         return result.returncode, (result.stdout or "").rstrip("\n")
+
+    def roles(self, message, monitoring_only=False):
+        try:
+            return environment_monitoring(compose) if monitoring_only else environment_roles(compose)
+        except (OSError, subprocess.SubprocessError, KeyError):
+            raise RestoreError(message) from None
+
+    def restart_services(self, services, message=None):
+        """Restart services that were running, waiting only on the core ones."""
+        monitoring = self.roles(message or "could not resolve the Compose services to restart", True)
+        try:
+            start_split(compose, [service for service in services if service not in monitoring],
+                        [service for service in services if service in monitoring], self.timeout, ("--no-deps",))
+        except (OSError, subprocess.SubprocessError):
+            if message:
+                raise RestoreError(message) from None
+            return 1
+        return 0
 
     def require_dc(self, message, *args, **kwargs):
         status, output = self.dc(*args, **kwargs)
@@ -168,8 +191,10 @@ class Restore:
         if self.restart:
             if self.previous:
                 warn("the live database was not replaced; restarting the services that were running before the stop attempt: " + " ".join(self.previous))
-                status, _ = self.dc("up", "-d", "--wait", "--wait-timeout", self.timeout,
-                                    "--no-deps", *self.previous)
+                try:
+                    status = self.restart_services(self.previous)
+                except RestoreError:
+                    status = 1
                 if not status:
                     print("         The pre-restore service state was restored.", file=sys.stderr)
                 else:
@@ -208,7 +233,7 @@ class Restore:
             if os.path.lexists(lock):
                 if operation == "upgrade" and self.recovery_owner:
                     recovery = json.loads((lock / RECOVERY_FILE).read_text())
-                    if recovery["owner"] == self.recovery_owner:
+                    if same_path(recovery["owner"], self.recovery_owner):
                         continue
                 article = "an" if operation == "upgrade" else "a"
                 detail = ("started while the restore lock was being acquired; restore did not start"
@@ -264,7 +289,7 @@ class Restore:
 
     def complete(self):
         if self.no_start:
-            write_text(self.root / STOP_MARKER, "restored; explicit up required\n")
+            write_text(self.root / STOP_MARKER, RESTORED_STOP)
             print("  Database restored; application services remain stopped because --no-start was used.")
         else:
             self.start()
@@ -358,6 +383,8 @@ class Restore:
         manifest = Path.cwd().parent / 'release-manifest.json'
         if manifest.is_file():
             args += ['-e', 'RELEASE_VERSION=' + json.loads(manifest.read_text())['release_version']]
+        if self.pinned is None:  # pin_dump runs first (execute)
+            raise RestoreError("the dump to restore was not pinned")
         args += ["-e", "CHRONICLE_RESTORE_TRUSTED_SHA256=" + self.digest,
                  "-e", "RESTORE_FILE=/backups/" + self.pinned.name, "restore"]
         status, _ = self.dc("--profile", "restore", *args)
@@ -376,14 +403,13 @@ class Restore:
     def start(self):
         print("  Starting Chronicle (bounded health wait: {}s).".format(self.timeout))
         self.enter(RestorePhase.STARTING_SERVICES)
-        configured = self.require_dc("could not resolve the post-restore Compose services", "config",
-                                     "--services", capture=True).split("\n")
-        startup = [service for service in configured if service and service != "ca-export"]
+        configured, monitoring = self.roles("could not resolve the post-restore Compose services")
+        startup = [service for service in configured if service != "ca-export"]
         if not startup:
             raise RestoreError("restore found no long-running services to start")
-        status, _ = self.dc("up", "-d", "--wait", "--wait-timeout", self.timeout,
-                            "--remove-orphans", "--force-recreate", *startup)
-        if status:
+        try:
+            start_split(compose, startup, monitoring, self.timeout, ("--remove-orphans", "--force-recreate"))
+        except (OSError, subprocess.SubprocessError):
             self.stop_failed_start("post-restore startup failed", "startup failure",
                                    "database restored, but Chronicle did not return healthy")
         if "ca-export" in configured:
@@ -443,8 +469,7 @@ class Restore:
         if self.no_start:
             write_text(self.root / STOP_MARKER, "restore not applied; explicit up required\n")
         else:
-            self.require_dc(_("restore lock released, but the application services did not start; run ./chronicle up"),
-                            "up", "-d", "--wait", "--wait-timeout", self.timeout, "--no-deps", *self.stopped)
+            self.restart_services(self.stopped, _("restore lock released, but the application services did not start; run ./chronicle up"))
         self.completion = _("The database was not replaced; the interrupted restore stopped before changing it.")
 
     def execute(self, recover=False):
@@ -526,6 +551,27 @@ class Rollback:
         write_json(self.marker / RECOVERY_FILE, self.record)
 
     def restore_database(self):
+        if self.record.get('restore_into') == 'previous':
+            # The releases use different database volumes (a PostgreSQL major update): the dump is
+            # restored into the previous release's own database just before it starts.
+            print('The previous release uses its own database volumes; the dump is restored into them before it starts.')
+            return
+        if self.record.get('fresh_database'):
+            # A PostgreSQL major update loaded the dump into new volumes and never touched the old
+            # ones; the previous release starts on those, so there is nothing to restore. A restore
+            # into the new volumes that was interrupted is abandoned with them.
+            if (self.state / RESTORE_LOCK).exists():
+                abandoned = Restore(self.state, str(self.state / 'backups'), self.record.get('dump', ''), self.record.get('sha256', ''),
+                                    DEFAULT_STARTUP_TIMEOUT_SECONDS, True, True, recovery_owner=str(self.current))
+                abandoned.held = True
+                require(abandoned.release(), 'could not retire the interrupted restore into the new database volumes')
+                abandoned.mutation_marker.unlink(missing_ok=True)
+            print('Rollback keeps the previous release\'s own database volumes; no restore is needed.')
+            return
+        self.restore_dump()
+
+    def restore_dump(self):
+        """Restore the rollback dump with the release in the working directory (Compose reads it)."""
         operation = Restore(self.state, str(self.state / 'backups'), self.record['dump'],
                             self.record['sha256'], os.environ.get('RESTORE_START_WAIT_TIMEOUT_SECONDS', DEFAULT_STARTUP_TIMEOUT_SECONDS),
                             True, self.assume_yes, recovery_owner=str(self.current), rollback=True,
@@ -544,9 +590,37 @@ class Rollback:
 
     def stop_candidate(self):
         compose('down', '--remove-orphans', check=True)
+        # Volumes this update's candidate created (its secrets, a new major's database) go with
+        # it, so a retried update starts from the same host state as the first attempt.
+        created = self.record.get('created_volumes') or []
+        if created:
+            from .common import run
+            result = run(['docker', 'volume', 'rm', '--force', *created], capture=True, timeout=120)
+            if result.returncode:
+                warn('could not remove the volumes the rolled-back release created ({}); remove them with '
+                     'docker volume rm before the next update'.format(', '.join(created)))
+
+    def restore_previous_database(self):
+        """Restore the dump into the previous release's database volumes, through its own files."""
+        from .env_migration import running_selection
+        origin, selection = Path.cwd(), os.environ.get('COMPOSE_FILE')
+        os.chdir(self.previous)
+        os.environ['COMPOSE_FILE'] = ':'.join(running_selection(read_env(self.previous / '.env'), self.previous))
+        try:
+            self.restore_dump()
+        finally:
+            os.chdir(origin)
+            if selection is None:
+                os.environ.pop('COMPOSE_FILE', None)
+            else:
+                os.environ['COMPOSE_FILE'] = selection
+        stop = self.state / STOP_MARKER
+        if stop.is_file() and stop.read_text() == RESTORED_STOP:
+            from .upgrade import ROLLBACK_STOP
+            write_text(stop, ROLLBACK_STOP)  # the rollback starts the release itself next
 
     def transfer_settings(self):
-        from .env_migration import compose_names, merge_env
+        from .env_migration import merge_env, running_selection
         for key in POOL_LISTENER_SETTINGS - self.current_settings.keys():
             self.settings.pop(key, None)
         self.settings.update({key: raw for key, raw in self.current_settings.items()
@@ -556,7 +630,7 @@ class Rollback:
                               or key.startswith('BACKUP_KEEP_') or key == 'PRE_OP_BACKUP_KEEP_DAYS'
                               or key.startswith(('MOBILE_SIGNING_', 'CHRONICLE_REVIEWER_'))})
         merge_env(self.settings, (self.previous / '.env.example').read_text(), self.previous / '.env',
-                  self.state, compose_names(self.settings, self.previous), preserve_images=True)
+                  self.state, running_selection(self.settings, self.previous), preserve_images=True)
         archive = self.record.get('settings_archive')
         if archive is None:
             archive = str(self.state / OPERATOR_RECEIPTS_DIR / f'.env.rollback-{time.time_ns()}')
@@ -566,39 +640,65 @@ class Rollback:
             archive_rollback_settings(self.current, self.state, archive)
 
     def transfer_owner(self):
-        from .reconcile import install
-        install(self.previous / 'chronicle', self.state, self.project, update_only=True)
+        """Ownership is mandatory (read back); the crontab only warns, so the previous release
+        still starts and serves on a host whose crontab cannot be written (UPD-N1)."""
+        from .reconcile import install_after_transfer
+        from .release import current_owner, set_current_owner
+        set_current_owner(self.previous, self.state)
+        require(current_owner(self.state) == self.previous.resolve(),
+                f'could not record {self.previous} as the owning release')
+        install_after_transfer(self.previous / 'chronicle', self.state, self.project, update_only=True)
 
     def start_previous(self):
-        from .env_migration import compose_names
+        from .env_migration import running_selection
         from .upgrade import start_release
+        if self.record.get('restore_into') == 'previous':
+            self.restore_previous_database()
         settings = read_env(self.previous / '.env')
-        start_release(self.previous, self.project, compose_names(settings, self.previous),
+        start_release(self.previous, self.project, running_selection(settings, self.previous),
                       value(settings, 'START_WAIT_TIMEOUT_SECONDS', DEFAULT_STARTUP_TIMEOUT_SECONDS))
 
+    def report_readiness(self):
+        """After the commit: services the start did not wait on (db-backup's first dump). Only reports."""
+        from .env_migration import running_selection
+        from .upgrade import report_release_readiness
+        try:
+            names = running_selection(read_env(self.previous / '.env'), self.previous)
+        except (OSError, ValueError) as error:
+            warn(f'could not read the previous release\'s settings ({error}); ./chronicle doctor reports its services')
+            return
+        report_release_readiness(self.previous, self.project, names)
+
     def verify_previous(self):
-        from .common import run
-        run([str(self.previous / 'chronicle'), 'verify'], check=True)
+        # An update's journal carries its pre-update baseline; a manual rollback's has none (strict).
+        from .upgrade import verify_release
+        verify_release(self.previous / 'chronicle', self.record.get('baseline', []))
 
     def execute(self):
         from .ingress import close_ingress, open_ingress
-        from .upgrade import COMMITTED, clear_recovery
+        from .upgrade import COMMITTED, ROLLBACK_STOP, clear_recovery, settle_failed_recovery
         close_ingress(self.state)
-        write_text(self.state / STOP_MARKER, 'rollback in progress\n')
+        if not os.path.lexists(self.state / STOP_MARKER):  # An operator's own pause outlives the rollback.
+            write_text(self.state / STOP_MARKER, ROLLBACK_STOP)
         os.environ.update(CHRONICLE_OPS_STATE=str(self.state), CHRONICLE_OPS_PROJECT=self.project,
                           CHRONICLE_OPS_BACKUPS=str(self.state / 'backups'),
                           COMPOSE_FILE=value(self.current_settings, 'COMPOSE_FILE'))
         steps = (self.restore_database, self.stop_candidate, self.transfer_settings,
                  self.transfer_owner, self.start_previous, self.verify_previous)
         index = ROLLBACK_PHASES.index(self.record['phase'])
-        for position in range(index, len(steps)):
-            steps[position]()
-            self.save(ROLLBACK_PHASES[position + 1])
+        try:
+            for position in range(index, len(steps)):
+                steps[position]()
+                self.save(ROLLBACK_PHASES[position + 1])
+        except BaseException:
+            settle_failed_recovery(self.state)
+            raise
         self.record['owner'] = str(self.previous)
         self.save(COMMITTED)
         open_ingress(self.state)
         (self.state / STOP_MARKER).unlink(missing_ok=True)
         clear_recovery(self.marker)
+        self.report_readiness()
         return 0
 
 
@@ -618,6 +718,20 @@ def announce_discarded_data(backups, dump):
     print("  current database to backups/pre-restore-*.sql.gz.")
 
 
+def database_moved(previous, current, project):
+    """Whether the two releases keep PostgreSQL in different volumes (a major update): a rollback
+    then restores into the previous release's volumes, which it starts on, not the current ones."""
+    from .env_migration import running_selection
+    from .release import compose_release
+    from .upgrade import database_volumes
+    volumes = []
+    for directory in (previous, current):
+        names = running_selection(read_env(directory / '.env'), directory)
+        config = compose_release(directory, project, names, 'config', '--format', 'json', capture=True, check=True).stdout
+        volumes.append(database_volumes(json.loads(config)))
+    return volumes[0] != volumes[1]
+
+
 def rollback(source, dump, digest, assume_yes=False):
     from .release import require_current_owner
     from .reconcile import ENABLED_ENV
@@ -634,11 +748,14 @@ def rollback(source, dump, digest, assume_yes=False):
         resuming = (marker / RECOVERY_FILE).exists()
         if resuming:
             record = json.loads((marker / RECOVERY_FILE).read_text())
-            require(record['previous'] == str(old) and record['owner'] == str(current), 'rollback recovery owner differs')
+            require(same_path(record['previous'], old) and same_path(record['owner'], current),
+                                    'rollback recovery owner differs')
         else:
             require_current_owner(current, state, compose_project(settings))
             announce_discarded_data(state / 'backups', dump)
             record = dict(previous=str(old), owner=str(current), phase=ROLLBACK_PHASES[0])
+            if database_moved(old, current, compose_project(settings)):
+                record['restore_into'] = 'previous'
         if record['phase'] not in ROLLBACK_PHASES:
             record['phase'] = ROLLBACK_PHASES[0]
         record.update(dump=dump, sha256=digest)

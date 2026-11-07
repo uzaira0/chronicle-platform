@@ -45,6 +45,12 @@ COMPOSE_PASSED=$(awk '
   in_svc && /^    [a-z]/       { in_env = 0 }
   in_env && /^      [A-Z_]/    { sub(/:.*/, ""); gsub(/ /, ""); print }
 ' docker-compose.yml | sort -u)
+# Credentials reach the backend as files instead (secrets-init.sh writes them, the entrypoint's
+# `for pair in VAR:file ...` list loads them), so their absence from the environment block
+# above is not a missing passthrough.
+SECRET_FILE_PAIRS=$(awk '/^  for pair in /,/; do$/' backend-entrypoint.sh | grep -oE '[A-Z_][A-Z0-9_]*:[a-z-]+')
+FILE_PASSED=$(printf '%s\n' "$SECRET_FILE_PAIRS" | sed 's/:.*//' | sort -u)
+COMPOSE_PASSED=$(sort -u <(printf '%s\n' "$COMPOSE_PASSED") <(printf '%s\n' "$FILE_PASSED") | sed '/^$/d')
 
 echo "Config contract"
 
@@ -65,6 +71,17 @@ if [[ -n "$undocumented" ]]; then
   fail "required secrets absent from .env.example: $(echo "$undocumented" | tr '\n' ' ')"
 else
   ok "required secrets are documented in .env.example"
+fi
+
+# 2b. Every credential file the backend loads is one secrets-init writes for it.
+unwritten=""
+for pair in $SECRET_FILE_PAIRS; do
+  grep -qE "^write /out/backend \"\\\$backend\" ${pair#*:} " secrets-init.sh || unwritten+="${pair#*:} "
+done
+if [[ -n "$SECRET_FILE_PAIRS" && -z "$unwritten" ]]; then
+  ok "every backend credential file is written by secrets-init.sh ($(echo "$SECRET_FILE_PAIRS" | wc -l | tr -d ' ') files)"
+else
+  fail "backend credential files that secrets-init.sh does not write: ${unwritten:-none listed in backend-entrypoint.sh}"
 fi
 
 # 3. Every required secret must actually reach the container.
@@ -566,8 +583,8 @@ done
 # 10. The base compose file must NOT publish ports or mount a Caddyfile of its own. If it
 #     did, a mode overlay could only add to it, so a stack composed with the internal mode
 #     would still publish the public-mode listener alongside it.
-if awk '/^  web:/{f=1;next} /^  [a-z]/{f=0} f' docker-compose.yml | grep -qE '^\s+(ports:|- \./Caddyfile)'; then
-  fail "docker-compose.yml publishes ports or mounts a Caddyfile on 'web' — that belongs to the mode overlay, and cannot be overridden away by one"
+if awk '/^  (web|web-forward):/{f=1;next} /^  [a-z]/{f=0} f' docker-compose.yml | grep -qE '^\s+(ports:|- \./Caddyfile)'; then
+  fail "docker-compose.yml publishes ports on 'web-forward' or 'web', or mounts a Caddyfile on 'web' — that belongs to the mode overlay, and cannot be overridden away by one"
 else
   ok "base compose leaves ports and the Caddyfile entirely to the mode overlay"
 fi
@@ -579,7 +596,10 @@ for svc in config-guard cert-init db-init migrate; do
   grep -q "^  ${svc}:" docker-compose.yml \
     || fail "docker-compose.yml has no ${svc} service — plain 'docker compose up -d' would skip what it does"
 done
-docker compose --env-file .env.example -f docker-compose.yml config --format json | python3 -c '
+# .env.example leaves CHRONICLE_CORE_PREFIX to setup (network-subnet.py select-core); render with
+# the range's first /24, the shell value taking precedence over --env-file.
+CHRONICLE_CORE_PREFIX="${CHRONICLE_CORE_PREFIX:-$(python3 ./network-subnet.py default-core)}" \
+  docker compose --env-file .env.example -f docker-compose.yml config --format json | python3 -c '
 import json, sys
 services = json.load(sys.stdin)["services"]
 sys.exit(not all(services[service]["depends_on"][dependency]["condition"] == "service_completed_successfully"
@@ -624,7 +644,8 @@ else
 fi
 
 # 1. Every curl that probes THIS deployment must bypass HTTP_PROXY, or a proxied host lets
-#    the university proxy answer for Caddy. Only cmd_update's downloader may egress.
+#    the university proxy answer for Caddy. Only the release download may egress, and it must
+#    go through HTTPS_PROXY: cmd_update in ./chronicle and chronicle_ops/update.py's curl.
 update_start=$(grep -nE '^cmd_update\(\) \{' chronicle | cut -d: -f1)
 update_end=$(awk -v s="$update_start" 'NR>s && /^cmd_[a-z_]+\(\) \{/ {print NR; exit}' chronicle)
 proxied=$(awk -v s="$update_start" -v e="$update_end" \
@@ -633,6 +654,13 @@ if [[ -n "$proxied" ]]; then
   fail "deployment probes honour HTTP_PROXY (add --noproxy '*'): ${proxied}"
 else
   ok "every deployment probe in ./chronicle bypasses HTTP_PROXY"
+fi
+python_proxy=$(PYTHONPATH=. python3 -c 'from chronicle_ops.config_inventory import proxy_violations; print("; ".join(proxy_violations(".")))') ||
+  fail "could not inspect the Python curl calls"
+if [[ -n "$python_proxy" ]]; then
+  fail "proxy use outside the release download, or a release download that ignores HTTPS_PROXY: ${python_proxy}"
+else
+  ok "Python deployment probes bypass the proxy; release discovery and download honour HTTPS_PROXY"
 fi
 # 2. macOS has no sha256sum; python3 is already required by both scripts.
 if grep -q 'sha256sum' rotate-secret.sh; then
@@ -671,7 +699,9 @@ echo "Configuration guardrails"
 
 # Every operator-tunable variable Compose reads is documented, and every documented
 # setting is read. The internal names are set by ./chronicle or the image.
-compose_internal_vars=$'CHRONICLE_HOST_GID\nCHRONICLE_HOST_UID\nCHRONICLE_SERVER_ARGS\nHEALTHCHECK_PORT\nRESTORE_FILE'
+compose_internal_vars=$(PYTHONPATH=. python3 -c \
+  'from chronicle_ops.config_inventory import COMPOSE_SUPPLIED; print("\n".join(sorted(COMPOSE_SUPPLIED)))') ||
+  fail "could not read the Compose variables the bundle supplies itself"
 undocumented_compose=$(comm -23 \
   <(grep -ohE '\$\{[A-Z_][A-Z0-9_]*' docker-compose.yml overlays/*.yml | sed 's/\${//' | sort -u) \
   <(sort -u <(echo "$ENV_EXAMPLE_VARS") <(echo "$compose_internal_vars")))

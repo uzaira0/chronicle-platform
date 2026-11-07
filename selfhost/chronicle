@@ -141,6 +141,13 @@ need_env() {
       DASHBOARD_PASSWORD_HASH CHRONICLE_ALERT_WEBHOOK_URL; do
     export -n "${secret_name?}" 2>/dev/null || true
   done
+  # Derived on every run, never configured: Grafana joins the egress network only while the alert
+  # webhook is off this host (chronicle_ops/egress.py). .env keeps a copy so a plain `docker
+  # compose` renders the same networks; sync_env_file rewrites a stale copy and warns. Python
+  # reads the URL (which may carry a token) from .env itself, after the secrets left the environment.
+  CHRONICLE_ALERT_EGRESS="$(ops_python -c 'from chronicle_ops.egress import sync_env_file; print(sync_env_file(".env"))')" ||
+    die "could not decide whether the alert webhook is off this host"
+  export CHRONICLE_ALERT_EGRESS
   # Recomputed here, not at script start: .env is only sourced now, and the collision
   # guard tells operators to set COMPOSE_PROJECT_NAME there.
   PROJECT="${COMPOSE_PROJECT_NAME:-chronicle-selfhost}"
@@ -271,17 +278,19 @@ preflight_listeners() {
   # `check` fails against a deployment that is already up.
   # Scoped to the service that owns each listener, not to the whole project. A running web
   # container must not hide a new Grafana/Fluent collision, and vice versa.
-  local port_specs=("INTERNAL_PORT:${INTERNAL_PORT}:${INTERNAL_BIND}:web")
+  local port_specs=("INTERNAL_PORT:${INTERNAL_PORT}:${INTERNAL_BIND}:${WEB_PORT_OWNERS}")
   if [[ "$TLS_MODE" == local-https ]]; then
-    port_specs+=("LOCAL_HTTPS_PORT:${LOCAL_HTTPS_PORT}:0.0.0.0:web" "LOCAL_HTTP_PORT:${LOCAL_HTTP_PORT}:0.0.0.0:web")
+    port_specs+=("LOCAL_HTTPS_PORT:${LOCAL_HTTPS_PORT}:0.0.0.0:${WEB_PORT_OWNERS}"
+                 "LOCAL_HTTP_PORT:${LOCAL_HTTP_PORT}:0.0.0.0:${WEB_PORT_OWNERS}")
   elif [[ "$TLS_MODE" == own-tls ]]; then
-    port_specs+=("HTTPS_PORT:${HTTPS_PORT}:0.0.0.0:web" "TLS_HTTP_PORT:${TLS_HTTP_PORT:-80}:0.0.0.0:web")
+    port_specs+=("HTTPS_PORT:${HTTPS_PORT}:0.0.0.0:${WEB_PORT_OWNERS}"
+                 "TLS_HTTP_PORT:${TLS_HTTP_PORT:-80}:0.0.0.0:${WEB_PORT_OWNERS}")
   else
-    port_specs+=("HTTP_PORT:${HTTP_PORT}:${HTTP_BIND}:web")
+    port_specs+=("HTTP_PORT:${HTTP_PORT}:${HTTP_BIND}:${WEB_PORT_OWNERS}")
   fi
   if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
-    port_specs+=("GRAFANA_PORT:${GRAFANA_PORT:-3000}:${GRAFANA_BIND:-127.0.0.1}:grafana")
-    port_specs+=("FLUENT_BIT_FORWARD_PORT:${FLUENT_BIT_FORWARD_PORT:-24224}:127.0.0.1:fluent-bit")
+    port_specs+=("GRAFANA_PORT:${GRAFANA_PORT:-3000}:${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT_OWNERS}")
+    port_specs+=("FLUENT_BIT_FORWARD_PORT:${FLUENT_BIT_FORWARD_PORT:-24224}:127.0.0.1:${FLUENT_BIT_PORT_OWNERS}")
   fi
   for spec in "${port_specs[@]}"; do
     local pname="${spec%%:*}" rest="${spec#*:}" pservice="${spec##*:}"
@@ -312,8 +321,11 @@ preflight_listeners() {
 
 preflight_environment() {
   local subnet_check
+  # Overlaps and an unreadable network table only warn (network-subnet.py check exits 0).
   if ! subnet_check="$(dc config --format json | python3 ./network-subnet.py check 2>&1)"; then
-    bad "${subnet_check:-could not check CHRONICLE_SUBNET against Docker networks}"
+    warn "${subnet_check:-could not check CHRONICLE_SUBNET against Docker networks}"
+  elif [[ -n "$subnet_check" ]]; then
+    printf '%s\n' "$subnet_check" >&2
   fi
 
   # Refuse to adopt somebody else's stack. If a Compose project of this name already
@@ -397,15 +409,21 @@ preflight_resources() {
     bad "docker compose ${compose_version:-not found} is older than 2.17.0; install the current Docker Compose plugin"
   fi
 
+  preflight_runtime_versions
+
   local memory_warning
   memory_warning=$(ops_python host-memory check) || die "could not check host memory"
+  [[ -z "$memory_warning" ]] || warn "$memory_warning"
+  # Every service's mem_limit from the rendered configuration, monitoring included (warn only).
+  memory_warning=$(ops_python host-memory ceilings 2>/dev/null) ||
+    memory_warning="could not render the Compose configuration to compare memory ceilings with host memory"
   [[ -z "$memory_warning" ]] || warn "$memory_warning"
   # Warn only: the shipped fluentd-buffer-limit is provisional.
   if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
     memory_warning=$(ops_python host-memory logging) || die "could not render the Compose logging configuration"
     [[ -z "$memory_warning" ]] || warn "$memory_warning"
     [[ -n "${CHRONICLE_ALERT_WEBHOOK_URL:-}" ]] ||
-      warn "alerts reach no one: CHRONICLE_ALERT_WEBHOOK_URL is empty, so firing alerts stay in Grafana (docs/MONITORING-RUNBOOK.md)"
+      printf '  note: no CHRONICLE_ALERT_WEBHOOK_URL; scheduled reconciliation writes firing alerts to the host system log (journalctl -t chronicle; docs/MONITORING-RUNBOOK.md)\n'
   fi
 
   if [[ -x ./verify-config.sh ]]; then
@@ -414,8 +432,43 @@ preflight_resources() {
   fi
 }
 
+# Docker Engine, containerd, runc and kernel versions below the 2026 CVE minimums are warnings on
+# every path (chronicle_ops/host_versions.py); they never stop setup, check, up or update.
+preflight_runtime_versions() {
+  local rows row_status message
+  if ! rows="$(ops_python host-versions)"; then
+    warn "could not read the Docker Engine, containerd, runc and kernel versions; check them against the README Requirements"
+    return 0
+  fi
+  while IFS=$'\t' read -r row_status message; do
+    [[ -n "$row_status" ]] || continue
+    if [[ "$row_status" == ok ]]; then ok "$message"; else warn "$message"; fi
+  done <<<"$rows"
+}
+
+# The release images are linux/amd64 only (chronicle_ops/host_versions.py architecture_assessment).
+# On another Docker daemon architecture the bundled image is run once with --platform linux/amd64:
+# when it runs (Docker Desktop, OrbStack, binfmt emulation) everything proceeds with a warning that
+# performance is emulated. Only a daemon that cannot run amd64 code at all makes a fresh setup refuse
+# and check fail; up, re-setup and update only warn, so an existing deployment is never stopped.
+preflight_architecture() {
+  local problem status=0
+  problem="$(ops_python host-architecture 2>/dev/null)" || status=$?
+  [[ -n "$problem" ]] || return 0
+  if ((status != 1)); then
+    warn "$problem"
+    return 0
+  fi
+  case "$1" in
+    setup) die "$problem" ;;
+    check) bad "$problem" ;;
+    *) warn "$problem" ;;
+  esac
+}
+
 preflight() {
   PREFLIGHT_FAILED=0
+  preflight_architecture "${1:-up}"
 
   # Host checks run FIRST, before the config-guard container. They are pure local reads --
   # addresses, listening sockets, other Compose projects -- so they cost milliseconds, while
@@ -445,9 +498,10 @@ preflight() {
   # rather than re-implementing the checks is what keeps `./chronicle check` and a plain
   # `docker compose up -d` from ever disagreeing about what is safe.
   #
-  # --no-deps because config-guard has no dependencies and must not drag the stack up.
+  # --no-deps so neither drags the stack up. secrets-init first: the guard checks the credential
+  # files it writes from .env, exactly what the services will read.
   printf '\n'
-  if ! dc run --rm --no-deps config-guard; then
+  if ! dc run --rm --no-deps secrets-init >/dev/null || ! dc run --rm --no-deps config-guard; then
     PREFLIGHT_FAILED=1
   fi
 
@@ -479,20 +533,31 @@ free_port() {
   return 1
 }
 
-owns_listener() { # <project> <service> <address> <port>
-  local container
-  while IFS= read -r container; do
-    [[ -n "$container" ]] || continue
-    if docker inspect --format '{{json .NetworkSettings.Ports}}' "$container" 2>/dev/null |
-      python3 -c 'import ipaddress,json,sys
+# The services that hold each listener: since 2026.11.6 the forwarders publish the ports of web,
+# Grafana and Fluent Bit (docs/NETWORK-EGRESS.md); a stack started by an older release still has
+# them on the services themselves until its update.
+WEB_PORT_OWNERS=web-forward,web
+GRAFANA_PORT_OWNERS=monitoring-forward,grafana
+FLUENT_BIT_PORT_OWNERS=monitoring-forward,fluent-bit
+
+owns_listener() { # <project> <service[,service...]> <address> <port>
+  local container service
+  local -a services
+  IFS=, read -r -a services <<<"$2"
+  for service in "${services[@]}"; do
+    while IFS= read -r container; do
+      [[ -n "$container" ]] || continue
+      if docker inspect --format '{{json .NetworkSettings.Ports}}' "$container" 2>/dev/null |
+        python3 -c 'import ipaddress,json,sys
 ports=json.load(sys.stdin) or {}
 wanted=ipaddress.ip_address(sys.argv[1])
 sys.exit(not any(ipaddress.ip_address(p["HostIp"]) == wanted and p["HostPort"] == sys.argv[2]
                  for bindings in ports.values() for p in bindings or []))' "$3" "$4"; then
-      return 0
-    fi
-  done < <(docker ps --filter "label=com.docker.compose.project=$1" \
-      --filter "label=com.docker.compose.service=$2" --format '{{.ID}}' 2>/dev/null)
+        return 0
+      fi
+    done < <(docker ps --filter "label=com.docker.compose.project=$1" \
+        --filter "label=com.docker.compose.service=${service}" --format '{{.ID}}' 2>/dev/null)
+  done
   return 1
 }
 
@@ -574,7 +639,8 @@ setup_existing_settings() {
     need_env
     ops_python owner-check || die "setup must run from the active selfhost directory"
     read -rp "$(printf '%s.env already exists. Overwrite? [y/N] %s' "$YEL" "$RST")" a
-    [[ "$a" =~ ^[Yy]$ ]] || {
+    # Only a clear yes overwrites; anything else, including an unrecognised answer, keeps .env.
+    { yes_no_answer "$a" && [[ "$YES_NO_ANSWER" == yes ]]; } || {
       echo "Keeping existing .env."
       need_env
       operation_succeeded
@@ -604,6 +670,7 @@ setup_existing_settings() {
     keep_internal_port="${INTERNAL_PORT:-}"
     keep_grafana_port="${GRAFANA_PORT:-}"
     keep_subnet="${CHRONICLE_SUBNET:-}"
+    keep_core_prefix="${CHRONICLE_CORE_PREFIX:-}"
     keep_project="${COMPOSE_PROJECT_NAME:-}"
     setup_validate_preserved_credentials
     if [[ -n "$keep_pg" ]]; then
@@ -818,6 +885,21 @@ setup_dashboard_access() {
   return 0
 }
 
+# Reads a yes/no answer the way people type one: y, yes, n or no, in any case, with spaces
+# trimmed. Sets YES_NO_ANSWER to yes or no; returns 1 for anything else (RD-N1: "no" used to
+# enable monitoring because only a bare n counted as no).
+yes_no_answer() {
+  local answer="$1"
+  answer="${answer#"${answer%%[![:space:]]*}"}"
+  answer="${answer%"${answer##*[![:space:]]}"}"
+  # Patterns, not ${1,,}: macOS ships bash 3.2.
+  case "$answer" in
+    [Yy]|[Yy][Ee][Ss]) YES_NO_ANSWER=yes ;;
+    [Nn]|[Nn][Oo]) YES_NO_ANSWER=no ;;
+    *) YES_NO_ANSWER=""; return 1 ;;
+  esac
+}
+
 setup_monitoring() {
   # The mode is written as the COMPOSE_FILE line, not as two settings a later
   # `docker compose up -d` would ignore. This is the same string .env.example ships; setup
@@ -834,7 +916,9 @@ setup_monitoring() {
   printf '\nEnable private Grafana monitoring with metrics and sanitized logs? [%s] ' "$monitoring_default"
   read -r monitoring_answer
   monitoring_answer="${monitoring_answer:-$monitoring_default}"
-  if [[ "$monitoring_answer" =~ ^[Nn]$ ]]; then
+  yes_no_answer "$monitoring_answer" ||
+    die "unrecognised answer '$monitoring_answer' to the monitoring question; answer yes or no"
+  if [[ "$YES_NO_ANSWER" == no ]]; then
     monitoring_enabled=false
   else
     monitoring_enabled=true
@@ -848,9 +932,15 @@ setup_monitoring() {
     read -rp "Sanitized log retention [$logs_retention]: " logs_answer
     logs_retention="${logs_answer:-$logs_retention}"
     [[ "$logs_retention" =~ ^[1-9][0-9]*d$ ]] || die "log retention must be whole days, for example 14d"
-    alert_webhook=""
     printf 'Optional HTTPS alert webhook (blank preserves an existing destination).\n'
-    read -rsp 'Webhook URL: ' alert_webhook || true; printf '\n'
+    # Refused here, before anything is written: off this host it must be HTTPS (guard-config.sh).
+    while :; do
+      alert_webhook=""
+      read -rsp 'Webhook URL: ' alert_webhook || true; printf '\n'
+      if [[ -z "$alert_webhook" ]] || bash ./guard-config.sh --validate-alert-webhook "$alert_webhook"; then break; fi
+      printf 'The alert webhook must be HTTPS (plain HTTP only to this host'"'"'s loopback), with no credentials,\n' >&2
+      printf 'quotes or spaces. It was not saved; enter it again, or leave it blank.\n' >&2
+    done
     keep_alert_webhook="${alert_webhook:-$keep_alert_webhook}"
   fi
 
@@ -940,6 +1030,11 @@ setup_network_and_credentials() {
       printf 'Docker network range %s is free; using that for CHRONICLE_SUBNET.\n' "$subnet"
   fi
 
+  # The internal core network (web, backend, PostgreSQL, backups) gets its own free /24, kept once chosen.
+  core_prefix="${keep_core_prefix:-}"
+  [[ -n "$core_prefix" ]] || core_prefix=$(python3 ./network-subnet.py select-core "$subnet" "$project") ||
+    die "could not select a free subnet for the internal core network"
+
   gateway=$(ops_python -c 'import sys; from chronicle_ops.common import compose_gateway; print(compose_gateway(sys.argv[1]))' "$subnet") || die "invalid Compose subnet"
   [[ "$researcher_sources" != "$researcher_sources_default" ]] || researcher_sources="$gateway/32 127.0.0.1/32 ::1/128"
   if [[ "$tls_mode" == behind-proxy && "$http_bind" == 127.* &&
@@ -956,14 +1051,14 @@ setup_ports() {
   want_http="${keep_http_port:-${HTTP_PORT:-8080}}" want_internal="${keep_internal_port:-${INTERNAL_PORT:-8081}}"
   if [[ "$tls_mode" == behind-proxy ]]; then
     http_port="$pool_port"
-    if ! owns_listener "$project" web "$http_bind" "$http_port" &&
+    if ! owns_listener "$project" "$WEB_PORT_OWNERS" "$http_bind" "$http_port" &&
         [[ "$(free_port "$http_port" "$http_bind")" != "$http_port" ]]; then
       die "LB pool endpoint $http_bind:$http_port is occupied; change the LB and setup together"
     fi
   else
-    http_port=$(setup_port "$project" web "$keep_http_port" "${HTTP_PORT:-8080}" "$http_bind") || die "no free public port"
+    http_port=$(setup_port "$project" "$WEB_PORT_OWNERS" "$keep_http_port" "${HTTP_PORT:-8080}" "$http_bind") || die "no free public port"
   fi
-  internal_port=$(setup_port "$project" web "$keep_internal_port" "${INTERNAL_PORT:-8081}" \
+  internal_port=$(setup_port "$project" "$WEB_PORT_OWNERS" "$keep_internal_port" "${INTERNAL_PORT:-8081}" \
     "$internal_bind" "$http_port") ||
     die "no free internal listener port was found near ${want_internal}"
   if [[ "$management_url_default" == true ]]; then
@@ -975,7 +1070,7 @@ setup_ports() {
     printf '\nPorts %s and %s are free on this host; using those.\n' "$http_port" "$internal_port"
   grafana_port="${GRAFANA_PORT:-3000}"
   if [[ "$monitoring_enabled" == true ]]; then
-    grafana_port=$(setup_port "$project" grafana "$keep_grafana_port" "${GRAFANA_PORT:-3000}" \
+    grafana_port=$(setup_port "$project" "$GRAFANA_PORT_OWNERS" "$keep_grafana_port" "${GRAFANA_PORT:-3000}" \
       "$grafana_bind" "$http_port") ||
       die "no free Grafana port was found near ${GRAFANA_PORT:-3000}"
     [[ "$grafana_port" != "$internal_port" ]] ||
@@ -989,9 +1084,9 @@ setup_ports() {
     # A VPN or management service may legitimately own :443 on one of this host's other
     # interfaces. Docker Desktop cannot safely publish another wildcard :443 in that case,
     # so select the first free host ports and make the canonical app URL explicit.
-    local_https_port=$(setup_port "$project" web "$keep_local_https_port" 443 0.0.0.0) ||
+    local_https_port=$(setup_port "$project" "$WEB_PORT_OWNERS" "$keep_local_https_port" 443 0.0.0.0) ||
       die "no free trial HTTPS port was found between 443 and 542"
-    local_http_port=$(setup_port "$project" web "$keep_local_http_port" 80 0.0.0.0 "$local_https_port") ||
+    local_http_port=$(setup_port "$project" "$WEB_PORT_OWNERS" "$keep_local_http_port" 80 0.0.0.0 "$local_https_port") ||
       die "no free trial CA/redirect port was found between 80 and 179"
     if [[ "$local_https_port" == 443 ]]; then
       keep_public_base_url="https://${domain}"
@@ -1065,9 +1160,10 @@ setup_guidance() {
     if [[ -n "$keep_alert_webhook" ]]; then
       printf '  Alert destination saved. Send a Grafana contact-point test and confirm receipt before relying on delivery.\n'
     else
-      printf '  Alert delivery is not configured; Grafana keeps alerts local until CHRONICLE_ALERT_WEBHOOK_URL is set and tested.\n'
+      printf '  No alert webhook: scheduled reconciliation writes firing alerts to the host system log (journalctl -t chronicle).\n'
+      printf '  Set CHRONICLE_ALERT_WEBHOOK_URL to also send them to a person.\n'
     fi
-    printf '  See selfhost/docs/MONITORING-RUNBOOK.md, “Attach a notification channel.”\n\n'
+    printf '  See selfhost/docs/MONITORING-RUNBOOK.md, “Where alerts go.”\n\n'
   fi
 
   effective_public_base_url="${keep_public_base_url:-https://${domain}}"
@@ -1127,6 +1223,7 @@ setup_write_environment() {
       "LOCAL_HTTP_PORT=$local_http_port" \
       "GRAFANA_PORT=$grafana_port" \
       "CHRONICLE_SUBNET=$subnet" \
+      "CHRONICLE_CORE_PREFIX=$core_prefix" \
       "CHRONICLE_ALERT_WEBHOOK_URL=$keep_alert_webhook" \
       "CADDY_TRUSTED_PROXIES=$trusted_proxies" \
       "POOL_ALLOWED_IPS=$pool_sources" \
@@ -1148,7 +1245,7 @@ cmd_setup() {
   local keep_internal keep_public_base_url keep_alert_webhook keep_reviewer_enabled
   local keep_reviewer_secret keep_reviewer_study keep_reviewer_participant keep_grafana keep_dash_hash keep_state
   local keep_http_port keep_internal_port keep_grafana_port keep_project keep_local_https_port keep_local_http_port
-  local keep_subnet setup_state_root env_snapshot mode_default previous_mode tls_mode
+  local keep_subnet keep_core_prefix core_prefix setup_state_root env_snapshot mode_default previous_mode tls_mode
   local domain http_bind exposure internal_bind suggested initial_subnet
   local gateway researcher_sources_default trusted_proxies_default public_origin trusted_proxies pool_sources
   local pool_port public_http researcher_sources management_url management_url_default lb_body
@@ -1161,6 +1258,9 @@ cmd_setup() {
   local http_port internal_port local_https_port local_http_port want_http want_internal
   local resolved_management_host grafana_port credentials_preserved credentials_generated credential_value
   local effective_public_base_url setup_outcome
+  # A fresh install refuses a daemon the release images cannot run on; re-setup of a running
+  # deployment only warns.
+  if [[ -f .env ]]; then preflight_architecture up; else preflight_architecture setup; fi
   setup_existing_settings
   [[ "$setup_outcome" != kept ]] || return 0
   local phase
@@ -1318,13 +1418,18 @@ cmd_up() {
     die "state directory or Compose project changed while acquiring the lock; retry startup"
   ops_python owner-check || die "startup must run from the active selfhost directory"
   if [[ "${CHRONICLE_RECONCILE_RUN:-false}" == true ]] &&
-      { [[ "${CHRONICLE_RECONCILE_ENABLED:-true}" == false ]] || ops_python reconcile stopped; }; then return 0; fi
+      { [[ "${CHRONICLE_RECONCILE_ENABLED:-true}" == false ]] || ops_python reconcile stopped; }; then
+    # Paused or disabled reconciliation is a successful no-op, not a failed start (AF-P5).
+    operation_succeeded
+    return 0
+  fi
   assert_no_incomplete_mutation "start Chronicle" check-start
   ensure_images
   preflight
   local certificate_after certificate_state
   if [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]]; then
-    dc run --rm --no-deps monitoring-cert-init || die "monitoring certificate preparation failed; correct the monitoring-cert-init error above, then rerun ./chronicle up"
+    # Monitoring is optional: a failure here is reported, and Chronicle starts without it.
+    dc run --rm --no-deps monitoring-cert-init || warn "monitoring certificate preparation failed; Chronicle starts without monitoring. Inspect the monitoring-cert-init error above; ./chronicle doctor reports monitoring"
   fi
   dc run --rm --no-deps cert-init || die "certificate preparation failed; correct the cert-init error above (files in ./tls), then rerun ./chronicle up"
   certificate_after=$(ops_python certificates digest) || die "could not read the prepared certificates; run ./chronicle doctor"
@@ -1337,7 +1442,9 @@ cmd_up() {
   # act on. The service table below is the same information, once, in its final form.
   # ca-export exits after it writes the local CA. Run it after the long-running services are
   # healthy, because Compose --wait treats an exited one-shot service as a startup failure.
-  local configured_services service has_ca_export=false
+  # Only core services gate startup. Optional monitoring (chronicle_ops/services.py decides which
+  # services those are) starts afterwards with its own bounded wait and only warns.
+  local configured_services monitoring_services service has_ca_export=false
   local -a startup_services=() startup_options=()
   if [[ "$certificate_state" == changed ]]; then
     startup_options+=(--force-recreate)
@@ -1347,17 +1454,26 @@ cmd_up() {
   if ! configured_services="$(dc config --services)"; then
     die "could not resolve the Compose service list; run docker compose config and correct the reported error"
   fi
+  if ! monitoring_services="$(ops_python compose-services monitoring)"; then
+    die "could not resolve the monitoring services; run docker compose config and correct the reported error"
+  fi
   while IFS= read -r service; do
     [[ -n "$service" ]] || continue
-    if [[ "$service" == ca-export ]]; then
+    if grep -Fxq -- "$service" <<<"$monitoring_services"; then
+      continue
+    elif [[ "$service" == ca-export ]]; then
       has_ca_export=true
     else
       startup_services+=("$service")
     fi
   done <<<"$configured_services"
   ((${#startup_services[@]} > 0)) || die "Compose has no long-running services to start"
-  dc --progress quiet up -d --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}" --remove-orphans "${startup_options[@]}" "${startup_services[@]}" ||
+  if ! dc --progress quiet up -d --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}" --remove-orphans "${startup_options[@]}" "${startup_services[@]}"; then
+    # Monitoring is independent of Chronicle's health so that it can explain this failure.
+    ops_python start-monitoring "${startup_options[@]}"
     die "startup failed — see ./chronicle logs"
+  fi
+  ops_python start-monitoring "${startup_options[@]}"
   # Healthy services loaded these certificates. Record that now: a public origin that is not
   # reachable yet must not make every reconcile run recreate the stack.
   printf '%s\n' "$certificate_after" | ops_python certificates record || die "could not record the certificates applied at startup; make the state directory writable, then rerun ./chronicle up"
@@ -1389,7 +1505,7 @@ cmd_check() {
   begin_operation check configuration_invalid
   # config-guard runs from POSTGRES_IMAGE, which a source checkout builds.
   if is_source_checkout; then ensure_images; fi
-  preflight
+  preflight check
   ops_python backup-footprint || die "could not estimate backup disk use"
   printf '%sConfiguration is valid.%s  Next: ./chronicle up\n' "$GRN" "$RST"
   operation_succeeded
@@ -1400,7 +1516,27 @@ cmd_status() {
   need_env
   begin_operation status status_failed
   dc ps || die "could not inspect Compose service status; check that Docker is running (docker info)"
+  status_notes
   operation_succeeded
+}
+
+# What `status` adds below the service table: configuration drift (PR-O13). Informational; it
+# never changes the exit status.
+status_notes() {
+  local row state summary action
+  row="$(ops_python config-drift 2>/dev/null)" || return 0
+  IFS=$'\x1f' read -r _ state summary action <<<"$row"
+  if [[ "$state" == warn ]]; then
+    printf '\n%swarn%s %s\n       action: %s\n' "$YEL" "$RST" "$summary" "$action"
+  fi
+  # Firing alerts (chronicle_ops/alerts.py); nothing when monitoring is off.
+  row="$(ops_python alerts 2>/dev/null)" || return 0
+  [[ -n "$row" ]] || return 0
+  IFS=$'\x1f' read -r _ state summary action <<<"$row"
+  if [[ "$state" == warn ]]; then
+    printf '\n%swarn%s %s\n       action: %s\n' "$YEL" "$RST" "$summary" "$action"
+  fi
+  return 0
 }
 cmd_logs()   { need_env; shift || true; dc logs -f --tail=100 "$@"; }
 cmd_down() {
@@ -1434,6 +1570,9 @@ cmd_doctor() {
   local DOCTOR_FAILED=0 running=""
 
   doctor_check_runtime
+
+  doctor_check_reconcile_host
+  doctor_check_host_versions
 
   running="$(dc ps --status running --services 2>/dev/null || true)"
   doctor_check_database
@@ -1490,7 +1629,12 @@ cmd_monitoring() {
     status)
       [[ $# -eq 1 ]] || die "usage: ./chronicle monitoring status"
       printf '%sPrivate monitoring%s (%s)\n' "$BLD" "$RST" "$base"
-      dc ps monitoring-config cadvisor operational-probe metrics-exporter victoriametrics victorialogs fluent-bit grafana ||
+      local monitoring_services service
+      local -a monitoring_list=()
+      monitoring_services="$(ops_python compose-services monitoring)" ||
+        die "could not resolve the monitoring services; run ./chronicle doctor"
+      while IFS= read -r service; do [[ -z "$service" ]] || monitoring_list+=("$service"); done <<<"$monitoring_services"
+      dc ps -a "${monitoring_list[@]}" ||
         die "could not inspect monitoring service status; run ./chronicle doctor"
       if curl --noproxy '*' -fsS --max-time 8 --cacert "$STATE_ROOT/tls/monitoring.crt" "$base/api/health" >/dev/null 2>&1; then
         printf '  %sok%s   Grafana answers on the configured private listener\n' "$GRN" "$RST"
@@ -1596,19 +1740,17 @@ cmd_deletion_status() {
   begin_operation deletion-status query_failed
 
   if ! printf '%s\n%s\n' "$study_id" "$operation_id" | dc exec -T postgres /bin/bash -euc '
-    : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is unavailable in the postgres container}"
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(cat "${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD is unavailable in the postgres container}")}"
     IFS= read -r study_id
     IFS= read -r operation_id || true
     uuid_pattern="^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
     [[ "$study_id" =~ $uuid_pattern ]]
     [[ -z "$operation_id" || "$operation_id" =~ $uuid_pattern ]]
-    operation_predicate=""
-    if [[ -n "$operation_id" ]]; then
-      operation_predicate="AND operation.operation_id = '\''${operation_id}'\''::uuid"
-    fi
     export PGPASSWORD="$POSTGRES_PASSWORD"
-    exec psql -X -v ON_ERROR_STOP=1 -P pager=off \
-      -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" <<SQL
+    # The UUIDs reach the SQL only as psql variables (:'"'"'name'"'"' quotes them as literals), never
+    # as text spliced into the statement (AF-P11).
+    exec psql -X -v ON_ERROR_STOP=1 -P pager=off -v study_id="$study_id" -v operation_id="$operation_id" \
+      -h 127.0.0.1 -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" <<'"'"'SQL'"'"'
 SELECT operation.operation_id,
        operation.mode,
        operation.status,
@@ -1625,8 +1767,8 @@ SELECT operation.operation_id,
   FROM data_deletion_operations AS operation
   LEFT JOIN data_deletion_tombstones AS tombstone
     ON tombstone.operation_id = operation.operation_id
- WHERE operation.study_id = '\''${study_id}'\''::uuid
-   ${operation_predicate}
+ WHERE operation.study_id = (:'\''study_id'\'')::uuid
+   AND (:'\''operation_id'\'' = '\'''\'' OR operation.operation_id = (NULLIF(:'\''operation_id'\'', '\'''\''))::uuid)
  ORDER BY operation.created_at DESC;
 SQL
   '; then

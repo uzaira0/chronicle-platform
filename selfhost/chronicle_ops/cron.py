@@ -70,7 +70,8 @@ def _number(text, names):
 
 def _field(text, low, high, names):
     """robfig getField/getRange (parser.go:236-318): returns the values and whether a * was used."""
-    values, star = set(), False
+    values: set[int] = set()
+    star = False
     for expr in (part for part in text.split(",") if part):
         range_and_step = expr.split("/")
         low_and_high = range_and_step[0].split("-")
@@ -182,7 +183,10 @@ def parse(text):
 
 
 def _offset(zone, instant):
-    return int(datetime.datetime.fromtimestamp(instant, zone).utcoffset().total_seconds())
+    offset = datetime.datetime.fromtimestamp(instant, zone).utcoffset()
+    if offset is None:  # an aware datetime always has one; zone is a tzinfo
+        raise ValueError(f'{zone} gives no UTC offset')
+    return int(offset.total_seconds())
 
 
 def _wall_changes(zone, first, last):

@@ -11,8 +11,8 @@ import shlex
 import shutil
 import subprocess
 
-from .common import compose_project, run
-from .receipts import write_text
+from .common import compose_project, run, same_path
+from .receipts import SCHEDULED_OPERATIONS, write_text
 
 INTERVAL_MINUTES = 15
 STOP_MARKER = ".chronicle-stopped"
@@ -31,10 +31,14 @@ RECOVERY_COMMANDS = {
     ROTATION_MARKER: "./chronicle rotate-secret recover --forward or --rollback (docs/SECRET-ROTATION.md)",
 }
 ENABLED_ENV = "CHRONICLE_RECONCILE_ENABLED"
+# An update or rollback that could not write the crontab leaves this; the next `./chronicle up`
+# installs the schedule and removes it (__main__.run_reconcile).
+SCHEDULE_PENDING = ".chronicle-schedule-pending"
 UPDATE_LOG = "reconcile.update.log"
 SCHEDULED_UPDATE = "update-check"
 SCHEDULED_RECONCILE = "reconcile"
-SCHEDULED_OPERATIONS = frozenset((SCHEDULED_UPDATE, SCHEDULED_RECONCILE))
+if SCHEDULED_OPERATIONS != {SCHEDULED_UPDATE, SCHEDULED_RECONCILE}:  # receipts.py prunes these names
+    raise ImportError("receipts.SCHEDULED_OPERATIONS must name the scheduled operations")
 
 
 def is_enabled():
@@ -66,17 +70,35 @@ def record_scheduled(operation, status):
     record_operation(operation, outcome, category)
 
 
-def preflight():
-    if not is_enabled():
-        return
+def unavailable():
+    """Why this host cannot run the operator crontab schedule, or None when it can."""
     if platform.system() != "Linux":
-        raise ValueError("automatic reconciliation requires a Linux operator crontab")
+        return "automatic reconciliation requires a Linux operator crontab"
     if any(shutil.which(tool) is None for tool in ("crontab", "logger", "systemctl")):
-        raise ValueError("reconciliation requires crontab, logger and systemctl; install cron/cronie or explicitly disable reconciliation")
+        return "reconciliation requires crontab, logger and systemctl; install cron/cronie or explicitly disable reconciliation"
     if not any(run(["systemctl", "is-enabled", service], quiet=True).returncode == 0
                and run(["systemctl", "is-active", service], quiet=True).returncode == 0
                for service in ("cron", "crond")):
-        raise ValueError("reconciliation requires an enabled, active cron/crond service")
+        return "reconciliation requires an enabled, active cron/crond service"
+    return None
+
+
+def warn_unavailable(reason):
+    from .common import warn
+    warn(f"automatic reconciliation is unavailable: {reason}. Chronicle keeps running, but nothing "
+         "restarts it after a reboot or a failed container. Install and enable cron (cron or cronie); "
+         f"the next ./chronicle up or update installs the schedule. Or set {ENABLED_ENV}=false in .env.")
+
+
+def preflight():
+    """Warn, never refuse: a host without Linux cron (a macOS trial, a minimal image) still runs
+    Chronicle and its updates; it only lacks the boot and periodic restart."""
+    if not is_enabled():
+        return None
+    reason = unavailable()
+    if reason:
+        warn_unavailable(reason)
+    return reason
 
 
 def recovery_command(marker):
@@ -134,7 +156,7 @@ def check_mutations(state, launcher, allow_forward=False):
         if allow_forward and name == UPGRADE_LOCK and os.environ.get("CHRONICLE_RECONCILE_RUN") != "true":
             try:
                 recovery = json.loads((marker / RECOVERY_FILE).read_text())
-                if recovery["owner"] == str(Path(launcher).resolve()) and recovery["phase"] == RECOVERY_PHASE:
+                if same_path(recovery["owner"], launcher) and recovery["phase"] == RECOVERY_PHASE:
                     continue
             except (OSError, ValueError, KeyError):
                 pass
@@ -166,8 +188,22 @@ def crontab_transaction():
 
 
 def write_crontab(lines):
-    if run(["crontab", "-"], input="\n".join(lines) + "\n").returncode:
-        raise ValueError("could not write the operator crontab; check `crontab -l` and rerun this command")
+    # cronie 1.7 (Alpine, Fedora) backs up the previous crontab to $XDG_CACHE_HOME/crontab, by
+    # default ~/.cache/crontab, creating only that last directory: on an account with no ~/.cache
+    # it printed "mkdir: No such file or directory" and kept no backup. Create the base directory
+    # as the XDG base-directory specification asks of whoever writes there (0700).
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    try:
+        cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as error:
+        from .common import warn
+        warn(f"could not create {cache} for crontab's backup of the previous schedule: {error}")
+    # Output is kept: on success it is only cronie's backup notice, on failure the reason.
+    result = run(["crontab", "-"], input="\n".join(lines) + "\n", capture=True, stderr=subprocess.PIPE)
+    if result.returncode:
+        reason = " ".join(part.strip() for part in (result.stderr, result.stdout) if part and part.strip())
+        raise ValueError("could not write the operator crontab; check `crontab -l` and rerun this command"
+                         + (f" (crontab: {reason})" if reason else ""))
 
 
 def uninstall(state, project):
@@ -177,6 +213,19 @@ def uninstall(state, project):
             lines, _, _ = crontab_without_project(project)
             write_crontab(lines)
     (Path(state) / "reconcile.sh").unlink(missing_ok=True)
+
+
+def schedule_blocker(launcher, state, script, update_only):
+    if platform.system() != "Linux":
+        return "automatic reconciliation requires a Linux operator crontab"
+    if not update_only and any(shutil.which(tool) is None for tool in ("crontab", "logger")):
+        return "reconciliation requires crontab and logger on PATH"
+    if script.is_symlink():
+        return f"unsafe reconciliation launcher {script} is a symlink; replace it with nothing and rerun"
+    for path in (launcher, state):
+        if any(char in str(path) for char in "\r\n%"):
+            return f"reconciliation path {path} contains cron control characters; move the release"
+    return None
 
 
 def install(launcher, state, project, update_only=False, before_first_start=False):
@@ -189,15 +238,11 @@ def install(launcher, state, project, update_only=False, before_first_start=Fals
     script = state / "reconcile.sh"
     if update_only and not script.exists():
         return
-    if platform.system() != "Linux":
-        raise ValueError("automatic reconciliation requires a Linux operator crontab")
-    if not update_only and any(shutil.which(tool) is None for tool in ("crontab", "logger")):
-        raise ValueError("reconciliation requires crontab and logger on PATH")
-    if script.is_symlink():
-        raise ValueError("unsafe reconciliation launcher")
-    for path in (launcher, state):
-        if any(char in str(path) for char in "\r\n%"):
-            raise ValueError("reconciliation path contains cron control characters")
+    reason = schedule_blocker(launcher, state, script, update_only)
+    if reason:
+        # Ownership already moved; only the schedule is skipped, and the crontab is left as it was.
+        warn_unavailable(reason)
+        return
     quote = shlex.quote
     docker_environment = "\n".join(f"export {key}={quote(os.environ[key])}"
                                    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
@@ -220,6 +265,8 @@ if [[ "${{1:-}}" == --check-updates ]]; then
   update_status=0
   ./chronicle update --check >{quote(str(state / UPDATE_LOG))} 2>&1 || update_status=$?
   record_status {quote(SCHEDULED_UPDATE)} "$update_status"
+  python3 -m chronicle_ops update-reserve >>{quote(str(state / UPDATE_LOG))} 2>&1 ||
+    logger -p user.warning -t chronicle 'Free disk is below what the next update needs; run ./chronicle doctor'
   case "$update_status" in
     0) exit 0 ;;
     {UPDATE_AVAILABLE_EXIT}) logger -p user.warning -t chronicle 'Chronicle update available; run ./chronicle update --check and read the release installation guide' ;;
@@ -232,7 +279,7 @@ exec python3 -m chronicle_ops operation-lock --state {quote(str(state))} --nonbl
 if (
   up_status=0
   CHRONICLE_RECONCILE_RUN=true ./chronicle up || up_status=$?
-  ./chronicle doctor && ((up_status == 0))
+  CHRONICLE_ALERT_SYSLOG=true ./chronicle doctor && ((up_status == 0))
 ) >{quote(str(state / "reconcile.log"))} 2>&1; then
   record_status {quote(SCHEDULED_RECONCILE)} 0
 else
@@ -257,6 +304,28 @@ RECONCILE
         if (launcher.parent.parent / "release-manifest.json").is_file():
             lines.append("0 6 * * * " + quote(str(script)) + " --check-updates " + marker)
         write_crontab(lines)
+
+
+def install_after_transfer(launcher, state, project, update_only=False):
+    """The schedule step of an update or rollback, after the caller wrote and checked ownership.
+
+    The crontab is the only optional part of either transaction: a host whose crontab cannot be
+    read or written still runs the verified release. So a failure here warns, records
+    SCHEDULE_PENDING for the next `./chronicle up`, and returns False instead of raising."""
+    pending = Path(state) / SCHEDULE_PENDING
+    try:
+        install(launcher, state, project, **({"update_only": True} if update_only else {}))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        from .common import warn
+        try:
+            write_text(pending, f"{error}\n")
+        except OSError:
+            pass
+        warn(f"the release is running, but the reconciliation schedule was not installed: {error}. "
+             "Fix the operator crontab; the next ./chronicle up installs it.")
+        return False
+    pending.unlink(missing_ok=True)
+    return True
 
 
 def complete_recovery():

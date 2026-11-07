@@ -38,12 +38,12 @@ def argument_parser():
         if command == "write-operation-receipt":
             child.add_argument("duration", nargs="?", default="0", type=int)
     child = commands.add_parser("reconcile")
-    child.add_argument("action", nargs="?", choices=("install", "uninstall", "stop", "resume", "preflight", "lock-path", "check", "check-start", "stopped"), default="install")
+    child.add_argument("action", nargs="?", choices=("install", "uninstall", "stop", "resume", "preflight", "host", "lock-path", "check", "check-start", "stopped"), default="install")
     commands.add_parser("owner-check")
     commands.add_parser("setup-env")
     commands.add_parser("setup-storage")
     child = commands.add_parser("host-memory")
-    child.add_argument("action", choices=("check", "monitoring-default", "logging"))
+    child.add_argument("action", choices=("check", "monitoring-default", "logging", "ceilings"))
     child = commands.add_parser("record-source-images")
     child.add_argument("--backend-image", required=True)
     child.add_argument("--frontend-image", required=True)
@@ -56,6 +56,7 @@ def argument_parser():
     child.add_argument("--releases-dir", required=True)
     child.add_argument("--apply", action="store_true")
     child = commands.add_parser("storage-check")
+    commands.add_parser("update-reserve")
     child = commands.add_parser("public-check")
     child = commands.add_parser("backup-storage")
     commands.add_parser("database-storage")
@@ -63,6 +64,17 @@ def argument_parser():
     commands.add_parser("database-privileges")
     child = commands.add_parser("certificates")
     child.add_argument("action", choices=("digest", "compare", "record"))
+    child = commands.add_parser("compose-services")
+    child.add_argument("role", choices=("core", "monitoring"))
+    child = commands.add_parser("start-monitoring")
+    child.add_argument("--force-recreate", action="store_true")
+    child.add_argument("--no-recreate", action="store_true")
+    commands.add_parser("monitoring-health")
+    commands.add_parser("config-drift")
+    child = commands.add_parser("alerts")
+    child.add_argument("--syslog", action="store_true")
+    commands.add_parser("host-versions")
+    commands.add_parser("host-architecture")
     child = commands.add_parser("operation-lock")
     child.add_argument("--state")
     child.add_argument("--nonblocking", action="store_true")
@@ -126,6 +138,14 @@ def run_reconcile(options):
         check_mutations(state, Path.cwd(), allow_forward=options.action == "check-start")
     elif options.action == "preflight":
         preflight()
+    elif options.action == "host":
+        # Doctor's row: why an enabled schedule cannot run here, or nothing.
+        from .reconcile import SCHEDULE_PENDING, is_enabled, unavailable
+        reason = is_enabled() and unavailable()
+        if not reason and is_enabled() and (state / SCHEDULE_PENDING).is_file():
+            reason = "the last update or rollback could not write the operator crontab, so the schedule may still start the previous release"
+        if reason:
+            print(reason)
     elif options.action == "install":
         # Only setup reaches this action (the CLI accepts stop|uninstall) and it may precede the first
         # start; update installs after a verified start through reconcile.install directly.
@@ -137,6 +157,13 @@ def run_reconcile(options):
         write_text(state / STOP_MARKER, "")
     else:
         (state / STOP_MARKER).unlink(missing_ok=True)
+        # A host that gained cron since setup (or since a skipped install), or whose crontab an
+        # update or rollback could not write (SCHEDULE_PENDING), gets its schedule here.
+        from .reconcile import SCHEDULE_PENDING, is_enabled, unavailable
+        pending = state / SCHEDULE_PENDING
+        if is_enabled() and (pending.exists() or not (state / "reconcile.sh").exists()) and not unavailable():
+            install(Path.cwd() / "chronicle", state, os.environ["CHRONICLE_OPS_PROJECT"])
+            pending.unlink(missing_ok=True)
     return 0
 
 
@@ -149,6 +176,33 @@ def run_certificates(options):
         print("changed" if certificates_changed(state, sys.stdin.read()) else "unchanged")
     else:
         record_applied_certificates(state, sys.stdin.read().rstrip("\n"))
+    return 0
+
+
+def run_services(options):
+    """The launcher's view of services.py: one classification for bash and Python."""
+    from .common import compose, warn
+    from .services import environment_monitoring, environment_roles, monitoring_health, start_monitoring
+    import subprocess
+    if options.command == "monitoring-health":
+        for service, state in monitoring_health():
+            print(service + "\t" + state)
+        return 0
+    try:
+        if options.command == "compose-services" and options.role == "monitoring":
+            core, monitoring = [], environment_monitoring()  # No Compose call when the overlay is off.
+        else:
+            core, monitoring = environment_roles()
+    except (OSError, subprocess.SubprocessError) as error:
+        if options.command == "start-monitoring":
+            warn(f"could not resolve the monitoring services ({error}); run ./chronicle doctor")
+            return 0
+        raise ValueError(f"could not resolve the Compose service list: {error}") from None
+    if options.command == "compose-services":
+        print("\n".join(core if options.role == "core" else monitoring))
+        return 0
+    start_monitoring(compose, monitoring, [flag for flag, chosen in (("--force-recreate", options.force_recreate),
+                                                                     ("--no-recreate", options.no_recreate)) if chosen])
     return 0
 
 
@@ -211,6 +265,24 @@ def run_settings_command(options):
         return status
     elif options.command == "certificates":
         return run_certificates(options)
+    elif options.command == "update-reserve":
+        from .verify import update_reserve
+        return update_reserve()
+    elif options.command == "host-versions":
+        from .host_versions import check
+        return check()
+    elif options.command == "host-architecture":
+        from .host_versions import architecture_check
+        return architecture_check()
+    elif options.command == "alerts":
+        from .alerts import command
+        return command(options.syslog)
+    elif options.command == "config-drift":
+        from .services import config_drift_row
+        print("\x1f".join(config_drift_row()))
+        return 0
+    elif options.command in ("compose-services", "start-monitoring", "monitoring-health"):
+        return run_services(options)
     elif options.command == "record-operation":
         record_operation(options.operation, options.outcome, options.category)
     else:

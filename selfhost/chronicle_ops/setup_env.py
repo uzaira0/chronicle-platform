@@ -11,7 +11,7 @@ from .common import compose_project
 from .credentials import GENERATION_DATES_KEY, SETUP_SECRETS, setup_credentials
 from .env_migration import merge_env
 from .envfile import parse_env_text, read_env, set_env_values, value
-from .host_memory import SMALL_HOST_LIMITS, SMALL_HOST_MEMORY_KIB, require_memory, total_memory_kib
+from .host_memory import SMALL_HOST_LIMITS, SMALL_HOST_MEMORY_KIB, rendered_services, require_memory, total_memory_kib
 from .receipts import write_text
 
 SETUP_FIELDS = (
@@ -44,6 +44,7 @@ SETUP_FIELDS = (
     'LOCAL_HTTP_PORT',
     'GRAFANA_PORT',
     'CHRONICLE_SUBNET',
+    'CHRONICLE_CORE_PREFIX',
     'CHRONICLE_ALERT_WEBHOOK_URL',
     'CADDY_TRUSTED_PROXIES',
     'POOL_ALLOWED_IPS',
@@ -75,10 +76,14 @@ def parse_setup_fields(raw):
 
 
 def validate_alert_webhook(alert_webhook):
+    """The rule guard-config.sh --validate-alert-webhook applies at the setup prompt: HTTPS, or plain
+    HTTP to this host's loopback only; no credentials, quotes, spaces or line breaks."""
     if alert_webhook:
+        from .egress import is_local
         parsed = urlsplit(alert_webhook)
-        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or any(
-            char in alert_webhook for char in "'\"\\\r\n"
+        if parsed.scheme not in ('https', 'http') or not parsed.hostname or parsed.username or parsed.password or (
+            parsed.scheme == 'http' and not is_local(parsed.hostname)) or any(
+            char in alert_webhook for char in "'\"\\\r\n \t"
         ):
             raise ValueError('alert webhook must be an HTTPS URL without credentials, quotes or line breaks')
 
@@ -113,8 +118,12 @@ def apply_setup_memory(s, existing, compose_file):
         s = set_env_values(s, SMALL_HOST_LIMITS, require_existing=False)
         print(f"Host has {mem_kb // 1024} MiB of memory; sized backend/Postgres limits for a 4 GB host (see README Sizing).")
     if mem_kb is not None:
-        proposed = parse_env_text(s)
-        require_memory(proposed, mem_kb, 'overlays/monitoring.yml' in compose_file)
+        services = rendered_services(parse_env_text(s), compose_file)
+        if services is None:
+            # check and up render the written .env and warn about the same ceilings.
+            print("Could not render the Compose configuration to size memory ceilings; ./chronicle check reports them.")
+        else:
+            require_memory(services, mem_kb)
     return s
 
 
@@ -127,11 +136,27 @@ def write_setup_environment():
                      compose_file.split(':'), preserve_images=True)
     credentials = setup_credentials(existing, fields)
     fields.update(credentials.values)
+    from .egress import ALERT_EGRESS_ENV, alert_egress_for_url
+    fields[ALERT_EGRESS_ENV] = alert_egress_for_url(fields['CHRONICLE_ALERT_WEBHOOK_URL'])
     fields[GENERATION_DATES_KEY] = json.dumps(credentials.generated_at, sort_keys=True)
     text = set_env_values(text, fields, require_existing=False)
     text = add_management_origin(text, existing, fields['DASHBOARD_BASE_URL'])
     text = apply_setup_memory(text, existing, compose_file)
+    text = default_reconciliation(text, existing)
     write_text('.env', text)
+
+
+def default_reconciliation(text, existing):
+    """A new install on a host without Linux cron starts with reconciliation off instead of
+    failing setup; an operator's saved choice is kept."""
+    from .reconcile import ENABLED_ENV, unavailable
+    if value(existing, ENABLED_ENV) or value(parse_env_text(text), ENABLED_ENV) != 'true':
+        return text
+    reason = unavailable()
+    if not reason:
+        return text
+    print(f'Automatic reconciliation is off on this host ({reason}); set {ENABLED_ENV}=true after installing cron.')
+    return set_env_values(text, {ENABLED_ENV: 'false'}, require_existing=False)
 
 
 def confirm_storage_encryption():

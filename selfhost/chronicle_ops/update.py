@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import json
 import os
 from .dump import file_sha256
-from .release import RELEASE_SIGNER, UPDATE_AVAILABLE_EXIT, UPDATE_DIRECTORY_PREFIX, FRESH_INSTALL_REQUIRED, UPGRADE_FROM_MINIMUM, require_upgrade, free_disk_floor, parse_version, read_manifest, require_current_owner
+from .release import RELEASE_SIGNER, RELEASES_DIRECTORY, UPDATE_AVAILABLE_EXIT, FRESH_INSTALL_REQUIRED, releases_root, UPGRADE_FROM_MINIMUM, require_upgrade, free_disk_floor, parse_version, read_manifest, require_current_owner
 from .envfile import read_env, value
-from .common import acquire_operation_lock, compose_project, release_operation_lock, require_storage, run, transfer_timeout, warn, UPDATE_PEAK_BYTES
+from .common import acquire_operation_lock, compose_project, release_operation_lock, require_storage, run, same_path, transfer_timeout, warn, UPDATE_PEAK_BYTES
 from .receipts import sync_directory, write_text, write_json
 from pathlib import Path, PurePosixPath
 import re
@@ -14,7 +14,8 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
+import time
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlsplit, urlunsplit
 
 def version_key(version):
     if not isinstance(version, str):
@@ -30,15 +31,48 @@ MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 20000
 MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024
 
+# Waits between attempts of one release download; all attempts share transfer_timeout().
+RETRY_DELAYS = (1, 2, 4, 8)
+# curl exits a retry cannot change: unsupported protocol, bad URL, redirect loop, file too large.
+PERMANENT_CURL_EXITS = frozenset({1, 3, 47, 63})
+
+
 def curl(url, output=subprocess.PIPE, max_bytes=MAX_METADATA_BYTES):
+    """Fetch one release catalog or asset. This is the only egress in the bundle, so it alone
+    honours the operator's proxy (curl reads https_proxy/HTTPS_PROXY and no_proxy); every probe
+    of the deployment passes --noproxy. Failed attempts retry with backoff until the overall
+    transfer deadline; a file output is rewritten from the start on each attempt."""
     if not isinstance(url, str) or urlparse(url).scheme not in ("http", "https"):
         raise ValueError("release URL must use http or https")
-    return run(
-        ["curl", "--noproxy", "*", "--fail", "--silent", "--show-error", "--location",
-         "--proto", "=http,https", "--proto-redir", "=http,https",
-         "--max-filesize", str(max_bytes),
-         "--connect-timeout", "30", "--max-time", str(transfer_timeout()), url],
-        stdout=output, text=False, check=True).stdout
+    deadline = time.monotonic() + transfer_timeout()
+    delays = iter(RETRY_DELAYS)
+    while True:
+        remaining = int(deadline - time.monotonic())
+        if hasattr(output, "seek"):
+            output.seek(0)
+            output.truncate()
+        try:
+            return run(
+                ["curl", "--fail", "--silent", "--show-error", "--location",
+                 "--proto", "=http,https", "--proto-redir", "=http,https",
+                 "--max-filesize", str(max_bytes),
+                 "--connect-timeout", "30", "--max-time", str(max(1, remaining)), url],
+                stdout=output, text=False, check=True).stdout
+        except subprocess.CalledProcessError as error:
+            delay = next(delays, None)
+            if (delay is None or error.returncode in PERMANENT_CURL_EXITS
+                    or time.monotonic() + delay >= deadline):
+                raise
+            warn(f"download from {urlsplit(url).hostname} failed (curl exit {error.returncode}); retrying in {delay} s")
+            time.sleep(delay)
+
+def member_file(archive, member):
+    """The open file of a regular archive member; tarfile returns None only for other kinds."""
+    source = archive.extractfile(member)
+    if source is None:
+        raise ValueError(f"release archive member is not a regular file: {member.name!r}")
+    return source
+
 
 def extract_release(archive_path, name, version):
     asset_root = archive_path.parent
@@ -64,7 +98,7 @@ def extract_release(archive_path, name, version):
         manifests = [m for m in members if m.name == f"{name}/release-manifest.json" and m.isfile()]
         if len(manifests) != 1:
             raise ValueError("missing new release manifest in archive")
-        with archive.extractfile(manifests[0]) as source:
+        with member_file(archive, manifests[0]) as source:
             new_manifest = json.load(source)
         if new_manifest.get("release_version") != version:
             raise ValueError("new release manifest does not match the requested release version")
@@ -92,7 +126,7 @@ def extract_release(archive_path, name, version):
                 target.chmod(member.mode & 0o777)
             else:
                 ensure_dir(target.parent)
-                with archive.extractfile(member) as source, target.open("xb") as output:
+                with member_file(archive, member) as source, target.open("xb") as output:
                     shutil.copyfileobj(source, output)
                     target.chmod(member.mode & 0o777)
                     output.flush()
@@ -108,9 +142,9 @@ def show_changelog(extracted, current, version):
     changelog = extracted / "CHANGELOG.md"
     if not changelog.is_file() or changelog.is_symlink():
         raise ValueError("release archive is missing a regular CHANGELOG.md")
-    sections = []
+    sections: list = []
     section_version = None
-    section_lines = []
+    section_lines: list[str] = []
     heading = re.compile(r"^## \[([^\]]+)\]$")
 
     def save_section():
@@ -152,40 +186,88 @@ class ReleaseAsset:
     url: str
 
 
+# Key rotation (CI-U7). A release signed by a new key carries the new public key and a signature
+# over it by the key installed servers trust, in its own namespace: a checksum signature (namespace
+# RELEASE_SIGNER) can never be replayed as an endorsement. Maintainer: scripts/endorse-release-key.sh.
+KEY_ROTATION_NAMESPACE = "chronicle-release-key"
+ROTATED_KEY_ASSET = "release-signing.pub"
+ROTATION_ENDORSEMENT_ASSET = ROTATED_KEY_ASSET + ".sig"
+
+
 @dataclass(frozen=True)
 class ReleaseAssets:
     archive: ReleaseAsset
     checksum: ReleaseAsset
     signature: ReleaseAsset
+    rotated_key: "ReleaseAsset | None" = None
+    endorsement: "ReleaseAsset | None" = None
 
     def all(self) -> tuple[ReleaseAsset, ...]:
-        return (self.archive, self.checksum, self.signature)
+        rotation = (self.rotated_key, self.endorsement) if self.rotated_key and self.endorsement else ()
+        return (self.archive, self.checksum, self.signature, *rotation)
 
 
 def release_assets(release, archive_name) -> ReleaseAssets:
     checksum_name = archive_name + ".sha256"
     signature_name = checksum_name + ".sig"
+    rows = release.get("assets", [])
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ValueError("malformed release asset list")
     def asset(name: str) -> ReleaseAsset:
-        matches = [a for a in release.get("assets", []) if a.get("name") == name]
+        matches = [a for a in rows if a.get("name") == name]
         if len(matches) != 1 or not matches[0].get("browser_download_url"):
             kind = "release signature asset" if name == signature_name else "release asset"
             raise ValueError(f"missing or ambiguous {kind}: {name}")
         return ReleaseAsset(name=name, url=matches[0]["browser_download_url"])
-    return ReleaseAssets(archive=asset(archive_name), checksum=asset(checksum_name), signature=asset(signature_name))
+    def optional(name: str) -> "ReleaseAsset | None":
+        return asset(name) if any(row.get("name") == name for row in rows) else None
+    rotated_key, endorsement = optional(ROTATED_KEY_ASSET), optional(ROTATION_ENDORSEMENT_ASSET)
+    if bool(rotated_key) != bool(endorsement):
+        raise ValueError(f"a key rotation needs both {ROTATED_KEY_ASSET} and {ROTATION_ENDORSEMENT_ASSET}")
+    return ReleaseAssets(archive=asset(archive_name), checksum=asset(checksum_name), signature=asset(signature_name),
+                         rotated_key=rotated_key, endorsement=endorsement)
 
-def verify_download(asset_root, assets: ReleaseAssets, key, *, directory):
-    checksum = asset_root / assets.checksum.name
+
+def ssh_verifies(message, signature, key, namespace, directory):
+    """Whether signature is key's signature over the file message in namespace."""
     with tempfile.TemporaryDirectory(prefix=".chronicle-signature-", dir=directory) as signature_directory:
         allowed = Path(signature_directory) / "allowed_signers"
-        write_text(allowed, f"{RELEASE_SIGNER} {key}\n")
-        with checksum.open("rb") as message:
-            try:
-                run(
-                    ["ssh-keygen", "-Y", "verify", "-f", str(allowed), "-I", RELEASE_SIGNER,
-                     "-n", RELEASE_SIGNER, "-s", str(asset_root / assets.signature.name)],
-                    stdin=message, capture=True, stderr=subprocess.PIPE, timeout=30, check=True)
-            except subprocess.CalledProcessError:
-                raise ValueError("invalid release signature; nothing extracted or executed") from None
+        write_text(allowed, f"{RELEASE_SIGNER} namespaces=\"{namespace}\" {key}\n")
+        with Path(message).open("rb") as stream:
+            result = run(["ssh-keygen", "-Y", "verify", "-f", str(allowed), "-I", RELEASE_SIGNER,
+                          "-n", namespace, "-s", str(signature)],
+                         stdin=stream, capture=True, stderr=subprocess.PIPE, timeout=30)
+    return result.returncode == 0
+
+
+def valid_public_key(key):
+    return key.startswith("ssh-ed25519 ") and "\n" not in key and "\r" not in key
+
+
+def endorsed_key(asset_root, assets: ReleaseAssets, key, directory):
+    """The rotated key the release names, once the installed key's endorsement over it verifies."""
+    if not (assets.rotated_key and assets.endorsement):
+        return None
+    path = asset_root / assets.rotated_key.name
+    rotated = path.read_text().strip()
+    if not valid_public_key(rotated) or rotated == key:
+        raise ValueError(f"invalid rotated release key in {assets.rotated_key.name}; nothing extracted or executed")
+    if not ssh_verifies(path, asset_root / assets.endorsement.name, key, KEY_ROTATION_NAMESPACE, directory):
+        raise ValueError("the release's new signing key is not endorsed by the installed release key; "
+                         "nothing extracted or executed")
+    return rotated
+
+
+def verify_download(asset_root, assets: ReleaseAssets, key, *, directory):
+    """Verify the checksum signature and the archive; return the key that signed the release: the
+    installed key, or a rotated key the installed key endorsed (the bundle must then ship it)."""
+    checksum = asset_root / assets.checksum.name
+    signature = asset_root / assets.signature.name
+    signer = key
+    if not ssh_verifies(checksum, signature, key, RELEASE_SIGNER, directory):
+        signer = endorsed_key(asset_root, assets, key, directory)
+        if signer is None or not ssh_verifies(checksum, signature, signer, RELEASE_SIGNER, directory):
+            raise ValueError("invalid release signature; nothing extracted or executed")
     # Restrict the checksum file to exactly this archive, then verify it in-process:
     # Use the same stdlib hash on Linux and macOS.
     entry = re.fullmatch(r"([0-9a-fA-F]{64}) [ *]" + re.escape(assets.archive.name) + r"\n?",
@@ -194,6 +276,15 @@ def verify_download(asset_root, assets: ReleaseAssets, key, *, directory):
         raise ValueError("bad checksum file: expected one SHA-256 entry for the release archive")
     if file_sha256(asset_root / assets.archive.name) != entry[1].lower():
         raise ValueError("bad checksum: release archive verification failed; nothing extracted")
+    return signer
+
+
+def require_bundled_key(extracted, signer):
+    """A release signed by a rotated key must install that key, or its own next update would fail."""
+    bundled = extracted / "selfhost" / ROTATED_KEY_ASSET
+    if bundled.is_symlink() or not bundled.is_file() or bundled.read_text().strip() != signer:
+        raise ValueError("the release does not ship the key that signed it (selfhost/release-signing.pub); "
+                         "nothing executed")
 
 
 def download_assets(assets: ReleaseAssets, asset_root):
@@ -211,21 +302,64 @@ def download_assets(assets: ReleaseAssets, asset_root):
 
 # GitHub's documented maximum page size; enumerate all pages before choosing a version.
 RELEASES_PAGE_SIZE = 100
+# 2,000 releases: decades of this project's cadence. A source that keeps returning full pages
+# beyond that is broken, and the next source is tried instead of looping forever.
+MAX_CATALOG_PAGES = 20
 
 
-def latest_stable_release(releases):
-    if any(not isinstance(release, dict) or type(release.get('draft')) is not bool
-           or type(release.get('prerelease')) is not bool for release in releases):
-        raise ValueError("release catalog requires explicit draft and prerelease flags")
-    candidates = [release for release in releases if not release['draft'] and not release['prerelease']
-                  and is_stable_release(release["tag_name"])]
+def release_problem(release):
+    """Why a catalog row cannot be offered, or None. A malformed row is skipped, never fatal."""
+    if not isinstance(release, dict):
+        return "not a release object"
+    if type(release.get('draft')) is not bool:
+        return "no explicit draft flag"
+    try:
+        version_key(release.get('tag_name'))
+    except ValueError:
+        return "its tag is not a release version"
+    return None
+
+
+def offered(release):
+    """The one eligibility rule for every release source: a published (not draft) release whose
+    tag is a stable version, the version its signed manifest must carry. GitHub's pre-release flag
+    is not consulted: the feed cannot show it, and publish-images.sh sets it from the tag."""
+    return release_problem(release) is None and not release['draft'] and is_stable_release(release['tag_name'])
+
+
+def describe(release):
+    return repr(release.get('tag_name', '?')) if isinstance(release, dict) else 'entry'
+
+
+def latest_stable_release(releases, require_assets=False):
+    candidates = []
+    for release in releases:
+        problem = release_problem(release)
+        stable = offered(release)
+        if stable and require_assets:
+            # A release whose assets are still uploading is not offered yet.
+            try:
+                release_assets(release, f"chronicle-selfhost-{release['tag_name'].removeprefix('v')}.tar.gz")
+            except ValueError as error:
+                problem = str(error)
+        if problem:
+            warn(f"skipping published release {describe(release)}: {problem}")
+        elif stable:
+            candidates.append(release)
     if not candidates:
         raise ValueError("no published stable releases")
     return max(candidates, key=lambda release: version_key(release["tag_name"]))
 
 
-def fetch_published_releases():
-    url = os.environ.get("CHRONICLE_RELEASES_URL", f"https://api.github.com/repos/uzaira0/methodic/releases?per_page={RELEASES_PAGE_SIZE}")
+RELEASES_REPOSITORY = "uzaira0/methodic"
+API_RELEASES_URL = f"https://api.github.com/repos/{RELEASES_REPOSITORY}/releases?per_page={RELEASES_PAGE_SIZE}"
+# The releases feed and download URLs are served without the REST API's 60-requests-an-hour
+# limit for unauthenticated hosts; the feed lists published (never draft) releases.
+FEED_RELEASES_URL = f"https://github.com/{RELEASES_REPOSITORY}/releases.atom"
+FEED_TAG = re.compile(r'href="https://github\.com/' + re.escape(RELEASES_REPOSITORY) + r'/releases/tag/([^"/?#]+)"')
+
+
+def catalog_releases(url):
     releases = []
     page = 1
     while True:
@@ -235,10 +369,46 @@ def fetch_published_releases():
         releases.extend(rows)
         if len(rows) < RELEASES_PAGE_SIZE:
             return releases
+        if page >= MAX_CATALOG_PAGES:
+            raise ValueError(f"release catalog has more than {MAX_CATALOG_PAGES} pages")
         page += 1
         parts = urlsplit(url)
         query = dict(parse_qsl(parts.query), per_page=str(RELEASES_PAGE_SIZE), page=str(page))
         url = urlunsplit(parts._replace(query=urlencode(query)))
+
+
+def feed_releases(url):
+    """The same catalog rows the API returns, built from the releases feed: each release's three
+    assets sit at GitHub's fixed download path, and their signature is still verified."""
+    feed = curl(url, max_bytes=MAX_CATALOG_BYTES).decode("utf-8", errors="replace")
+    releases = []
+    for tag in dict.fromkeys(FEED_TAG.findall(feed)):
+        archive = f"chronicle-selfhost-{tag.removeprefix('v')}.tar.gz"
+        releases.append(dict(tag_name=tag, draft=False, assets=[
+            dict(name=name, browser_download_url=f"https://github.com/{RELEASES_REPOSITORY}/releases/download/{quote(tag)}/{quote(name)}")
+            for name in (archive, archive + ".sha256", archive + ".sha256.sig")]))
+    if not releases:
+        raise ValueError("release feed lists no releases")
+    return releases
+
+
+def fetch_published_releases():
+    """The catalog from the first source that answers: CHRONICLE_RELEASES_URL when set, then the
+    GitHub API, then the GitHub releases feed. Signatures stay mandatory whatever the source."""
+    sources = [(API_RELEASES_URL, catalog_releases), (FEED_RELEASES_URL, feed_releases)]
+    configured = os.environ.get("CHRONICLE_RELEASES_URL")
+    if configured:
+        sources.insert(0, (configured, catalog_releases))
+    failures = []
+    for url, read in sources:
+        try:
+            return read(url)
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            reason = f"curl exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError) else str(error)
+            failures.append(f"{urlsplit(url).hostname or url}: {reason}")
+            if len(failures) < len(sources):
+                warn(f"release source {failures[-1]}; trying the next release source")
+    raise ValueError("no release source answered; " + "; ".join(failures))
 
 
 
@@ -255,21 +425,30 @@ def apply_update(selfhost, settings, assets, version, current):
     if not public_key.is_file() or public_key.is_symlink():
         raise ValueError('missing installed release-signing.pub')
     key = public_key.read_text().strip()
-    if not key.startswith('ssh-ed25519 ') or '\n' in key or '\r' in key:
+    if not valid_public_key(key):
         raise ValueError('invalid installed release-signing.pub')
     require_storage(state, compose_project(settings),
                     free_disk_floor(settings), UPDATE_PEAK_BYTES)
-    # A repair gets its own directory, so the active operator package is never overwritten.
-    parent = selfhost.parent.parent
-    while parent.name.startswith(UPDATE_DIRECTORY_PREFIX):
-        parent = parent.parent
-    directory = Path(tempfile.mkdtemp(prefix=UPDATE_DIRECTORY_PREFIX, dir=parent))
+    # Each release installs at <root>/chronicle-releases/<version>/; a repair of the installed
+    # version (or a leftover from an interrupted attempt) gets the next free <version>.<n>, so the
+    # active operator package is never overwritten.
+    releases = releases_root(selfhost) / RELEASES_DIRECTORY
+    releases.mkdir(mode=0o755, exist_ok=True)
+    directory, attempt = releases / version, 0
+    while os.path.lexists(directory):
+        attempt += 1
+        directory = releases / f'{version}.{attempt}'
+    directory.mkdir(mode=0o700)
     staged = False
     try:
         download_assets(assets, directory)
-        verify_download(directory, assets, key, directory=directory)
+        signer = verify_download(directory, assets, key, directory=directory)
         extracted = extract_release(directory / assets.archive.name,
                                     f'chronicle-selfhost-{version}', version)
+        if signer != key:
+            require_bundled_key(extracted, signer)
+            print('The release signing key changed; the installed key endorsed the new one, which this '
+                  'release installs for the next update.', flush=True)
         candidate, _ = read_manifest(extracted / 'release-manifest.json', True, discovery=True)
         require_upgrade(current, candidate)
         for path in [extracted, *(p for p in extracted.rglob('*') if p.is_dir())]:
@@ -285,6 +464,19 @@ def apply_update(selfhost, settings, assets, version, current):
         shutil.rmtree(directory)
 
 
+def clear_dead_handoff(handoff):
+    """A handoff is written just before exec and changes nothing; without a recovery journal, one whose
+    candidate launcher is gone (deleted, or staging cleaned up) is cleared so update starts again."""
+    try:
+        owner = Path(json.loads(handoff.read_text())['owner'])
+        alive = (owner / 'chronicle').is_file()
+    except (OSError, ValueError, KeyError, TypeError):
+        owner, alive = None, False
+    if not alive:
+        handoff.unlink(missing_ok=True)
+        warn(f'the staged update candidate {owner or "(unreadable handoff)"} no longer exists; starting the update again')
+
+
 def exec_candidate(candidate, previous):
     from .common import LOCK_FD_ENV
     descriptor = os.environ.get(LOCK_FD_ENV, '')
@@ -297,7 +489,7 @@ def exec_candidate(candidate, previous):
 def apply_candidate(previous):
     from .upgrade import recover_update, upgrade
     from .reconcile import UPGRADE_LOCK, RECOVERY_FILE
-    from .release import cleanup_releases
+    from .release import FRONT_DOOR_FILE, cleanup_releases, current_owner, is_staging_directory, releases_root
     from .common import require
     previous, candidate = Path(previous).resolve(), Path.cwd().resolve()
     settings = read_env(previous / '.env')
@@ -307,24 +499,31 @@ def apply_candidate(previous):
         record = state / UPGRADE_LOCK / RECOVERY_FILE
         handoff = state / HANDOFF_FILE
         data = json.loads((record if record.exists() else handoff).read_text())
-        require(data['previous'] == str(previous) and data['owner'] == str(candidate),
+        require(same_path(data['previous'], previous) and same_path(data['owner'], candidate),
                 'candidate does not match the verified update handoff')
-        status = 0 if recover_update(state) else upgrade(previous, candidate)
+        recovered = recover_update(state)
+        # A recovery that ended on the previous release is a rolled-back update: report failure.
+        status = (0 if Path(recovered).resolve() == candidate else 1) if recovered else upgrade(previous, candidate)
         if not record.exists():
             handoff.unlink(missing_ok=True)
-            if status:
+            # Never remove the release that owns the deployment, whatever the status says.
+            discard = status and current_owner(state) != candidate
+            wrapper = candidate.parent.parent
+            if discard:
                 os.chdir(previous)
-                wrapper = candidate.parent.parent
-                require(wrapper.name.startswith(UPDATE_DIRECTORY_PREFIX), 'unexpected candidate staging directory')
+                require(is_staging_directory(wrapper), 'unexpected candidate staging directory')
                 (candidate / '.env').unlink(missing_ok=True)
-            parent = candidate.parent.parent
-            while parent.name.startswith(UPDATE_DIRECTORY_PREFIX):
-                parent = parent.parent
+            elif status:
+                warn(f'{candidate} owns this deployment although the update reported a failure; it is kept')
+            else:
+                front = state / FRONT_DOOR_FILE
+                front = front.read_text().strip() if front.is_file() and not front.is_symlink() else previous
+                print(f'Keep running ./chronicle from {front}; it now runs {candidate}.')
             try:
-                cleanup_releases(parent, state, apply=True, rollback_target=previous.parent)
+                cleanup_releases(releases_root(candidate), state, apply=True, rollback_target=previous.parent)
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
                 warn(f'release cleanup incomplete: {error}; retry ./chronicle cleanup')
-            if status and wrapper.exists():
+            if discard and wrapper.exists():
                 shutil.rmtree(wrapper)
         return status
     finally:
@@ -333,7 +532,7 @@ def apply_candidate(previous):
 
 def select_release(releases, version=None):
     if version is None:
-        return latest_stable_release(releases)
+        return latest_stable_release(releases, require_assets=True)
     version_key(version)
     matches = [release for release in releases if not release.get('draft', True)
                and release.get('tag_name', '').removeprefix('v') == version.removeprefix('v')]
@@ -352,8 +551,11 @@ def update(check=False, version=None):
         current = json.loads(manifest.read_text()).get('release_version')
         current_key = version_key(current)
         env_file = selfhost / '.env'
-        if not env_file.is_file() or env_file.is_symlink() or env_file.stat().st_mode & 0o777 != 0o600:
-            raise ValueError("update requires the active release's regular .env with mode 0600")
+        if not env_file.is_file() or env_file.is_symlink():
+            raise ValueError("update requires the active release's regular .env file")
+        if env_file.stat().st_mode & 0o777 != 0o600:
+            env_file.chmod(0o600)  # It holds deployment secrets; repair the mode rather than refuse.
+            warn(f'{env_file} was readable by other accounts; its mode is now 0600')
         settings = read_env(env_file)
         state = (selfhost / value(settings, 'CHRONICLE_STATE_DIR', '.')).resolve()
         if not check:
@@ -363,6 +565,8 @@ def update(check=False, version=None):
             from .reconcile import UPGRADE_LOCK, RECOVERY_FILE
             recovery = state / UPGRADE_LOCK / RECOVERY_FILE
             handoff = state / HANDOFF_FILE
+            if handoff.exists() and not recovery.exists():
+                clear_dead_handoff(handoff)
             if recovery.exists() or handoff.exists():
                 record = json.loads((recovery if recovery.exists() else handoff).read_text())
                 exec_candidate(Path(record['owner']), Path(record['previous']))
@@ -370,6 +574,9 @@ def update(check=False, version=None):
             if (selfhost / value(settings, 'CHRONICLE_STATE_DIR', '.')).resolve() != state:
                 raise ValueError('state changed while acquiring lock; retry update')
         require_current_owner(selfhost, state, compose_project(settings))
+        if check:
+            from .egress import report_first_unreachable
+            report_first_unreachable()
         release = select_release(fetch_published_releases(), version)
         latest = release['tag_name']
         latest_key = version_key(latest)

@@ -61,7 +61,7 @@ def requested_images(compose_file):
 
 
 def build_source_images(revision, compose_file):
-    values = {}
+    values: dict[str, str] = {}
     inputs_tree = source_inputs_tree(Path.cwd().parent, revision)
     for image in requested_images(compose_file):
         if not image.managed():

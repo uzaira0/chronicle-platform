@@ -24,9 +24,22 @@ MIN_FREE_INODES = 10_000
 # Below this share of free space doctor and the disk-pressure alert advise more capacity.
 LOW_FREE_PERCENT = 15
 UPDATE_PEAK_BYTES = 3 * GIB
+# MIN_FREE_DISK_GIB when .env does not set it: the reserve update, restore and up keep free.
+DEFAULT_MIN_FREE_DISK_GIB = 5
 PREPARATION_TIMEOUT_SECONDS = 600
 DEFAULT_COMPOSE_PROJECT = "chronicle-selfhost"
 TRANSFER_TIMEOUT_ENV = "CHRONICLE_TRANSFER_TIMEOUT_SECONDS"
+
+
+def same_path(recorded, actual):
+    """Whether a recorded release or state directory is `actual`, with symlinks resolved.
+
+    Recovery records, handoffs and owner markers store paths as text. Comparing that text with
+    a resolved directory fails whenever either side was reached through a symlink (macOS /var,
+    a symlinked /home or data mount), which refused an operator's own resume or rollback."""
+    if not recorded or not Path(recorded).is_absolute():
+        return False
+    return Path(recorded).resolve() == Path(actual).resolve()
 
 
 def require(condition, message):
@@ -58,7 +71,7 @@ def database_volume_path(project):
     return None
 
 
-def storage_report(state, project, floor_gib=5, peak_bytes=0, *, image=None):
+def storage_report(state, project, floor_gib=DEFAULT_MIN_FREE_DISK_GIB, peak_bytes=0, *, image=None):
     info = run(["docker", "info", "--format", "{{.DockerRootDir}}"], capture=True, timeout=15, check=True)
     paths = {"state": Path(state), "docker-data": Path(info.stdout.strip())}
     database = database_volume_path(project)
@@ -82,6 +95,7 @@ def storage_report(state, project, floor_gib=5, peak_bytes=0, *, image=None):
                 raise
             from .envfile import read_env, value
             image = image or os.environ.get("POSTGRES_IMAGE") or value(read_env(Path.cwd() / ".env"), "POSTGRES_IMAGE")
+            require(image, f"POSTGRES_IMAGE is not set, so the {name} filesystem cannot be measured")
             # A first `up` runs this before Compose pulls anything; the reference is digest-pinned.
             measured = run(["docker", "run", "--rm", "--pull", "missing", "--network", "none", "--read-only",
                             "--cap-drop", "ALL", "--user", "0", "--mount", f"type=bind,src={path},dst=/storage,readonly",
@@ -96,7 +110,7 @@ def storage_report(state, project, floor_gib=5, peak_bytes=0, *, image=None):
     return rows
 
 
-def require_storage(state, project, floor_gib=5, peak_bytes=0, *, image=None):
+def require_storage(state, project, floor_gib=DEFAULT_MIN_FREE_DISK_GIB, peak_bytes=0, *, image=None):
     for name, enough, free, inodes, required in storage_report(state, project, floor_gib, peak_bytes, image=image):
         if not enough:
             raise ValueError(f"{name}: {free} bytes and {inodes} inodes free; require {required} bytes and {MIN_FREE_INODES} inodes before mutation")
@@ -281,3 +295,18 @@ def compose(*args, **kwargs):
 def application_services(services):
     # Stop all configured services except the database. New writers must be quiesced too.
     return [service for service in services if service not in ("postgres", "restore")] if services else ["backend", "web", "db-init", "migrate"]
+
+
+def network_subnet(release=None):
+    """A release's network-subnet.py, loaded as a module: the owner of the core network's range
+    and of everything derived from CHRONICLE_CORE_PREFIX. Default: the release this package is in."""
+    import importlib.util
+    from pathlib import Path
+    path = Path(release) / 'network-subnet.py' if release else Path(__file__).resolve().parents[1] / 'network-subnet.py'
+    spec = importlib.util.spec_from_file_location('chronicle_network_subnet', path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f'cannot load {path}')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+

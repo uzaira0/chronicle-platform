@@ -62,6 +62,11 @@ dc() {
   docker compose -p "$PROJECT" "$@"
 }
 
+# Core and monitoring service lists come from chronicle_ops/services.py, as for ./chronicle up.
+service_roles() {
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" CHRONICLE_OPS_PROJECT="$PROJECT" python3 -m chronicle_ops "$@"
+}
+
 confirm() {
   local prompt="$1" answer
   [[ "$ASSUME_YES" == true ]] && return 0
@@ -361,18 +366,22 @@ apply_configuration() {
     local service service_list
     local -a startup_services=()
     local export_ca=false
-    service_list="$(dc config --services)" || return 1
+    # Only core services gate the rotation; optional monitoring restarts after them and only warns.
+    service_list="$(service_roles compose-services core)" || return 1
     while IFS= read -r service; do
       if [[ "$service" == ca-export ]]; then export_ca=true
       elif [[ -n "$service" ]]; then startup_services+=("$service"); fi
     done <<< "$service_list"
     ((${#startup_services[@]} > 0)) || return 1
     dc up -d --wait --wait-timeout "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" --remove-orphans "${startup_services[@]}" || return 1
+    service_roles start-monitoring
     if [[ "$export_ca" == true ]]; then dc run --rm --no-deps ca-export || return 1; fi
   else
     ((${#APPLY_SERVICES[@]} > 0)) || fail "internal error: no services selected for rotation"
     local -a running_services=()
     local service refresh_monitoring=false
+    # The services below are recreated with --no-deps, so rewrite their credential files first.
+    dc run --rm --no-deps secrets-init || return 1
     for service in "${APPLY_SERVICES[@]}"; do
       if [[ "$service" == monitoring-config ]]; then
         dc run --rm --no-deps monitoring-config || return 1
@@ -527,7 +536,7 @@ take_pre_rotation_backup() {
   exec 8>"$partial"
   python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' || fail "could not lock the pre-rotation dump"
   if ! dc exec -T postgres /bin/bash -euc '
-      PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump -h 127.0.0.1 \
+      PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" exec pg_dump -h 127.0.0.1 \
         -U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" \
         --no-owner "$@"
     ' chronicle-dump "${schema_options[@]}" | gzip -9 >&8; then
