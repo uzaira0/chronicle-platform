@@ -32,8 +32,12 @@ commandTests:
     args: [-ec, 'trust list --filter=blocklist | grep -c "label: EM "']
     expectedOutput: ['^16\n?$']
     exitCode: 0
+  # rpm cannot run here (its sqlite-libs are removed), so check files each package owned in the pinned base:
+  # ls prints any that still exist on stdout, which must stay empty.
   - name: unused BIND, kernel-header and compiler packages are absent
-    command: rpm
-    args: [-q, bind-utils, bind-libs, kernel-headers, emacs-filesystem, gcc]
-    expectedOutput: ['package bind-utils is not installed', 'package gcc is not installed']
-    exitCode: 5
+    command: ls
+    args: [-d, /usr/bin/dig, /usr/bin/nslookup, /usr/bin/host, /usr/lib64/libdns-9.16.23-RH.so,
+           /usr/lib64/libisc-9.16.23-RH.so, /usr/include/linux, /usr/share/emacs, /usr/bin/gcc, /usr/bin/cc]
+    excludedOutput: ['.']
+    expectedError: ['/usr/bin/dig', '/usr/lib64/libdns-9.16.23-RH.so', '/usr/include/linux', '/usr/bin/gcc']
+    exitCode: 2

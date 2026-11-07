@@ -1,0 +1,45 @@
+# What each shipped image may keep that scripts/check-image-policy.py otherwise refuses (container-infra
+# checklist I1 and I3): running as root, no HEALTHCHECK, setuid/setgid files and build tools. One entry per
+# image: the component name for an image built here (chronicle_ops.images.SOURCE_IMAGES), the repository for
+# a third-party image the bundle runs. Every allowance says why; one the image no longer needs fails as stale.
+#
+#   root        = "why the image's default user is root, and what runs it instead"
+#   healthcheck = "what probes it, since the image declares no HEALTHCHECK"
+#   [image.NAME.setid]  "path" = "why this setuid/setgid file stays"
+#   [image.NAME.tools]  "path" = "why this build tool stays"
+
+[image.backend]
+
+[image.frontend]
+healthcheck = "Build-only image: Dockerfile.caddy copies /dist from it and no Compose service runs it."
+
+[image.caddy]
+
+[image.backup]
+
+[image.grafana]
+
+[image.fluentbit]
+healthcheck = "Distroless, no shell: overlays/monitoring.yml probes /api/v1/health with the shared busybox from the health-probe volume."
+
+[image.postgres]
+healthcheck = "One image for the database and the one-shot config-guard, cert-init, db-init and restore jobs; docker-compose.yml gives the database service its pg_isready healthcheck."
+
+[image."ghcr.io/google/cadvisor"]
+root = "Vendor default. cAdvisor reads the cgroup tree, /sys and Docker's state; overlays/monitoring.yml runs it as 0:0 with a read-only root and no new privileges, on the internal monitoring network only."
+
+[image."tecnativa/docker-socket-proxy"]
+root = "Vendor default. HAProxy opens the root-owned Docker socket; overlays/monitoring.yml runs it as 0:0, read-only socket mount, POST disabled, on the internal docker-api network only."
+healthcheck = "overlays/monitoring.yml probes the proxy's /version endpoint with the image's busybox wget."
+
+[image."victoriametrics/victoria-metrics"]
+root = "Vendor default; overlays/monitoring.yml runs it as 65534:65534."
+healthcheck = "overlays/monitoring.yml probes /health with the shared busybox."
+
+[image."victoriametrics/victoria-logs"]
+root = "Vendor default; overlays/monitoring.yml runs it as 65534:65534."
+healthcheck = "overlays/monitoring.yml probes /health with the shared busybox."
+
+[image.busybox]
+root = "One-shot health-probe job: copies its own busybox binary into the health_probe volume and exits; the long-running services execute that copy as their own users."
+healthcheck = "One-shot job; Compose waits for it to complete successfully."

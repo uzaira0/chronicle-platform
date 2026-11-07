@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
 # Scan explicit image references, or the self-host release and optional overlay inventory.
+#
+#   scripts/scan-selfhost-release-images.sh IMAGE...
+#   scripts/scan-selfhost-release-images.sh [--inventory SELFHOST_DIR]
+#
+# Each image is scanned for HIGH and CRITICAL vulnerabilities and for secrets in any layer (container-infra
+# checklist I8: a key copied in and deleted later still sits in the earlier layer).
+# CHRONICLE_TRIVY_REPORT_DIR=DIR also writes one JSON report per image, with the waived findings
+# (--show-suppressed), for tests/security/check-trivy-waivers.py --reports DIR: Trivy itself never
+# reports an ignore entry that matched nothing.
+# --inventory reads the compose inventory of another checkout's selfhost/ (the dependency gate
+# runner's candidate) with this checkout's parser and ignore file.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+inventory="$root/selfhost"
+if [[ "${1:-}" == --inventory ]]; then
+  [[ -d "${2:-}" ]] || { echo 'error: --inventory takes a selfhost directory' >&2; exit 2; }
+  inventory=$2
+  shift 2
+fi
 command -v trivy >/dev/null 2>&1 || { echo 'error: trivy is required to scan release runtime images' >&2; exit 127; }
 
 if [[ $# -gt 0 ]]; then
@@ -13,9 +30,13 @@ if [[ $# -gt 0 ]]; then
     }
   done
   images=$(printf '%s\n' "$@")
+  image_source=()
 else
+  # Third-party runtime images are pulled from their registries by digest: trivy's docker source would scan
+  # whatever platform the local daemon already holds (an arm64 copy on an arm64 host), ignoring --platform.
+  image_source=(--image-src remote)
   command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required for the image inventory' >&2; exit 127; }
-  images=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 - "$root/selfhost" <<'PY_IMAGE_INVENTORY'
+  images=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 - "$inventory" <<'PY_IMAGE_INVENTORY'
 import re
 import sys
 from chronicle_ops.images import SOURCE_IMAGES, bundle_images
@@ -29,9 +50,16 @@ PY_IMAGE_INVENTORY
   [[ -n "$images" ]] || { echo 'error: no release runtime images were found' >&2; exit 2; }
 fi
 
+# Same platform as publish-images.sh release_platform: purls in the ignore file carry the architecture.
 while IFS= read -r image; do
   [[ -n "$image" ]] || continue
   printf 'Scanning release runtime image %s\n' "$image" >&2
-  trivy image --quiet --scanners vuln --severity HIGH,CRITICAL --exit-code 1 \
+  trivy image --quiet --platform linux/amd64 ${image_source[@]+"${image_source[@]}"} --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 \
     --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$image"
+  if [[ -n "${CHRONICLE_TRIVY_REPORT_DIR:-}" ]]; then
+    mkdir -p "$CHRONICLE_TRIVY_REPORT_DIR"
+    trivy image --quiet --platform linux/amd64 ${image_source[@]+"${image_source[@]}"} --scanners vuln --severity HIGH,CRITICAL \
+      --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" --show-suppressed --format json \
+      --output "$CHRONICLE_TRIVY_REPORT_DIR/$(printf %s "$image" | tr -c 'A-Za-z0-9._-' _).json" "$image"
+  fi
 done <<< "$images"

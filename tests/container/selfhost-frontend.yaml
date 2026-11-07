@@ -18,7 +18,7 @@ commandTests:
     command: sh
     args: [-ec, 'test -z "$(find /dist -name *.map)"']
     exitCode: 0
-  - name: one shot publisher copies a complete bundle
+  - name: the bundle copies whole (Dockerfile.caddy copies /dist), read as the image's non-root user
     command: sh
-    args: [-ec, "mkdir /out; cp -a /dist/. /out/; cmp /dist/version.json /out/version.json; test -s /out/index.html"]
+    args: [-ec, 'test "$(id -u)" = 65534; mkdir /tmp/out; cp -a /dist/. /tmp/out/; cmp /dist/version.json /tmp/out/version.json; test -s /tmp/out/index.html']
     exitCode: 0

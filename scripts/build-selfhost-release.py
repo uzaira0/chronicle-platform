@@ -22,8 +22,9 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 SELFHOST = ROOT / "selfhost"
 sys.path.insert(0, str(SELFHOST))
-from chronicle_ops.release import ANDROID_COMPATIBILITY, RELEASE_SIGNER, UPGRADE_FROM_MINIMUM, UPGRADE_FLOOR_KEY, parse_version, read_manifest, require_migration_inventory
-from chronicle_ops.migrations import MIGRATIONS_KEY, require_immutable_migrations
+from chronicle_ops.release import ANDROID_COMPATIBILITY, PLATFORM_KEY, RELEASE_PLATFORM, RELEASE_SIGNER, UPGRADE_FROM_MINIMUM, UPGRADE_FLOOR_KEY, parse_version, read_manifest, require_migration_inventory
+from chronicle_ops.migrations import MIGRATIONS_KEY, require_database_volume_continuity, require_immutable_migrations
+from chronicle_ops.image_signatures import KINDS as SIGNATURE_KINDS, SIGNATURES_KEY, verify_release_images
 from chronicle_ops.images import IMAGE_INPUTS_KEY, INPUTS_TREE_LABEL, SOURCE_IMAGES, archive_source, bundle_images, source_inputs_tree
 
 # Accept the registry host:port form used by private/self-hosted OCI registries while still
@@ -73,6 +74,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fluentbit-image", required=True)
     parser.add_argument("--postgres-image", required=True)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "build" / "releases")
+    # Directory with <component>.signature.sigstore.json and <component>.provenance.sigstore.json for
+    # every first-party image (scripts/publish-images.sh, cosign sign/attest); they ship in the bundle.
+    parser.add_argument("--image-signatures", type=Path)
     return parser.parse_args()
 
 
@@ -380,6 +384,8 @@ def operator_files(selfhost=SELFHOST):
         "chronicle_ops/restore-table-policy.json",
         "rotate-secret.sh",
         "rotation-http.sh",
+        "secrets-init.sh",
+        "secret-files.sh",
         "verify-config.sh",
     ]
     root_files.extend(path.name for path in sorted(selfhost.glob("*.sql")))
@@ -441,6 +447,11 @@ def copy_bundle_inputs(bundle, args, tracked_paths, *, source_root=ROOT):
     require_tracked(role_sql, source_root, tracked_paths)
     copy_release_file(role_sql, resolve_within(bundle, docker_dir / role_sql.name,
                                             strict=False, description="database role output"), 0o644)
+    if getattr(args, "image_signatures", None):
+        # The image-signing public key is committed source, like release-signing.pub.
+        key = source_root / "selfhost" / IMAGE_SIGNING_PUBLIC_KEY
+        require_tracked(key, source_root, tracked_paths)
+        copy_release_file(key, bundle / "selfhost" / IMAGE_SIGNING_PUBLIC_KEY, 0o644)
     # Operators read release notes and the vulnerability-reporting policy offline.
     for name in ("LICENSE", "THIRD-PARTY.md", "CHANGELOG.md", "SECURITY.md"):
         source = source_root / name
@@ -448,6 +459,50 @@ def copy_bundle_inputs(bundle, args, tracked_paths, *, source_root=ROOT):
         copy_release_file(source, resolve_within(bundle, bundle / name,
                                               strict=False, description="release document output"), 0o644)
 
+
+
+RELEASE_VERSION_LINE = re.compile(r'(?m)^( +)RELEASE_VERSION: \$\{RELEASE_VERSION:-development\}$')
+# Every Compose file that reads RELEASE_VERSION, and how often. A source checkout reads it from .env
+# (development builds local tags); a release writes its own version in place, so .env cannot turn
+# off what keys on it: guard-config.sh's digest-pin rule (config-guard), render-config.sh's monitoring
+# image check (monitoring-config), the version every dump records (db-backup) and the probe's label.
+RELEASE_VERSION_FILES = {
+    'docker-compose.yml': 1,
+    'overlays/backups.yml': 1,
+    'overlays/monitoring.yml': 2,
+}
+
+
+IMAGE_SIGNING_PUBLIC_KEY = "image-signing.pub"
+IMAGE_SIGNATURE_DIRECTORY = "image-signatures"
+
+
+def copy_image_signatures(bundle, source):
+    """Sigstore bundles for every first-party image, as the manifest's image_signatures entry."""
+    directory = bundle / "selfhost" / IMAGE_SIGNATURE_DIRECTORY
+    directory.mkdir(mode=0o755)
+    directory.chmod(0o755)
+    entries = {}
+    for image in SOURCE_IMAGES:
+        for kind in SIGNATURE_KINDS:
+            name = f"{image.component}.{kind}.sigstore.json"
+            origin = Path(source) / name
+            if not origin.is_file() or origin.is_symlink():
+                fail(f"image {kind} bundle is missing: {origin}")
+            copy_release_file(origin, directory / name, 0o644)
+            entries.setdefault(image.component, {})[kind] = f"selfhost/{IMAGE_SIGNATURE_DIRECTORY}/{name}"
+    return {"public_key": f"selfhost/{IMAGE_SIGNING_PUBLIC_KEY}", "bundles": entries}
+
+
+def pin_release_version(text: str, version: str, expected: int) -> str:
+    if len(RELEASE_VERSION_LINE.findall(text)) != expected:
+        fail(f'expected {expected} RELEASE_VERSION default(s) to pin to the release version')
+    return RELEASE_VERSION_LINE.sub(lambda match: f'{match[1]}RELEASE_VERSION: "{version}"', text)
+
+
+def pin_backup_release(overlay: str, version: str) -> str:
+    """The backup service records its release in every dump, whatever .env says."""
+    return pin_release_version(overlay, version, RELEASE_VERSION_FILES['overlays/backups.yml'])
 
 
 def render_bundle(bundle, args, images, normalized_version):
@@ -480,17 +535,18 @@ def render_bundle(bundle, args, images, normalized_version):
     if "context: .." in compose_text or "dockerfile:" in compose_text:
         fail("generated Compose still references the source workspace")
 
-    backup_overlay = bundle / "selfhost/overlays/backups.yml"
-    overlay = backup_overlay.read_text()
-    backup_environment = '      PGSSLMODE:'
-    if overlay.count(backup_environment) != 1:
-        fail('backup service environment must expose its release provenance')
-    overlay = overlay.replace(backup_environment, f'      RELEASE_VERSION: "{normalized_version}"\n{backup_environment}', 1)
-    backup_overlay.write_text(overlay)
+    for name, count in RELEASE_VERSION_FILES.items():
+        path = bundle / "selfhost" / name
+        path.write_text(pin_release_version(path.read_text(), normalized_version, count))
+    unpinned = sorted(path.relative_to(bundle).as_posix() for path in (bundle / "selfhost").rglob("*.yml")
+                      if "${RELEASE_VERSION:-development}" in path.read_text())
+    if unpinned:
+        fail("release Compose files still read RELEASE_VERSION from .env: " + ", ".join(unpinned))
     runtime_images = bundle_images(bundle / "selfhost")
     if any("__CHRONICLE_" in image for image in runtime_images):
         fail("every first-party runtime image requires its release digest")
     images = dict(images, **{f"runtime-{index}": pin for index, pin in enumerate(sorted(runtime_images - set(images.values())))})
+    signatures = copy_image_signatures(bundle, args.image_signatures) if getattr(args, "image_signatures", None) else None
     file_hashes: dict[str, str] = {}
     for path in sorted(bundle.rglob("*")):
         if path.is_file():
@@ -504,14 +560,26 @@ def render_bundle(bundle, args, images, normalized_version):
         "source_revision": args.source_revision,
         **({"public_revision": args.public_revision} if args.public_revision else {}),
         "source_date_epoch": args.source_date_epoch,
+        # 2026.11.2's read_manifest ignores unknown keys (test_release.ReleasePlatformTests runs it
+        # from its tag), so the field is additive.
+        PLATFORM_KEY: RELEASE_PLATFORM,
         "images": images,
         IMAGE_INPUTS_KEY: {image.component: args.inputs_tree for image in SOURCE_IMAGES},
         "files": file_hashes,
+        **({SIGNATURES_KEY: signatures} if signatures else {}),
     }
+    if signatures:
+        # The same check ./chronicle update runs: every bundle verifies with the shipped key and names the
+        # digest this manifest pins.
+        try:
+            verified = verify_release_images(bundle, manifest)
+        except ValueError as error:
+            fail(str(error))
+        if len(verified) != len(SOURCE_IMAGES):
+            fail("openssl is required to verify the image signatures before they ship")
     manifest_path = bundle / "release-manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest_path.chmod(0o644)
-
 
 
 def validate_inputs(args):
@@ -535,11 +603,16 @@ def validate_inputs(args):
     for name, image in images.items():
         if not IMAGE_RE.fullmatch(image):
             fail(f"{name} image must be an immutable name@sha256 reference")
-        label = subprocess.run(['docker', 'image', 'inspect', '--format',
-                                '{{index .Config.Labels "' + INPUTS_TREE_LABEL + '"}}', image],
-                               capture_output=True, text=True, check=False)
-        if label.returncode or label.stdout.strip() != args.inputs_tree:
+        inspected = subprocess.run(['docker', 'image', 'inspect', '--format',
+                                    '{{index .Config.Labels "' + INPUTS_TREE_LABEL + '"}} {{.Os}}/{{.Architecture}}', image],
+                                   capture_output=True, text=True, check=False)
+        label, _, platform = inspected.stdout.strip().partition(' ')
+        if inspected.returncode or label != args.inputs_tree:
             fail(f"{name} image was not built from the declared source inputs tree")
+        # The manifest declares one platform for every image; an image built for another one (an
+        # unpinned build on an arm64 Mac) would run emulated or not at all on the documented hosts.
+        if platform != RELEASE_PLATFORM:
+            fail(f"{name} image is built for {platform or 'an unknown platform'}, not the release platform {RELEASE_PLATFORM}")
 
     return images
 
@@ -631,6 +704,10 @@ def main() -> None:
         if parse_version(normalized_version, 'release') < parse_version(UPGRADE_FROM_MINIMUM, 'reset floor'):
             fail('new release predates the reset upgrade floor')
         args.migrations = require_immutable_migrations(ROOT, source_root)
+        try:
+            require_database_volume_continuity(ROOT, source_root)
+        except ValueError as error:
+            fail(str(error))
         bundle = staging_parent / bundle_name
         copy_bundle_inputs(bundle, args, tracked_paths, source_root=source_root)
 
