@@ -41,8 +41,10 @@
 # `verify` probes the exposure boundary from outside. Plain `docker compose up -d` skips all
 # of that and runs db-backup and restore as root.
 #
-# Release images are built, scanned, attested, and digest-pinned before this bundle is
-# published. A self-hoster never needs the source workspace or a language toolchain.
+# Release images are built for linux/amd64, scanned (vulnerabilities, secrets, image policy),
+# signed with the image-signing key and attested with their BuildKit provenance (cosign), and
+# digest-pinned before this bundle is published; `./chronicle update` checks the signatures
+# before it pulls. A self-hoster never needs the source workspace or a language toolchain.
 
 # Docker's default json-file driver grows without bound, which on a busy box eventually
 # fills the disk and takes the database down with it. Cap every service.
@@ -51,6 +53,18 @@ x-logging: &default-logging
   options:
     max-size: "${LOG_MAX_SIZE:-10m}"
     max-file: "${LOG_MAX_FILES:-5}"
+
+# CPU ceilings are CFS quotas (cpu_quota / cpu_period, in CPUs), not `cpus`: Docker refuses `cpus`
+# above the host's CPU count at container create, which would stop a 2-vCPU pilot host, while a
+# quota above it simply never binds. Go services also set GOMAXPROCS to their ceiling and the JVM
+# sizes its pools from the quota, so thread counts, and the pids_limit below them, do not grow with
+# the host (README "Container limits" records each limit and the measured peak).
+
+# Every service with a network resolves external names through TEST-NET-1 (RFC 5737), which
+# answers nothing; Compose service names are still answered by Docker's embedded resolver. Internal
+# networks stop forwarding external names only from Docker Engine 25.0.5 (CVE-2024-29018), so this
+# closes DNS as a channel on every engine (chronicle_ops/services.py, docs/NETWORK-EGRESS.md).
+x-no-external-dns: &no-external-dns ["192.0.2.53"]
 
 services:
   # Runs first, exits, and gates every other service. Nothing here touches the network or
@@ -80,7 +94,7 @@ services:
       MONITORING_ENABLED: "false"
       RELEASE_VERSION: ${RELEASE_VERSION:-development}
       CHRONICLE_SUBNET: ${CHRONICLE_SUBNET:-172.28.0.0/16}
-      CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_SUBNET:-172.28.0.0/16}
+      CHRONICLE_CORE_PREFIX: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}
       CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32}
       POOL_ALLOWED_IPS: ${POOL_ALLOWED_IPS:-0.0.0.0/0 ::/0}
       # Checked for digest pinning outside source checkouts (guard-config.sh).
@@ -93,15 +107,9 @@ services:
       CHRONICLE_PUBLIC_BASE_URL: ${CHRONICLE_PUBLIC_BASE_URL:-}
       LOCAL_HTTPS_PORT: ${LOCAL_HTTPS_PORT:-443}
       LOCAL_HTTP_PORT: ${LOCAL_HTTP_PORT:-80}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
-      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-}
-      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:-}
       CHRONICLE_REVIEWER_ACCESS_ENABLED: ${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}
-      CHRONICLE_REVIEWER_ACCESS_SECRET: ${CHRONICLE_REVIEWER_ACCESS_SECRET:-}
       CHRONICLE_REVIEWER_STUDY_ID: ${CHRONICLE_REVIEWER_STUDY_ID:-}
       CHRONICLE_REVIEWER_PARTICIPANT_ID: ${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}
-      JWT_SECRET: ${JWT_SECRET:-}
-      JWT_SECRET_PREVIOUS: ${JWT_SECRET_PREVIOUS:-}
       JWT_SECRET_PREVIOUS_EXPIRES_AT: ${JWT_SECRET_PREVIOUS_EXPIRES_AT:-0}
       CHRONICLE_RECORD_STAFF_IP: ${CHRONICLE_RECORD_STAFF_IP:-false}
       RATE_LIMIT_MOBILE_ABUSE_EVENTS: ${RATE_LIMIT_MOBILE_ABUSE_EVENTS:-200}
@@ -112,15 +120,13 @@ services:
       RATE_LIMIT_GUARD_WINDOW: ${RATE_LIMIT_GUARD_WINDOW:-1m}
       DASHBOARD_SESSION_MINUTES: ${DASHBOARD_SESSION_MINUTES:-480}
       CHRONICLE_SESSION_IDLE_MINUTES: ${CHRONICLE_SESSION_IDLE_MINUTES:-15}
-      METRICS_PASSWORD: ${METRICS_PASSWORD:-}
-      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
       GRAFANA_BIND: ${GRAFANA_BIND:-127.0.0.1}
       GRAFANA_PORT: ${GRAFANA_PORT:-3000}
       METRICS_RETENTION: ${METRICS_RETENTION:-30d}
       LOGS_RETENTION: ${LOGS_RETENTION:-14d}
-      METRICS_MAX_DISK_BYTES: ${METRICS_MAX_DISK_BYTES:-5368709120}
+      METRICS_DISK_BUDGET_BYTES: ${METRICS_DISK_BUDGET_BYTES:-5368709120}
       LOGS_MAX_DISK_BYTES: ${LOGS_MAX_DISK_BYTES:-5368709120}
-      METRICS_MIN_FREE_DISK_BYTES: ${METRICS_MIN_FREE_DISK_BYTES:-2147483648}
+      METRICS_MIN_FREE_DISK_BYTES: ${METRICS_MIN_FREE_DISK_BYTES:-8589934592}
       FLUENT_BIT_FORWARD_PORT: ${FLUENT_BIT_FORWARD_PORT:-24224}
       TESTING_LOGIN_ENABLED: ${TESTING_LOGIN_ENABLED:-false}
       REQUIRE_MFA: ${REQUIRE_MFA:-false}
@@ -138,9 +144,18 @@ services:
       PRE_OP_BACKUP_KEEP_DAYS: ${PRE_OP_BACKUP_KEEP_DAYS:-}
       BACKEND_XMS: ${BACKEND_XMS:-}
       BACKEND_XMX: ${BACKEND_XMX:-}
+      # The credentials it checks: files secrets-init wrote from .env just before it.
+      CHRONICLE_SECRETS_DIR: /run/secrets/chronicle
+    # The scripts it runs, each read-only: never the bundle directory, which holds .env (and, with
+    # the default state directory, ./tls and ./backups).
     volumes:
-      - .:/selfhost:ro,z
+      - ./guard-config.sh:/selfhost/guard-config.sh:ro,z
+      - ./network-policy.sh:/selfhost/network-policy.sh:ro,z
+      - ./secret-files.sh:/selfhost/secret-files.sh:ro,z
+      - ./chronicle_ops:/selfhost/chronicle_ops:ro,z
+      - ./.env.example:/selfhost/.env.example:ro,z
       - "${CHRONICLE_STATE_DIR:-.}/tls:/tls:ro,z"
+      - guard_secrets:/run/secrets/chronicle:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -148,6 +163,13 @@ services:
     read_only: true
     mem_limit: 128m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
+    # secrets-init copies .env's credentials into files first; this guard then validates exactly
+    # what every consumer will read. Callers that run the guard alone run secrets-init before it.
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
 
   # Certificate material for Caddy. Runs as root because its job is fixing ownership and
   # modes that the unprivileged edge process cannot change.
@@ -157,6 +179,8 @@ services:
     logging: *default-logging
     user: "0:0"
     entrypoint: ["/bin/bash", "/selfhost/cert-init.sh"]
+    # Writes certificates into volumes; it talks to nothing.
+    network_mode: none
     environment:
       TLS_MODE: ""
       DASHBOARD_EXPOSURE: ""
@@ -171,7 +195,7 @@ services:
       POSTGRES_TLS_DIR: /postgres-tls
       BACKEND_TLS_DIR: /backend-tls
     volumes:
-      - .:/selfhost:ro,z
+      - ./cert-init.sh:/selfhost/cert-init.sh:ro,z
       - "${CHRONICLE_STATE_DIR:-.}/tls:/tls:z"
       - postgres_tls:/postgres-tls
       - backend_tls:/backend-tls
@@ -184,6 +208,8 @@ services:
     tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 128m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
     depends_on:
       config-guard:
         condition: service_completed_successfully
@@ -198,6 +224,7 @@ services:
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     command: ["mkdir -p /data /config; chown -R 10001:0 /data /config"]
+    network_mode: none
     volumes:
       - caddy_data:/data
       - caddy_config:/config
@@ -210,9 +237,54 @@ services:
     tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 64m
     pids_limit: 32
+    cpu_period: 100000
+    cpu_quota: 100000
     depends_on:
       config-guard:
         condition: service_completed_successfully
+
+  # Copies the credentials from .env into one volume per consumer (secrets-init.sh), so
+  # postgres, backend, web, db-backup and operational-probe read files and `docker inspect` of
+  # them shows no secret. Runs on every `up`; when a value changes, Compose recreates this
+  # job and restarts the consumers that declare `restart: true` on it.
+  secrets-init:
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
+    restart: "no"
+    logging: *default-logging
+    user: "0:0"
+    entrypoint: ["/bin/bash", "/selfhost/secrets-init.sh"]
+    network_mode: none
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_SECRET_PREVIOUS: ${JWT_SECRET_PREVIOUS:-}
+      METRICS_PASSWORD: ${METRICS_PASSWORD:?set METRICS_PASSWORD in .env (32+ chars)}
+      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET in .env}
+      CHRONICLE_REVIEWER_ACCESS_SECRET: ${CHRONICLE_REVIEWER_ACCESS_SECRET:-}
+      # Checked by config-guard when the monitoring overlay is on; written for it either way.
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      CHRONICLE_HOST_UID: ${CHRONICLE_HOST_UID:-}
+      CHRONICLE_HOST_GID: ${CHRONICLE_HOST_GID:-}
+    volumes:
+      - ./secrets-init.sh:/selfhost/secrets-init.sh:ro,z
+      - postgres_secrets:/out/postgres
+      - backend_secrets:/out/backend
+      - operator_secrets:/out/operator
+      - database_init_secrets:/out/database-init
+      - migrate_secrets:/out/migrate
+      - guard_secrets:/out/guard
+      - web_secrets:/out/web
+    security_opt: ["no-new-privileges:true"]
+    # Root only to chown the files to each consumer and to replace them inside the 0500
+    # directories on later runs.
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+    read_only: true
+    mem_limit: 32m
+    pids_limit: 32
+    cpu_period: 100000
+    cpu_quota: 100000
 
 
   # Encryption at rest, before the backend exists. Running this ahead of Flyway rather than
@@ -226,6 +298,8 @@ services:
     # Root, to chown ./backups to the operator and the keyring directory to postgres (26).
     user: "0:0"
     entrypoint: ["/bin/bash", "/selfhost/db-init.sh"]
+    networks: [database]
+    dns: *no-external-dns
     environment:
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
       PGSSLMODE: verify-full
@@ -234,17 +308,21 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD in .env}
+      # POSTGRES_PASSWORD and POSTGRES_APP_PASSWORD come from secrets-init's files (db-init.sh).
+      CHRONICLE_SECRETS_DIR: /run/secrets/chronicle
       # init-tde.sh rewrites whole tables; never cut it off with the server's timeouts.
       PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"
     volumes:
       - postgres_tls:/etc/postgres-tls:ro
-      # Read-only, and also the reference for who owns ./backups: nothing in a container
-      # knows the operator's uid, but this directory is theirs.
-      - .:/selfhost:ro,z
+      # The files it runs, read-only. db-init.sh is also the reference for who owns ./backups:
+      # nothing in a container knows the operator's uid, but the bundle's files are theirs.
+      - ./db-init.sh:/selfhost/db-init.sh:ro,z
+      - ./init-tde.sh:/selfhost/init-tde.sh:ro,z
+      - ./secret-files.sh:/selfhost/secret-files.sh:ro,z
+      - ./database-app-role.sql:/selfhost/database-app-role.sql:ro,z
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups:z"
       - postgres_tde_keyring:/var/lib/postgresql/tde-keyring
+      - database_init_secrets:/run/secrets/chronicle:ro
     security_opt:
       - no-new-privileges:true
     cap_drop: ["ALL"]
@@ -253,9 +331,13 @@ services:
     tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 256m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
     depends_on:
       postgres:
         condition: service_healthy
+      secrets-init:
+        condition: service_completed_successfully
 
   # Restores a dump over an existing database. Behind a profile, so `docker compose up -d`
   # never starts it. Invoke it only through the operator command, which stops and verifies
@@ -274,6 +356,8 @@ services:
     restart: "no"
     logging: *default-logging
     entrypoint: ["/bin/bash", "/selfhost/restore.sh"]
+    networks: [database]
+    dns: *no-external-dns
     # Same account as db-backup (overlays/backups.yml): ./backups is 0700 and owned by the
     # operator, so the image's own postgres uid could neither find the dump nor write the
     # pre-restore safety dump. The wrapper exports these; bare Compose must select them explicitly.
@@ -289,15 +373,29 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # POSTGRES_PASSWORD comes from the operator services' file (restore.sh).
+      CHRONICLE_SECRETS_DIR: /run/secrets/chronicle
       # A large table's COPY can run for many minutes; a timeout mid-restore after the schema
       # was dropped would leave only the safety dump.
       PGOPTIONS: "-c statement_timeout=0 -c lock_timeout=0 -c idle_in_transaction_session_timeout=0"
     volumes:
       - postgres_tls:/etc/postgres-tls:ro
-      - .:/selfhost:ro,z
+      # The script, its SQL and chronicle_ops (with .env.example, its release-version fallback),
+      # read-only; never the bundle directory, which holds .env.
+      - ./restore.sh:/selfhost/restore.sh:ro,z
+      - ./secret-files.sh:/selfhost/secret-files.sh:ro,z
+      - ./restore-checkpoint-capture.sql:/selfhost/restore-checkpoint-capture.sql:ro,z
+      - ./restore-checkpoint-verify.sql:/selfhost/restore-checkpoint-verify.sql:ro,z
+      - ./restore-continuity.version:/selfhost/restore-continuity.version:ro,z
+      - ./restore-restrictions-containment.sql:/selfhost/restore-restrictions-containment.sql:ro,z
+      - ./restore-restrictions-verify.sql:/selfhost/restore-restrictions-verify.sql:ro,z
+      - ./restore-token-key-continuity.sql:/selfhost/restore-token-key-continuity.sql:ro,z
+      - ./restore-withdrawal-containment.sql:/selfhost/restore-withdrawal-containment.sql:ro,z
+      - ./chronicle_ops:/selfhost/chronicle_ops:ro,z
+      - ./.env.example:/selfhost/.env.example:ro,z
       # Read-write: the script writes a pre-restore snapshot here before it drops anything.
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups:z"
+      - operator_secrets:/run/secrets/chronicle:ro
     security_opt:
       - no-new-privileges:true
     # Inert for the operator uid; bounds the bare-compose root fallback.
@@ -307,6 +405,8 @@ services:
     tmpfs: ["/tmp:size=64m,mode=1777"]
     mem_limit: 512m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 200000
     depends_on:
       postgres:
         condition: service_healthy
@@ -314,13 +414,16 @@ services:
         condition: service_completed_successfully
 
   postgres:
-    networks: [default, database-probe]
+    networks: [database, database-probe]
+    dns: *no-external-dns
     image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image from .env.example}
     restart: unless-stopped
     logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Read by the image entrypoint (file_env) at initdb, and by `docker exec` callers
+      # (chronicle_ops.release.postgres_password); secrets-init writes it.
+      POSTGRES_PASSWORD_FILE: /run/secrets/chronicle/postgres-password
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       # Refuse the trust/md5 fallbacks; require SCRAM for every connection.
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
@@ -431,12 +534,17 @@ services:
       # the same role Flyway creates them as, which is what makes the defaults apply.
       # Mounted from docker/ rather than copied so prod and self-host cannot drift.
       - ../docker/init-db-roles.sql:/docker-entrypoint-initdb.d/10-init-db-roles.sql:ro
+      - postgres_secrets:/run/secrets/chronicle:ro
     expose:
       - "5432"
     depends_on:
       cert-init:
         condition: service_completed_successfully
       config-guard:
+        condition: service_completed_successfully
+      # No restart on a new password: the server reads it only at initdb, and rotation
+      # changes the role with ALTER ROLE (rotate-secret.sh).
+      secrets-init:
         condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
@@ -449,6 +557,8 @@ services:
       - "/var/run/postgresql:size=8m,mode=3775,uid=26,gid=26"
     mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
     pids_limit: 512
+    cpu_period: 100000
+    cpu_quota: 400000
     healthcheck:
       # Fresh encrypted volumes run initdb, role bootstrap, a controlled shutdown, and the
       # final PostgreSQL start before accepting connections. On slower disks that can exceed
@@ -464,16 +574,20 @@ services:
     restart: "no"
     logging: *default-logging
     entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh", "--migrate"]
+    networks: [database]
+    dns: *no-external-dns
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_SSL_ROOT_CERT: /etc/postgres-tls/postgres.crt
       POSTGRES_MIGRATION_PROFILE: selfhost
+      # POSTGRES_PASSWORD comes from secrets-init's file (backend-entrypoint.sh --migrate).
+      CHRONICLE_SECRETS_DIR: /run/secrets/chronicle
     volumes:
       - ./backend-entrypoint.sh:/server/backend-entrypoint.sh:ro,z
       - postgres_tls:/etc/postgres-tls:ro
       - audit_logs:/var/log/chronicle
+      - migrate_secrets:/run/secrets/chronicle:ro
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     read_only: true
@@ -481,6 +595,8 @@ services:
       - /tmp:size=64m,mode=0700,uid=100,gid=101
     mem_limit: ${BACKEND_MEM_LIMIT:-3g}
     pids_limit: 1024
+    cpu_period: 100000
+    cpu_quota: 200000
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -489,6 +605,11 @@ services:
     image: ${BACKEND_IMAGE:?set BACKEND_IMAGE to the digest-pinned release image from .env.example}
     restart: unless-stopped
     logging: *default-logging
+    # Internal only: no route off the host and no external DNS. Study webhooks, the backend's
+    # one outbound feature, are refused on self-host for this reason (docs/NETWORK-EGRESS.md).
+    # core carries web's requests; database carries PostgreSQL, which web cannot reach.
+    networks: [core, database]
+    dns: *no-external-dns
     environment:
       CHRONICLE_SERVER_XMS: ${BACKEND_XMS:--Xms512m}
       CHRONICLE_SERVER_XMX: ${BACKEND_XMX:--Xmx2g}
@@ -496,14 +617,14 @@ services:
       CHRONICLE_SERVER_ARGS: ${CHRONICLE_SERVER_ARGS:-local postgres}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      # ClientIpResolver trusts the proxy only on the isolated Compose network. Keep this
-      # byte-identical to the subnet configured below; config-guard rejects drift.
-      CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_SUBNET:-172.28.0.0/16}
+      # ClientIpResolver trusts X-Forwarded-For only from web's fixed address on the core
+      # network (networks.core below); config-guard rejects any other value.
+      CHRONICLE_TRUSTED_PROXY_CIDRS: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.2/32
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
-      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD in .env}
-      # Signs dashboard session tokens.
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
-      JWT_SECRET_PREVIOUS: ${JWT_SECRET_PREVIOUS:-}
+      # POSTGRES_APP_PASSWORD, JWT_SECRET (signs dashboard session tokens), JWT_SECRET_PREVIOUS,
+      # CHRONICLE_SECURITY_METRICS_PASSWORD, CHRONICLE_INTERNAL_WEB_SECRET and
+      # CHRONICLE_REVIEWER_ACCESS_SECRET come from these files (backend-entrypoint.sh).
+      CHRONICLE_SECRETS_DIR: /run/secrets/chronicle
       JWT_SECRET_PREVIOUS_EXPIRES_AT: ${JWT_SECRET_PREVIOUS_EXPIRES_AT:-0}
       # Dashboard password logins get no refresh token, so this is the whole session length.
       CHRONICLE_SECURITY_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${DASHBOARD_SESSION_MINUTES:-480}
@@ -521,17 +642,16 @@ services:
       # Rendered into chronicle-auth.yaml; the backend verifies the dashboard password against
       # it and issues a cookie-backed dashboard session.
       DASHBOARD_PASSWORD_HASH: ${DASHBOARD_PASSWORD_HASH:-}
-      # chronicle.security.require-mfa, via Spring relaxed binding. Secure default true.
-      # The built-in testing login mints a token with no `amr` claim, so with this left on,
-      # MfaClaimValidator rejects every dashboard API call it authenticates:
+      # chronicle.security.require-mfa, via Spring relaxed binding. Off here unless .env sets
+      # REQUIRE_MFA=true; the backend's own property is on when nothing sets it.
+      # The internal password login and the built-in testing login mint tokens with no `amr`
+      # claim, so with this on, MfaClaimValidator rejects every dashboard API call they authenticate:
       #   401 invalid_token "Multi-factor authentication is required..."
       # while /chronicle/v3/auth/session still returns 200, so the login looks like it
-      # worked. An operator using TESTING_LOGIN_ENABLED must therefore opt out here
-      # explicitly; ./chronicle check refuses the combinations that are actually unsafe.
+      # worked. config-guard refuses REQUIRE_MFA=true with the dashboard password login.
       CHRONICLE_SECURITY_REQUIRE_MFA: ${REQUIRE_MFA:-false}
 
       CHRONICLE_SECURITY_METRICS_USERNAME: ${METRICS_USERNAME:-chronicle-metrics}
-      CHRONICLE_SECURITY_METRICS_PASSWORD: ${METRICS_PASSWORD:?set METRICS_PASSWORD in .env (32+ chars)}
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
       # Authoritative root origin embedded in the participant's enrollment manifest.
       # Blank means the entrypoint deterministically uses https://DOMAIN; it is never
@@ -540,7 +660,6 @@ services:
       # Optional, exact-route Google Play reviewer bootstrap. The reusable value stays in
       # the mode-0600 .env and is pinned to one synthetic study/participant.
       CHRONICLE_REVIEWER_ACCESS_ENABLED: ${CHRONICLE_REVIEWER_ACCESS_ENABLED:-false}
-      CHRONICLE_REVIEWER_ACCESS_SECRET: ${CHRONICLE_REVIEWER_ACCESS_SECRET:-}
       CHRONICLE_REVIEWER_STUDY_ID: ${CHRONICLE_REVIEWER_STUDY_ID:-}
       CHRONICLE_REVIEWER_PARTICIPANT_ID: ${CHRONICLE_REVIEWER_PARTICIPANT_ID:-}
       # All three feed the CORS allowlist the entrypoint builds for cors.yaml.template.
@@ -558,9 +677,9 @@ services:
       INTERNAL_BIND: ${INTERNAL_BIND:-127.0.0.1}
       INTERNAL_PORT: ${INTERNAL_PORT:-8081}
       DASHBOARD_ORIGINS: ${DASHBOARD_ORIGINS:-}
-      # The other half of the marker Caddy stamps on rewritten dashboard requests. Same
-      # default, same value, or MobileApiSignatureFilter rejects every dashboard call.
-      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET in .env}
+      # CHRONICLE_INTERNAL_WEB_SECRET (from CHRONICLE_SECRETS_DIR) is the other half of the
+      # marker Caddy stamps on rewritten dashboard requests. Same value, or
+      # MobileApiSignatureFilter rejects every dashboard call.
       # Consumed by log4j2.xml's logDir/auditDir properties. Set explicitly rather than
       # left to the config's defaults so the mount below and the appenders cannot drift.
       LOG_DIR: /var/log/chronicle
@@ -584,6 +703,7 @@ services:
       - audit_logs:/var/log/chronicle
       - postgres_tls:/etc/postgres-tls:ro
       - backend_tls:/server/tls:ro
+      - backend_secrets:/run/secrets/chronicle:ro
     entrypoint: ["/bin/sh", "/server/backend-entrypoint.sh"]
     command: []
     security_opt:
@@ -602,9 +722,15 @@ services:
       - /server/rendered-config:size=1m,mode=0700,uid=100,gid=101
     mem_limit: ${BACKEND_MEM_LIMIT:-3g}
     pids_limit: 1024
+    cpu_period: 100000
+    cpu_quota: 400000
     depends_on:
       migrate:
         condition: service_completed_successfully
+      # restart: the backend reads its credential files at start.
+      secrets-init:
+        condition: service_completed_successfully
+        restart: true
     # 40320 (plain HTTP) is used only by the healthcheck below; every peer uses 8443.
     expose:
       - "8443"
@@ -632,7 +758,21 @@ services:
     # (unhealthy web, then no thread for Caddy).
     init: true
     logging: *default-logging
+    # Internal networks only, in every mode: core reaches the backend from the one address it
+    # trusts, and web-forward, which holds the published ports, reaches web over ingress. web is not
+    # on the database network, so the TLS edge cannot open a connection to PostgreSQL, and it
+    # resolves no external name (docs/NETWORK-EGRESS.md).
+    networks:
+      core:
+        ipv4_address: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.2
+      ingress: {}
+    dns: *no-external-dns
     environment:
+      GOMAXPROCS: "2"
+      # Caddy takes a client address from a PROXY protocol header only from web-forward's
+      # fixed address on ingress (listener_wrappers in each Caddyfile); any other sender's
+      # header is ignored and its own address counts.
+      CHRONICLE_INGRESS_FORWARDER: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.130
       # Caddy resolves these at parse time. DASHBOARD_ALLOWED_IPS is used only by the internal
       # listener's guard in Caddyfile.split*; it is set here regardless so the same web
       # service definition serves every mode. The dashboard password hash stays on the backend.
@@ -644,12 +784,13 @@ services:
       # Compose resolves the default before Caddy parses its configuration, giving the
       # dashboard the same canonical participant origin rendered into backend manifests.
       CHRONICLE_PUBLIC_BASE_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
-      DASHBOARD_ALLOWED_IPS: ${DASHBOARD_ALLOWED_IPS:-10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1/32}
-      # Stamped onto dashboard API requests after they are rewritten into the /chronicle/v3
-      # namespace, so MobileApiSignatureFilter treats them as researcher-console traffic
-      # rather than an unsigned mobile upload. MUST be byte-identical to the backend's copy
-      # below; release configuration requires a non-guessable shared value.
-      CHRONICLE_INTERNAL_WEB_SECRET: ${CHRONICLE_INTERNAL_WEB_SECRET:?set CHRONICLE_INTERNAL_WEB_SECRET in .env}
+      DASHBOARD_ALLOWED_IPS: ${DASHBOARD_ALLOWED_IPS:-172.28.0.1/32 127.0.0.1/32 ::1/128}
+      # CHRONICLE_INTERNAL_WEB_SECRET is stamped onto dashboard API requests after they are rewritten
+      # into the /chronicle/v3 namespace, so MobileApiSignatureFilter treats them as researcher-console
+      # traffic rather than an unsigned mobile upload; it is the backend's copy, byte for byte. Caddy
+      # substitutes {$CHRONICLE_INTERNAL_WEB_SECRET} when it adapts the Caddyfile, so the entrypoint
+      # above reads it from secrets-init's file into Caddy's process environment only: `docker
+      # inspect web` shows no credential.
       # Propagate the documented edge-rate controls. Without these entries, values in .env
       # never reached Caddy and its inline defaults silently won.
       RATE_LIMIT_MOBILE_ABUSE_EVENTS: ${RATE_LIMIT_MOBILE_ABUSE_EVENTS:-200}
@@ -658,8 +799,18 @@ services:
       RATE_LIMIT_WEB_WINDOW: ${RATE_LIMIT_WEB_WINDOW:-1s}
       RATE_LIMIT_GUARD_EVENTS: ${RATE_LIMIT_GUARD_EVENTS:-300}
       RATE_LIMIT_GUARD_WINDOW: ${RATE_LIMIT_GUARD_WINDOW:-1m}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - >-
+        CHRONICLE_INTERNAL_WEB_SECRET="$$(cat /run/secrets/chronicle/internal-web-secret)";
+        [ -n "$$CHRONICLE_INTERNAL_WEB_SECRET" ] ||
+        { echo 'web: /run/secrets/chronicle/internal-web-secret is missing or empty; secrets-init writes it' >&2; exit 1; };
+        export CHRONICLE_INTERNAL_WEB_SECRET;
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     volumes:
       - ./caddy/snippets.caddy:/etc/caddy/snippets.caddy:ro,z
+      - web_secrets:/run/secrets/chronicle:ro
       # Trust anchor for the TLS hop to the backend (backend.crt only is world-readable).
       - backend_tls:/etc/caddy/backend-tls:ro
       - caddy_data:/data
@@ -677,6 +828,8 @@ services:
     tmpfs: ["/tmp:size=16m,mode=1777"]
     mem_limit: ${WEB_MEM_LIMIT:-256m}
     pids_limit: 256
+    cpu_period: 100000
+    cpu_quota: 200000
     depends_on:
       backend:
         condition: service_healthy
@@ -686,6 +839,10 @@ services:
         condition: service_completed_successfully
       caddy-storage-init:
         condition: service_completed_successfully
+      # restart: Caddy reads the web-marker file at start.
+      secrets-init:
+        condition: service_completed_successfully
+        restart: true
     healthcheck:
       # Probe the internal listener, not the public one. Only the behind-proxy variant has a
       # port-only public catch-all; the own-tls and local-https Caddyfiles match :80 by host, so a
@@ -693,6 +850,41 @@ services:
       # nothing behind it works. `:8081` is port-only in all three variants and carries
       # chronicle_health, which proxies to the backend. Self-signed cert, hence --no-check-certificate.
       test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Holds web's published ports. Docker publishes ports only on a network it connects to the
+  # host, and a container on one has a default route; this one holds no data, credentials or
+  # volumes and runs chronicle-forward (selfhost/caddy/forward, Go standard library only), which
+  # copies each TCP connection to web over the internal ingress network with a PROXY protocol
+  # header naming the client. Its container ports are unprivileged; the mode overlay publishes
+  # the ones the mode serves.
+  web-forward:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image from .env.example}
+    restart: unless-stopped
+    user: "10001:0"
+    logging: *default-logging
+    entrypoint: ["/usr/bin/chronicle-forward"]
+    command: ["8080=web:8080+proxy", "8081=web:8081+proxy", "8443=web:443+proxy", "8880=web:80+proxy"]
+    networks:
+      default: {}
+      ingress:
+        ipv4_address: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.130
+    dns: *no-external-dns
+    environment:
+      GOMAXPROCS: "2"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    mem_limit: 64m
+    pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 200000
+    healthcheck:
+      test: ["CMD", "/usr/bin/chronicle-forward", "-check", "8080=web:8080", "8081=web:8081", "8443=web:443", "8880=web:80"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -711,10 +903,50 @@ volumes:
   # capped and rotated (LOG_MAX_SIZE x LOG_MAX_FILES), which is fine for diagnostics and
   # wrong for a record you may have to produce later.
   audit_logs:
+  # Credential files written by secrets-init, one volume per consumer.
+  postgres_secrets:
+  backend_secrets:
+  operator_secrets:
+  database_init_secrets:
+  migrate_secrets:
+  guard_secrets:
+  web_secrets:
+# What each network may reach (docs/NETWORK-EGRESS.md). Only `default` is a bridge Docker
+# connects to the host, because a published port needs one; it carries web-forward alone, and
+# Docker does not masquerade its traffic.
 networks:
   database-probe:
     internal: true
   default:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
     ipam:
       config:
         - subnet: ${CHRONICLE_SUBNET:-172.28.0.0/16}
+  # web to the backend. Internal, so no container on it can open a connection off the host or
+  # resolve an external name.
+  # setup and update choose CHRONICLE_CORE_PREFIX (network-subnet.py select-core), a /24 that
+  # overlaps nothing; core takes its lower half and ingress its upper half. Web holds .2,
+  # outside ip_range, so no other container can take the address the backend trusts.
+  core:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.0/25
+          ip_range: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.64/26
+  # web-forward to web. Internal; web-forward holds .130, outside ip_range, the one address
+  # Caddy accepts a PROXY protocol header from.
+  ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.128/26
+          ip_range: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.160/27
+  # PostgreSQL and the services that use it: backend, db-backup and the database jobs (not web).
+  # Internal; the last quarter of the same /24.
+  database:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.192/26
+          ip_range: ${CHRONICLE_CORE_PREFIX:?run ./chronicle setup or update, which choose the core network}.192/26

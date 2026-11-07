@@ -19,6 +19,12 @@ services:
       DASHBOARD_EXPOSURE: internal
 
   web:
+    volumes:
+      - ./Caddyfile.split:/etc/caddy/Caddyfile:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"
+
+  # web has no route off the host; web-forward holds its ports (docker-compose.yml).
+  web-forward:
     ports:
       - target: 8080
         published: "${HTTP_PORT:-8080}"
@@ -28,6 +34,3 @@ services:
         published: "${INTERNAL_PORT:-8081}"
         host_ip: "${INTERNAL_BIND:-127.0.0.1}"
         protocol: tcp
-    volumes:
-      - ./Caddyfile.split:/etc/caddy/Caddyfile:ro,z
-      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"

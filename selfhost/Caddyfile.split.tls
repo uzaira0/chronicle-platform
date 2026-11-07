@@ -13,6 +13,11 @@ import snippets.caddy
 
 {
 	auto_https off
+	# web has no route off the host (docs/NETWORK-EGRESS.md), so Caddy cannot fetch OCSP responses
+	# from your CA. Clients check revocation themselves (CRLs, or OCSP where they still use it); a
+	# certificate with the OCSP Must-Staple extension is refused by browsers that enforce it, so do
+	# not use one here.
+	ocsp_stapling off
 	import chronicle_default_log
 
 	# rate_limit ships as a plugin (see Dockerfile.caddy), so its place in the handler
@@ -20,6 +25,15 @@ import snippets.caddy
 	order rate_limit before basic_auth
 
 	servers {
+		# web-forward holds the published ports and starts each connection with a PROXY protocol
+		# header naming the client. Caddy takes it only from web-forward's fixed ingress address;
+		# a header from anywhere else is ignored (docker-compose.yml, docs/NETWORK-EGRESS.md).
+		listener_wrappers {
+			proxy_protocol {
+				allow {$CHRONICLE_INGRESS_FORWARDER}/32
+			}
+			tls
+		}
 		import chronicle_listener_timeouts
 		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
 		trusted_proxies_strict

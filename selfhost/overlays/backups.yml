@@ -15,6 +15,9 @@
 # For off-box / encrypted backups, sync ./backups to object storage (rclone/restic) or
 # set BACKUP_KEEP_* + a cron rclone job — the dumps are portable files.
 
+# The base file's blackhole resolver, restated: anchors do not cross YAML documents (docker-compose.yml).
+x-no-external-dns: &no-external-dns ["192.0.2.53"]
+
 services:
   db-backup:
     # The tag is the pg_dump MAJOR, and it must match the server. pg_dump refuses to read a
@@ -29,9 +32,15 @@ services:
     # asks go-cron for its immediate backup, preventing a failed first dump from leaving
     # the image's health endpoint at 503 until the next daily run.
     entrypoint: ["/bin/bash", "/selfhost/backup-entrypoint.sh"]
+    # Reaches PostgreSQL and the backend's study endpoint over the database network; nothing off
+    # the host.
+    networks: [database]
+    dns: *no-external-dns
     command: ["/init.sh"]
     mem_limit: ${BACKUP_MEM_LIMIT:-512m}
     pids_limit: 128
+    cpu_period: 100000
+    cpu_quota: 200000
     # Run as the operator, not root. As root this image wrote every dump and every rotation
     # subdirectory root:root, so the operator could read their own backups but not delete,
     # move, or prune them -- `rm` answered "Permission denied" and reclaiming the disk needed
@@ -65,13 +74,20 @@ services:
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
     environment:
+      # go-cron, otherwise one thread per host CPU.
+      GOMAXPROCS: "2"
       PGSSLMODE: verify-full
       PGSSLROOTCERT: /etc/postgres-tls/postgres.crt
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Stamped into every dump (chronicle_ops.dump.installed_backup_version). The image has no
+      # bundle beside its chronicle_ops, so without this the restore self-check after each dump
+      # failed looking for /.env.example and no backup was ever marked good.
+      RELEASE_VERSION: ${RELEASE_VERSION:-development}
+      # Read by the image's env.sh before every dump; secrets-init writes it.
+      POSTGRES_PASSWORD_FILE: /run/secrets/chronicle/postgres-password
       SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
       # Chosen by the operator in ./chronicle setup; "all" never prunes that tier.
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:?run ./chronicle setup to choose backup retention}
@@ -96,11 +112,13 @@ services:
     volumes:
       - postgres_tls:/etc/postgres-tls:ro
       - backend_tls:/etc/backend-tls:ro
+      - operator_secrets:/run/secrets/chronicle:ro
       - ./backup-entrypoint.sh:/selfhost/backup-entrypoint.sh:ro,z
       # Bounds the pre-upgrade/pre-restore safety dumps that the rotation below never sees.
       - ./backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro,z
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups:z"
     depends_on:
+      secrets-init: {condition: service_completed_successfully, restart: true}
       # A healthy BACKEND, not a healthy postgres. Flyway creates the schema when the backend
       # boots, so BACKUP_ON_START against a merely-running database writes a dump of an empty
       # cluster -- a file that satisfies every "is there a backup" check and restores nothing.

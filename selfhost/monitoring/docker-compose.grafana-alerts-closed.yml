@@ -1,0 +1,6 @@
+# Grafana while the alert webhook stays on this host (CHRONICLE_ALERT_EGRESS=closed, the default):
+# internal networks only (monitoring-forward holds its port), no route out; monitoring.yml sets the
+# blackhole resolver.
+services:
+  grafana:
+    networks: [monitoring, monitoring-ingress]

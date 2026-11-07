@@ -243,7 +243,7 @@
                   "type": "prometheus",
                   "uid": "chronicle-victoriametrics"
                 },
-                "expr": "chronicle_public_probe_success",
+                "expr": "chronicle_public_probe_success * (time() - chronicle_public_probe_timestamp_seconds < bool 660)",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,

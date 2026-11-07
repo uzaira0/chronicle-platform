@@ -37,18 +37,21 @@ services:
       # The dashboard adds this stack's CA root to each invitation link, so the apps trust
       # the trial certificate for this server only, without a CA profile on the phone.
       CHRONICLE_LOCAL_CA: "true"
-    # Prefer 443/80, but setup can select other free host ports when a VPN or management
-    # service already owns them. Caddy still listens on its standard container ports.
+    volumes:
+      - ./Caddyfile.split.local:/etc/caddy/Caddyfile:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"
+
+  # web-forward holds the ports (docker-compose.yml). Prefer 443/80, but setup can select
+  # other free host ports when a VPN or management service already owns them; Caddy still
+  # listens on its standard container ports behind it.
+  web-forward:
     ports:
-      - "${LOCAL_HTTPS_PORT:-443}:443"
-      - "${LOCAL_HTTP_PORT:-80}:80"
+      - "${LOCAL_HTTPS_PORT:-443}:8443"
+      - "${LOCAL_HTTP_PORT:-80}:8880"
       - target: 8081
         published: "${INTERNAL_PORT:-8081}"
         host_ip: "${INTERNAL_BIND:-127.0.0.1}"
         protocol: tcp
-    volumes:
-      - ./Caddyfile.split.local:/etc/caddy/Caddyfile:ro,z
-      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"
 
   # Prints the CA-install QR code, and drops a copy of the CA next to the compose file for
   # the researcher's own laptop. Only exists in this mode; every other mode uses a
@@ -64,11 +67,14 @@ services:
         max-size: "${LOG_MAX_SIZE:-10m}"
         max-file: "${LOG_MAX_FILES:-5}"
     entrypoint: ["/bin/sh", "/selfhost/ca-export.sh"]
+    # Copies the CA from caddy_data and prints it; it opens no connection.
+    network_mode: none
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env to this machine's LAN address}
       LOCAL_HTTP_PORT: ${LOCAL_HTTP_PORT:-80}
+    # The script alone, read-only: never the bundle directory, which holds .env.
     volumes:
-      - .:/selfhost:ro,z
+      - ./ca-export.sh:/selfhost/ca-export.sh:ro,z
       - "${CHRONICLE_STATE_DIR:-.}/tls:/out:z"
       - caddy_data:/data:ro
     security_opt:
@@ -79,6 +85,8 @@ services:
     tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 64m
     pids_limit: 32
+    cpu_period: 100000
+    cpu_quota: 100000
     depends_on:
       # Caddy creates the CA when it first provisions a certificate, which is at startup.
       # Waiting for healthy rather than started is what guarantees root.crt exists.

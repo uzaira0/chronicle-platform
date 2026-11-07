@@ -1,0 +1,7 @@
+# Rendered by ../backend-entrypoint.sh at container start; read by ChronicleConfiguration.
+storageConfiguration: {}
+# The self-host backend has no route off the host (docs/NETWORK-EGRESS.md). Study webhooks
+# stay off until a study needs them: registering one is refused with that reason, and no
+# delivery is ever attempted.
+webhooks:
+  enabled: false

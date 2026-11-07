@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Two containers run this loop (overlays/monitoring.yml). PROBE_SCOPE=internal (operational-probe)
+# holds the database password and measures everything inside the host on internal networks only.
+# PROBE_SCOPE=public (public-probe) is the one container that reaches the internet: it fetches the
+# public health URL and reads the served certificate, holding no credential, key or data.
+: "${PROBE_SCOPE:=internal}"
+[[ "$PROBE_SCOPE" == internal || "$PROBE_SCOPE" == public ]] || { printf 'PROBE_SCOPE must be internal or public\n' >&2; exit 64; }
 : "${POSTGRES_HOST:=postgres}"
 : "${POSTGRES_PORT:=5432}"
 : "${POSTGRES_DB:=chronicle}"
 : "${POSTGRES_USER:=chronicle}"
-: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+# secrets-init writes the password to POSTGRES_PASSWORD_FILE; Compose restarts this probe
+# when it changes. The environment variable is still accepted (older Compose files).
+if [[ "$PROBE_SCOPE" == internal && -z "${POSTGRES_PASSWORD:-}" && -n "${POSTGRES_PASSWORD_FILE:-}" ]]; then
+  POSTGRES_PASSWORD="$(<"$POSTGRES_PASSWORD_FILE")"
+fi
+[[ "$PROBE_SCOPE" == public ]] || : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 : "${PROBE_INTERVAL_SECONDS:=30}"
 : "${RELEASE_VERSION:=unknown}"
 : "${DOMAIN:=unknown}"
@@ -17,8 +28,12 @@ set -Eeuo pipefail
 : "${ENABLE_ENCRYPTION:=true}"
 : "${METRICS_DISK_BUDGET_BYTES:=5368709120}"
 : "${LOGS_DISK_BUDGET_BYTES:=5368709120}"
+# operational-probe copies the one CA certificate public-probe needs here; public-probe never
+# mounts the state tls/ directory, which also holds private keys.
+PUBLIC_TRUST_FILE=/public-trust/public-ca.crt
 [[ -n "$PUBLIC_HEALTH_URL" ]] || PUBLIC_HEALTH_URL="${CHRONICLE_PUBLIC_BASE_URL:-$PUBLIC_TLS_URL}/health"
-read -r INTERNAL_TLS_URL INTERNAL_CONNECT < <(python3 - <<'PY_INTERNAL'
+if [[ "$PROBE_SCOPE" == internal ]]; then
+  read -r INTERNAL_TLS_URL INTERNAL_CONNECT < <(python3 - <<'PY_INTERNAL'
 from chronicle_ops.common import authority, dashboard_origin
 import os
 from urllib.parse import urlsplit
@@ -27,7 +42,8 @@ parsed = urlsplit(origin)
 print(origin, authority(parsed.hostname, parsed.port or 443) + ':web:8081')
 PY_INTERNAL
 )
-: "${INTERNAL_HEALTH_URL:=$INTERNAL_TLS_URL/health}"
+  : "${INTERNAL_HEALTH_URL:=$INTERNAL_TLS_URL/health}"
+fi
 
 escape_label() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/[[:cntrl:]]//g'
@@ -87,14 +103,68 @@ public_tls_expiry() {
     tls_sni_args=(-servername "$tls_server_name" -verify_hostname "$tls_server_name")
   fi
   [[ -z "${2:-}" ]] || tls_trust_args=(-partial_chain -CAfile "$2")
+  # public-probe has no route out of its own: it reaches the public origin through egress-proxy
+  # (PUBLIC_TLS_PROXY), as curl does through HTTPS_PROXY. An explicit target is a local one.
+  local -a tls_proxy_args=()
+  [[ -n "${3:-}" || -z "${PUBLIC_TLS_PROXY:-}" ]] || tls_proxy_args=(-proxy "$PUBLIC_TLS_PROXY")
   tls_target="${3:-$tls_target}"
   local served
-  served=$(timeout 8 openssl s_client -verify_return_error -connect "$tls_target" "${tls_sni_args[@]}" "${tls_trust_args[@]}" </dev/null 2>/dev/null) || return 0
+  served=$(timeout 8 openssl s_client -verify_return_error -connect "$tls_target" "${tls_proxy_args[@]}" "${tls_sni_args[@]}" "${tls_trust_args[@]}" </dev/null 2>/dev/null) || return 0
   printf '%s\n' "$served" | certificate_expiry
 }
 
+# The CA that signs the public origin's certificate: the operator's PUBLIC_CA_FILE, the trial
+# CA in local-https mode, or none (public CAs in the system store).
+public_ca_file() {
+  local public_ca="$PUBLIC_CA_FILE"
+  [[ "$COMPOSE_FILE_SELECTION" != *overlays/mode-local-https.yml* ]] || public_ca=/tls/local-ca.crt
+  printf '%s' "$public_ca"
+}
+
+# Publishes public_ca_file's certificates for public-probe, or removes a stale copy.
+share_public_trust() {
+  local source target_dir tmp
+  target_dir="$(dirname "$PUBLIC_TRUST_FILE")"
+  [[ -d "$target_dir" ]] || return 0
+  source="$(public_ca_file)"
+  tmp="$target_dir/.public-ca.crt.$$"
+  # Certificates only: whatever else the file holds (a key pasted by mistake) never crosses over.
+  if [[ -n "$source" && -s "$source" ]] && openssl x509 -in "$source" -out "$tmp" 2>/dev/null; then
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$PUBLIC_TRUST_FILE"
+  else
+    rm -f "$tmp" "$PUBLIC_TRUST_FILE"
+  fi
+}
+
+collect_public() {
+  local now tmp public_up=0 cert_expiry public_ca=""
+  local -a public_trust=()
+  tmp="/metrics/.public.prom.$$"
+  [[ ! -s "$PUBLIC_TRUST_FILE" ]] || public_ca="$PUBLIC_TRUST_FILE"
+  [[ -z "$public_ca" ]] || public_trust=(--cacert "$public_ca")
+  if command -v curl >/dev/null 2>&1; then
+    [[ "$(curl "${public_trust[@]}" -sS --max-time 10 -o /dev/null -w '%{http_code}' "$PUBLIC_HEALTH_URL" 2>/dev/null)" == 204 ]] && public_up=1 || true
+  fi
+  cert_expiry="$(public_tls_expiry "$PUBLIC_TLS_URL" "$public_ca")"
+  now="$(date +%s)"
+  awk '/^#/ || NF > 1' >"$tmp" <<EOF
+# HELP chronicle_public_probe_timestamp_seconds Last completed public endpoint probe.
+# TYPE chronicle_public_probe_timestamp_seconds gauge
+chronicle_public_probe_timestamp_seconds $now
+# HELP chronicle_public_probe_success Configured participant endpoint health probe result.
+# TYPE chronicle_public_probe_success gauge
+chronicle_public_probe_success $public_up
+# HELP chronicle_certificate_expiry_timestamp_seconds Expiry of the certificate served by the public HTTPS origin.
+# TYPE chronicle_certificate_expiry_timestamp_seconds gauge
+chronicle_certificate_expiry_timestamp_seconds $cert_expiry
+EOF
+  chmod 0644 "$tmp"
+  mv -f "$tmp" /metrics/public.prom
+}
+
 collect() {
-  local now tmp db_up=0 web_up=0 public_up=0 logs_up=0 cert_expiry internal_cert_expiry backup_epoch=0 backup_valid=0 backups_expected=0
+  local now tmp db_up=0 web_up=0 logs_up=0 internal_cert_expiry backup_epoch=0 backup_valid=0 backups_expected=0
   local backup_max_age
   local db_size="" connections="" max_connections="" commits="" rollbacks="" deadlocks="" flyway="" tde_expected=0 tde_healthy=0
   local metrics_bytes logs_bytes backups_bytes
@@ -122,13 +192,9 @@ collect() {
 
   local internal_ca
   internal_ca="$(python3 -c 'from chronicle_ops.common import dashboard_ca; print(dashboard_ca("/tls"))')"
-  local public_ca="$PUBLIC_CA_FILE"
-  local -a public_trust=()
-  [[ "$COMPOSE_FILE_SELECTION" != *overlays/mode-local-https.yml* ]] || public_ca=/tls/local-ca.crt
-  [[ -z "$public_ca" ]] || public_trust=(--cacert "$public_ca")
+  share_public_trust
   if command -v curl >/dev/null 2>&1; then
     [[ "$(curl --connect-to "$INTERNAL_CONNECT" --cacert "$internal_ca" -sS --max-time 8 -o /dev/null -w '%{http_code}' "$INTERNAL_HEALTH_URL" 2>/dev/null)" == 204 ]] && web_up=1 || true
-    [[ "$(curl "${public_trust[@]}" -sS --max-time 10 -o /dev/null -w '%{http_code}' "$PUBLIC_HEALTH_URL" 2>/dev/null)" == 204 ]] && public_up=1 || true
     if [[ -n "$logs_probe_category" ]] && curl -fsS --max-time 8 "$LOGS_HEALTH_URL" >/dev/null 2>&1 &&
         curl -fsS --max-time 8 "${LOGS_HEALTH_URL%/health}/select/logsql/query?query=failure_category%3A${logs_probe_category}" |
         grep -Fq "$logs_probe_category"; then
@@ -147,7 +213,6 @@ collect() {
     fi
   fi
 
-  cert_expiry="$(public_tls_expiry "$PUBLIC_TLS_URL" "$public_ca")"
   internal_cert_expiry="$(public_tls_expiry "$INTERNAL_TLS_URL" "$internal_ca" web:8081)"
 
   [[ "$COMPOSE_FILE_SELECTION" == *overlays/backups.yml* ]] && backups_expected=1
@@ -195,9 +260,6 @@ chronicle_database_up $db_up
 # HELP chronicle_web_up Caddy health is reachable inside the Compose network.
 # TYPE chronicle_web_up gauge
 chronicle_web_up $web_up
-# HELP chronicle_public_probe_success Configured participant endpoint health probe result.
-# TYPE chronicle_public_probe_success gauge
-chronicle_public_probe_success $public_up
 # HELP chronicle_logs_pipeline_up Previous probe event traversed Fluent Bit to healthy VictoriaLogs.
 # TYPE chronicle_logs_pipeline_up gauge
 chronicle_logs_pipeline_up $logs_up
@@ -244,9 +306,6 @@ chronicle_backup_latest_verified $backup_valid
 # HELP chronicle_backup_storage_bytes Local backup storage currently used.
 # TYPE chronicle_backup_storage_bytes gauge
 chronicle_backup_storage_bytes $backups_bytes
-# HELP chronicle_certificate_expiry_timestamp_seconds Expiry of the certificate served by the public HTTPS origin.
-# TYPE chronicle_certificate_expiry_timestamp_seconds gauge
-chronicle_certificate_expiry_timestamp_seconds $cert_expiry
 # HELP chronicle_internal_certificate_expiry_timestamp_seconds Expiry of the internal dashboard listener certificate.
 # TYPE chronicle_internal_certificate_expiry_timestamp_seconds gauge
 chronicle_internal_certificate_expiry_timestamp_seconds $internal_cert_expiry
@@ -270,6 +329,12 @@ EOF
 (( PROBE_INTERVAL_SECONDS <= 300 )) || exit 64
 mkdir -p /metrics
 umask 077
+if [[ "$PROBE_SCOPE" == public ]]; then
+  while true; do
+    collect_public || printf 'public probe collection failed\n' >&2
+    sleep "$PROBE_INTERVAL_SECONDS"
+  done
+fi
 # shellcheck source=selfhost/monitoring/record-operation.sh
 source /monitoring/record-operation.sh
 logs_probe_category=""

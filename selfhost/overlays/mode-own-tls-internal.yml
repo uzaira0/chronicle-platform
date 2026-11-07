@@ -16,13 +16,18 @@ services:
       DASHBOARD_EXPOSURE: internal
 
   web:
+    # No route off the host in this mode either (docker-compose.yml): web holds your certificate's
+    # private key and sees decrypted traffic, so Caddy staples no OCSP response (Caddyfile.split.tls).
+    volumes:
+      - ./Caddyfile.split.tls:/etc/caddy/Caddyfile:ro,z
+      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"
+
+  # web-forward holds the ports (docker-compose.yml); Caddy's own ports are 443 and 80.
+  web-forward:
     ports:
-      - "${HTTPS_PORT:-443}:443"
-      - "${TLS_HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:8443"
+      - "${TLS_HTTP_PORT:-80}:8880"
       - target: 8081
         published: "${INTERNAL_PORT:-8081}"
         host_ip: "${INTERNAL_BIND:-127.0.0.1}"
         protocol: tcp
-    volumes:
-      - ./Caddyfile.split.tls:/etc/caddy/Caddyfile:ro,z
-      - "${CHRONICLE_STATE_DIR:-.}/tls:/etc/caddy/certs:ro,z"

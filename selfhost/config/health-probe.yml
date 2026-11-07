@@ -14,6 +14,8 @@ services:
     cap_drop: ["ALL"]
     mem_limit: 16m
     pids_limit: 16
+    cpu_period: 100000
+    cpu_quota: 100000
     entrypoint: ["/bin/busybox", "cp", "-f"]
     command: ["/bin/busybox", "/probe/busybox"]
     volumes: ["health_probe:/probe"]

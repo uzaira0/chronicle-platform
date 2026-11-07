@@ -39,6 +39,9 @@ import snippets.caddy
 	# has to be: a blanket redirect would bounce the CA download to a URL the device cannot
 	# yet verify, which is the one request that must work before TLS can.
 	auto_https disable_redirects
+	# web has no route off the host (docs/NETWORK-EGRESS.md), so it never fetches OCSP responses;
+	# Caddy's own local CA certificates carry no OCSP responder anyway.
+	ocsp_stapling off
 
 	# The setting this whole mode depends on. {$DOMAIN} here is an IP address, and RFC 6066
 	# forbids putting an IP literal in SNI -- so curl, browsers and OkHttp (the Android
@@ -57,6 +60,15 @@ import snippets.caddy
 	order rate_limit before basic_auth
 
 	servers {
+		# web-forward holds the published ports and starts each connection with a PROXY protocol
+		# header naming the client. Caddy takes it only from web-forward's fixed ingress address;
+		# a header from anywhere else is ignored (docker-compose.yml, docs/NETWORK-EGRESS.md).
+		listener_wrappers {
+			proxy_protocol {
+				allow {$CHRONICLE_INGRESS_FORWARDER}/32
+			}
+			tls
+		}
 		import chronicle_listener_timeouts
 		trusted_proxies static {$CADDY_TRUSTED_PROXIES:127.0.0.1/32}
 		trusted_proxies_strict

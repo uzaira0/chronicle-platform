@@ -1,0 +1,12 @@
+# Grafana while CHRONICLE_ALERT_WEBHOOK_URL names a host other than loopback
+# (CHRONICLE_ALERT_EGRESS=open, derived by ./chronicle): it also joins egress-clients and sends the
+# webhook through egress-proxy, whose allowlist holds the webhook's host:port and the public URL's.
+# It still resolves no external name itself (monitoring.yml sets the blackhole resolver).
+services:
+  grafana:
+    networks: [monitoring, monitoring-ingress, egress-clients]
+    environment:
+      HTTPS_PROXY: http://egress-proxy:3128
+      # Its healthcheck (curl to 127.0.0.1) and its data sources go direct.
+      NO_PROXY: 127.0.0.1,localhost,victoriametrics,victorialogs
+      no_proxy: 127.0.0.1,localhost,victoriametrics,victorialogs

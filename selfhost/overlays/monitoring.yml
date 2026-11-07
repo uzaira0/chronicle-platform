@@ -21,16 +21,16 @@ x-fluent-logging: &fluent-logging
     labels: com.docker.compose.service
     tag: chronicle.{{index .ContainerLabels "com.docker.compose.service"}}
 
+# CPU ceilings and GOMAXPROCS: see the note in docker-compose.yml.
+
+# Anchors do not cross YAML documents: the base file's blackhole resolver, restated (docker-compose.yml).
+x-no-external-dns: &no-external-dns ["192.0.2.53"]
+
 services:
   health-probe:
     extends:
       file: config/health-probe.yml
       service: health-probe
-
-  cert-init:
-    # Both initializers use backend_tls; serialize their certificate writes.
-    depends_on:
-      monitoring-cert-init: {condition: service_completed_successfully}
 
   monitoring-cert-init:
     network_mode: none
@@ -60,9 +60,13 @@ services:
     tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 128m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
 
+  # Copies Grafana's and the metrics password from .env into their files (like secrets-init),
+  # so it is one of the two services whose environment holds a credential. It opens no connection.
   monitoring-config:
-    networks: [monitoring]
+    network_mode: none
     image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image}
     restart: "no"
     logging: *default-logging
@@ -81,16 +85,26 @@ services:
       CADDY_IMAGE: ${CADDY_IMAGE:-}
       GRAFANA_IMAGE: ${GRAFANA_IMAGE:-}
       FLUENT_BIT_IMAGE: ${FLUENT_BIT_IMAGE:-}
+      # The egress proxy's allowlist (monitoring/egress-allowlist.sh): the public URLs public-probe
+      # checks and, when it is off this host, the alert webhook's host. Only host:port is written.
+      PUBLIC_TLS_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
+      PUBLIC_HEALTH_URL: ${MONITORING_PUBLIC_HEALTH_URL:-}
+      CHRONICLE_ALERT_WEBHOOK_URL: ${CHRONICLE_ALERT_WEBHOOK_URL:-}
     volumes:
       - ./monitoring/render-config.sh:/monitoring/render-config.sh:ro,z
+      - ./monitoring/egress-allowlist.sh:/monitoring/egress-allowlist.sh:ro,z
+      - egress_allowlist:/egress
       - ./network-policy.sh:/network-policy.sh:ro,z
       - monitoring_secrets:/monitoring-secrets
+      - grafana_secrets:/grafana-secrets
       - backend_tls:/backend-tls:ro
       - monitoring_config:/monitoring-config
       - monitoring_textfiles:/metrics
       - vm_data:/vmdata
       - vl_data:/vldata
       - fluentbit_state:/fluent-bit/state
+      - public_probe:/public-probe
+      - public_probe_trust:/public-trust
     depends_on:
       monitoring-cert-init: {condition: service_completed_successfully}
     security_opt: ["no-new-privileges:true"]
@@ -100,6 +114,8 @@ services:
     tmpfs: ["/tmp:size=8m,mode=1777"]
     mem_limit: 128m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
 
   # Read-only Docker API for cadvisor. A :ro bind of /var/run does not stop connect() on the
   # socket, so cadvisor with that mount held the full, writable Docker API (host root). Only
@@ -112,22 +128,23 @@ services:
     # The host socket is root-owned; only this isolated proxy holds it.
     user: "0:0"
     entrypoint: ["haproxy"]
+    # The image's own entrypoint, which reads CONTAINERS/INFO/POST variables, is replaced: this
+    # HAProxy reads only docker-api.cfg, whose allowlist is the whole policy.
     command: ["-W", "-db", "-f", "/etc/haproxy/chronicle.cfg"]
-    environment:
-      CONTAINERS: "1"
-      INFO: "1"
-      VERSION: "1"
-      POST: "0"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./monitoring/docker-api.cfg:/etc/haproxy/chronicle.cfg:ro,z
+      - ./monitoring/docker-api-strip-env.lua:/etc/haproxy/strip-env.lua:ro,z
     networks: [docker-api]
+    dns: *no-external-dns
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     read_only: true
     tmpfs: ["/run:size=4m,mode=0755", "/tmp:size=4m,mode=1777"]
     mem_limit: 64m
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2375/version"]
       interval: 30s
@@ -138,18 +155,32 @@ services:
     image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
     restart: unless-stopped
     logging: *default-logging
-    # cAdvisor needs read access to host cgroups and Docker's root-owned storage.
-    user: "0:0"
+    # Unprivileged, and it mounts only what its metrics read: cgroups (/sys), host /proc for each
+    # container's network counters, the layer-id files that map a container to its storage, and the
+    # backups directory as a mount point for the free-space alerts (statfs only: it is 0700 for the
+    # operator). Not Docker's containers/ or volumes/ (container configurations, credential volumes,
+    # database files) and not the host root: none of that is readable here. Per-container disk
+    # usage needs those, so it is not collected (the host and backups filesystems are). cAdvisor
+    # warns about that for every container on every pass, so warnings go to /dev/null and only
+    # errors reach the log (its per-container storage error retries with a backoff up to 20 min).
+    user: "65532:65532"
     command:
+      - "--logtostderr=false"
+      - "--log_file=/dev/null"
+      - "--stderrthreshold=ERROR"
       - "--housekeeping_interval=15s"
       - "--docker_only=true"
       - "--store_container_labels=false"
       - "--docker=tcp://docker-socket-proxy:2375"
+    environment:
+      GOMAXPROCS: "1"
     volumes:
-      - /:/rootfs:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
+      - /proc:/rootfs/proc:ro
+      - /var/lib/docker/image/overlay2/layerdb/mounts:/rootfs/var/lib/docker/image/overlay2/layerdb/mounts:ro
+      - "${CHRONICLE_STATE_DIR:-.}/backups:/rootfs/chronicle-backups:ro,z"
     networks: [monitoring, docker-api]
+    dns: *no-external-dns
     depends_on:
       docker-socket-proxy: {condition: service_healthy}
       monitoring-config: {condition: service_completed_successfully}
@@ -159,6 +190,8 @@ services:
     read_only: true
     mem_limit: ${CADVISOR_MEM_LIMIT:-256m}
     pids_limit: 256
+    cpu_period: 100000
+    cpu_quota: 100000
     healthcheck:
       test: ["CMD", "/usr/bin/wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
       interval: 30s
@@ -167,6 +200,7 @@ services:
 
   operational-probe:
     networks: [monitoring, database-probe]
+    dns: *no-external-dns
     image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image}
     restart: unless-stopped
     logging: *default-logging
@@ -179,13 +213,13 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-chronicle}
       POSTGRES_USER: ${POSTGRES_USER:-chronicle}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # probe.sh reads it at start; secrets-init writes it.
+      POSTGRES_PASSWORD_FILE: /run/secrets/chronicle/postgres-password
       RELEASE_VERSION: ${RELEASE_VERSION:-development}
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
-      PUBLIC_HEALTH_URL: ${MONITORING_PUBLIC_HEALTH_URL:-}
       # For a private public-origin CA, place the certificate in state tls/ and use /tls/<file>.
+      # This probe copies only that certificate to public-probe, which has no /tls mount.
       PUBLIC_CA_FILE: ${MONITORING_PUBLIC_CA_FILE:-}
-      PUBLIC_TLS_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
       # Validate the management certificate's identity while connecting inside Compose.
       DASHBOARD_BASE_URL: ${DASHBOARD_BASE_URL:-}
       INTERNAL_BIND: ${INTERNAL_BIND:-127.0.0.1}
@@ -194,7 +228,7 @@ services:
       COMPOSE_FILE_SELECTION: ${COMPOSE_FILE:-}
       BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-}
       ENABLE_ENCRYPTION: ${ENABLE_ENCRYPTION:-true}
-      METRICS_DISK_BUDGET_BYTES: ${METRICS_MAX_DISK_BYTES:-5368709120}
+      METRICS_DISK_BUDGET_BYTES: ${METRICS_DISK_BUDGET_BYTES:-5368709120}
       LOGS_DISK_BUDGET_BYTES: ${LOGS_MAX_DISK_BYTES:-5368709120}
     volumes:
       - postgres_tls:/etc/postgres-tls:ro
@@ -206,14 +240,19 @@ services:
       - vl_data:/observability-data/logs:ro
       - "${CHRONICLE_STATE_DIR:-.}/backups:/backups:ro,z"
       - "${CHRONICLE_STATE_DIR:-.}/tls:/tls:ro,z"
+      - public_probe_trust:/public-trust
+      - operator_secrets:/run/secrets/chronicle:ro
     depends_on:
       monitoring-config: {condition: service_completed_successfully}
+      secrets-init: {condition: service_completed_successfully, restart: true}
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
     mem_limit: ${OPERATIONAL_PROBE_MEM_LIMIT:-192m}
     pids_limit: 128
+    cpu_period: 100000
+    cpu_quota: 100000
     # Healthy while the probe loop keeps rewriting its textfile (interval is at most 300 s).
     healthcheck:
       test: ["CMD-SHELL", "test -n \"$$(find /metrics/operational.prom -mmin -11 2>/dev/null)\""]
@@ -222,8 +261,86 @@ services:
       retries: 3
       start_period: 120s
 
+  # Fetches the public health URL and reads the served certificate, as a participant's phone would,
+  # through egress-proxy, which tunnels only to the hosts in its allowlist. It holds no password,
+  # mounts no database, backup or TLS key, and writes two metrics into its own volume.
+  public-probe:
+    networks: [egress-clients]
+    dns: *no-external-dns
+    image: ${POSTGRES_IMAGE:?set POSTGRES_IMAGE to the digest-pinned release image}
+    restart: unless-stopped
+    logging: *default-logging
+    user: "${CHRONICLE_HOST_UID}:${CHRONICLE_HOST_GID}"
+    entrypoint: ["/bin/bash", "/monitoring/probe.sh"]
+    environment:
+      PROBE_SCOPE: public
+      # curl uses HTTPS_PROXY; openssl s_client gets -proxy from PUBLIC_TLS_PROXY (probe.sh).
+      HTTPS_PROXY: http://egress-proxy:3128
+      PUBLIC_TLS_PROXY: egress-proxy:3128
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      PUBLIC_HEALTH_URL: ${MONITORING_PUBLIC_HEALTH_URL:-}
+      PUBLIC_TLS_URL: "${CHRONICLE_PUBLIC_BASE_URL:-https://${DOMAIN}}"
+      PROBE_INTERVAL_SECONDS: ${MONITORING_PROBE_INTERVAL_SECONDS:-30}
+    volumes:
+      - ./monitoring/probe.sh:/monitoring/probe.sh:ro,z
+      - public_probe:/metrics
+      - public_probe_trust:/public-trust:ro
+    depends_on:
+      monitoring-config: {condition: service_completed_successfully}
+      egress-proxy: {condition: service_started}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    mem_limit: ${PUBLIC_PROBE_MEM_LIMIT:-64m}
+    pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
+    healthcheck:
+      test: ["CMD-SHELL", "test -n \"$$(find /metrics/public.prom -mmin -11 2>/dev/null)\""]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # The only container with a route off the host: an HTTP CONNECT proxy (chronicle-forward -connect,
+  # selfhost/caddy/forward) that opens a tunnel only to a host:port in the allowlist monitoring-config
+  # derives from .env, and refuses everything else, including any name it would have to resolve.
+  # Its clients (public-probe, and Grafana while the alert webhook is off this host) sit on the
+  # internal egress-clients network with the blackhole resolver. It holds no credential, no data and
+  # no volume but its allowlist (docs/NETWORK-EGRESS.md).
+  egress-proxy:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image}
+    restart: unless-stopped
+    user: "10001:0"
+    logging: *default-logging
+    entrypoint: ["/usr/bin/chronicle-forward"]
+    command: ["-connect", "3128", "-allow", "/egress/allow", "-max-connections", "64"]
+    networks: [egress, egress-clients]
+    environment:
+      GOMAXPROCS: "1"
+    volumes:
+      - egress_allowlist:/egress:ro
+    depends_on:
+      monitoring-config: {condition: service_completed_successfully, restart: true}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    # 64m like the forwarders: the same binary under amd64 emulation (an arm64 workstation) holds
+    # about 29 MiB with its healthcheck running, and 32m was OOM-killed there.
+    mem_limit: 64m
+    pids_limit: 32
+    cpu_period: 100000
+    cpu_quota: 100000
+    healthcheck:
+      test: ["CMD", "/usr/bin/chronicle-forward", "-check", "-connect", "3128"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   metrics-exporter:
     networks: [monitoring]
+    dns: *no-external-dns
     image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image}
     restart: unless-stopped
     user: "10001:0"
@@ -232,10 +349,11 @@ services:
     # Go starts about one thread per host CPU: 34 of the 64-pid limit on a 32-CPU host. It serves
     # one small text file to VictoriaMetrics.
     environment:
-      GOMAXPROCS: "2"
+      GOMAXPROCS: "1"
     volumes:
       - ./monitoring/metrics.Caddyfile:/etc/caddy/Caddyfile:ro,z
       - monitoring_textfiles:/metrics:ro
+      - public_probe:/public:ro
     expose: ["9090"]
     depends_on:
       monitoring-config: {condition: service_completed_successfully}
@@ -248,6 +366,8 @@ services:
     tmpfs: ["/config:size=8m,mode=0700,uid=10001,gid=0", "/data:size=8m,mode=0700,uid=10001,gid=0"]
     mem_limit: ${METRICS_EXPORTER_MEM_LIMIT:-64m}
     pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 100000
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/operational.prom"]
       interval: 30s
@@ -257,19 +377,22 @@ services:
 
   victoriametrics:
     networks: [monitoring]
+    dns: *no-external-dns
     healthcheck:
       test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:8428/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-    image: victoriametrics/victoria-metrics:v1.153.0@sha256:5eff7af5341e401471002f58d106d399e614a62f3d240f2dbc21901e49eed5dd
+    image: victoriametrics/victoria-metrics:v1.155.0@sha256:f60dc268b54ecf87f6e09d740c2b732838aa9193090cc741417c9f6386a130df
     restart: unless-stopped
     logging: *default-logging
     user: "65534:65534"
+    environment:
+      GOMAXPROCS: "2"
     command:
       - "--storageDataPath=/vmdata"
       - "--retentionPeriod=${METRICS_RETENTION:-30d}"
-      - "--storage.minFreeDiskSpaceBytes=${METRICS_MIN_FREE_DISK_BYTES:-2147483648}"
+      - "--storage.minFreeDiskSpaceBytes=${METRICS_MIN_FREE_DISK_BYTES:-8589934592}"
       - "--promscrape.config=/etc/vm/scrape.yml"
       - "--promscrape.maxScrapeSize=64MiB"
     volumes:
@@ -287,13 +410,18 @@ services:
     tmpfs: ["/tmp:size=32m,mode=1777"]
     mem_limit: ${VICTORIAMETRICS_MEM_LIMIT:-512m}
     pids_limit: 256
+    cpu_period: 100000
+    cpu_quota: 200000
 
   victorialogs:
     networks: [monitoring]
+    dns: *no-external-dns
     image: victoriametrics/victoria-logs:v1.53.0@sha256:251121fa882af99b95ba0c230a4a2f412ea602d2698c64a96c58dc9842bb755d
     restart: unless-stopped
     logging: *default-logging
     user: "65534:65534"
+    environment:
+      GOMAXPROCS: "2"
     command:
       - "-storageDataPath=/vldata"
       - "-retentionPeriod=${LOGS_RETENTION:-14d}"
@@ -312,17 +440,19 @@ services:
     tmpfs: ["/tmp:size=32m,mode=1777"]
     mem_limit: ${VICTORIALOGS_MEM_LIMIT:-512m}
     pids_limit: 256
+    cpu_period: 100000
+    cpu_quota: 200000
 
     healthcheck:
       test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:9428/health"]
   fluent-bit:
-    networks: [monitoring]
+    # Internal only; monitoring-forward holds the loopback log port Docker's fluentd driver uses.
+    networks: [monitoring, monitoring-ingress]
+    dns: *no-external-dns
     image: ${FLUENT_BIT_IMAGE:?set FLUENT_BIT_IMAGE in .env}
     restart: unless-stopped
     logging: *default-logging
     user: "100:101"
-    ports:
-      - "127.0.0.1:${FLUENT_BIT_FORWARD_PORT:-24224}:24224"
     volumes:
       - health_probe:/probe:ro
       - ./monitoring/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,z
@@ -341,20 +471,31 @@ services:
     tmpfs: ["/tmp:size=16m,mode=1777", "/run:size=4m,mode=0755"]
     mem_limit: ${FLUENT_BIT_MEM_LIMIT:-128m}
     pids_limit: 128
+    cpu_period: 100000
+    cpu_quota: 100000
 
     healthcheck:
       test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:2020/api/v1/health"]
   grafana:
-    networks: [monitoring]
+    # networks (and, while the alert webhook is off this host, the egress proxy settings):
+    # monitoring/docker-compose.grafana-alerts-closed.yml or -open.yml. ./chronicle derives
+    # CHRONICLE_ALERT_EGRESS from .env (chronicle_ops/egress.py).
+    extends:
+      file: monitoring/docker-compose.grafana-alerts-${CHRONICLE_ALERT_EGRESS:-closed}.yml
+      service: grafana
+    dns: *no-external-dns
     image: ${GRAFANA_IMAGE:?set GRAFANA_IMAGE in .env}
     restart: unless-stopped
     logging: *default-logging
     user: "472:0"
     environment:
+      # Grafana and its backend plugin processes, which inherit this environment.
+      GOMAXPROCS: "2"
       GF_SERVER_PROTOCOL: https
       GF_SERVER_CERT_FILE: /etc/grafana/tls/monitoring.crt
       GF_SERVER_CERT_KEY: /etc/grafana/tls/monitoring.key
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      # Written by monitoring-config (render-config.sh) from GRAFANA_ADMIN_PASSWORD.
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/chronicle-grafana/admin-password
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_AUTH_BASIC_ENABLED: "true"
@@ -370,6 +511,11 @@ services:
       # unregistered, and every metrics alert rule fails. The pinned image is the version.
       # https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#preinstall_auto_update
       GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+      # No catalog downloads and no news feed: Grafana has no route out unless an external alert
+      # webhook is configured, and then only for that webhook.
+      # https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#preinstall_disabled
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
       # Every bundled backend datasource runs as its own process with about one thread per host CPU.
       # On a 32-CPU host the twelve that Chronicle never uses took 482 of the 512 pids below and
       # most of the 512 MiB: health-check execs failed and Grafana stayed unhealthy. Only
@@ -380,11 +526,10 @@ services:
       # closed discard port on loopback: alerts stay visible in Grafana only. See
       # docs/MONITORING-RUNBOOK.md "Attach a notification channel".
       CHRONICLE_ALERT_WEBHOOK_URL: ${CHRONICLE_ALERT_WEBHOOK_URL:-http://127.0.0.1:9/dashboard-only}
-    ports:
-      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - monitoring_tls:/etc/grafana/tls:ro
       - grafana_data:/var/lib/grafana
+      - grafana_secrets:/run/secrets/chronicle-grafana:ro
       - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/chronicle.yml:ro,z
       - ./monitoring/grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/chronicle.yml:ro,z
       - ./monitoring/grafana-dashboards:/etc/grafana/dashboards:ro,z
@@ -392,7 +537,7 @@ services:
       - ./monitoring/runbooks.html:/usr/share/grafana/public/runbooks/index.html:ro,z
     depends_on:
       monitoring-cert-init: {condition: service_completed_successfully}
-      monitoring-config: {condition: service_completed_successfully}
+      monitoring-config: {condition: service_completed_successfully, restart: true}
       victoriametrics: {condition: service_healthy}
       victorialogs: {condition: service_healthy}
     security_opt: ["no-new-privileges:true"]
@@ -401,12 +546,48 @@ services:
     tmpfs: ["/tmp:size=512m,mode=1777"]
     mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
     pids_limit: 512
+    cpu_period: 100000
+    cpu_quota: 200000
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null --cacert /etc/grafana/tls/monitoring.crt https://127.0.0.1:3000/api/health && wget -qO- http://victoriametrics:8428/api/v1/targets | grep -q '\"health\":\"up\"' && wget -q --spider http://victorialogs:9428/health"]
+      # Grafana's own health only. VictoriaMetrics and VictoriaLogs have their own healthchecks, and
+      # scrape targets are a pipeline property that ./chronicle doctor checks; coupling them here
+      # reported Grafana unhealthy whenever another service was.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--cacert", "/etc/grafana/tls/monitoring.crt", "https://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 8s
       retries: 8
       start_period: 120s
+
+  # Holds Grafana's dashboard port and Fluent Bit's loopback log port, which Docker publishes
+  # only on a network it connects to the host. Like web-forward (docker-compose.yml): no data,
+  # credentials or volumes, chronicle-forward from CADDY_IMAGE, TCP copied over the internal
+  # monitoring-ingress network. Grafana's traffic is TLS end to end.
+  monitoring-forward:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to the digest-pinned release image}
+    restart: unless-stopped
+    user: "10001:0"
+    logging: *default-logging
+    entrypoint: ["/usr/bin/chronicle-forward"]
+    command: ["3000=grafana:3000", "24224=fluent-bit:24224"]
+    networks: [monitoring-ports, monitoring-ingress]
+    dns: *no-external-dns
+    environment:
+      GOMAXPROCS: "2"
+    ports:
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${FLUENT_BIT_FORWARD_PORT:-24224}:24224"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    mem_limit: 64m
+    pids_limit: 64
+    cpu_period: 100000
+    cpu_quota: 200000
+    healthcheck:
+      test: ["CMD", "/usr/bin/chronicle-forward", "-check", "3000=grafana:3000", "24224=fluent-bit:24224"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   backend:
     logging: *fluent-logging
@@ -414,7 +595,7 @@ services:
     logging: *fluent-logging
   web:
     group_add: ["101"] # Read the backend TLS key used by the private scrape listener.
-    networks: [default, monitoring]
+    networks: [monitoring]
     volumes:
       - ./monitoring/backend-metrics.caddy:/etc/caddy/monitoring/backend-metrics.caddy:ro,z
     logging: *fluent-logging
@@ -430,11 +611,30 @@ services:
       - monitoring_textfiles:/monitoring-metrics
 
 networks:
-  monitoring: {} # Separate bridge; outbound alerts and public health probes still need egress.
+  # Scrapes, logs and the dashboard's data sources. Internal: nothing on it can leave the host.
+  monitoring:
+    internal: true
+  # Published ports need a bridge Docker connects to the host: monitoring-forward alone joins
+  # this one. Docker does not masquerade it, and it resolves no external name.
+  monitoring-ports:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+  # monitoring-forward to Grafana and Fluent Bit. Internal.
+  monitoring-ingress:
+    internal: true
+  # The ordinary outbound bridge. egress-proxy alone joins it.
+  egress: {}
+  # egress-proxy's clients: public-probe, and Grafana while the alert webhook is off this host.
+  # Internal: they reach nothing but the proxy, which tunnels only to its allowlist.
+  egress-clients:
+    internal: true
   docker-api:
     internal: true
 
 volumes:
+  public_probe:
+  public_probe_trust:
+  egress_allowlist:
   health_probe:
   vm_data:
   vl_data:
@@ -442,5 +642,6 @@ volumes:
   monitoring_tls:
   fluentbit_state:
   monitoring_secrets:
+  grafana_secrets:
   monitoring_config:
   monitoring_textfiles:

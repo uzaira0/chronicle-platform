@@ -1,6 +1,12 @@
 :9090 {
-	root * /metrics
-	file_server
-	@notMetrics not path /operational.prom /operations.prom /configuration.prom
-	respond @notMetrics 404
+	@notMetrics not path /operational.prom /operations.prom /configuration.prom /public.prom
+	# public.prom is written by public-probe into its own volume, mounted at /public.
+	@public path /public.prom
+	@textfiles not path /public.prom
+	route {
+		respond @notMetrics 404
+		root @textfiles /metrics
+		root @public /public
+		file_server
+	}
 }

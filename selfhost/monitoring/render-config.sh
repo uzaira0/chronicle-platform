@@ -43,6 +43,15 @@ temporary="/monitoring-secrets/.metrics-password.$$"
 printf '%s' "$METRICS_PASSWORD" >"$temporary"
 mv -f "$temporary" /monitoring-secrets/metrics-password
 chown 65534:65534 /monitoring-secrets /monitoring-secrets/metrics-password
+# Grafana (uid 472) reads its admin password from this file (GF_SECURITY_ADMIN_PASSWORD__FILE).
+mkdir -p /grafana-secrets
+temporary="/grafana-secrets/.admin-password.$$"
+printf '%s' "$GRAFANA_ADMIN_PASSWORD" >"$temporary"
+chown 472:0 "$temporary"
+chmod 0400 "$temporary"
+mv -f "$temporary" /grafana-secrets/admin-password
+chown 472:0 /grafana-secrets
+chmod 0500 /grafana-secrets
 cp /backend-tls/backend.crt /monitoring-config/backend.crt
 chmod 0644 /monitoring-config/backend.crt
 config_tmp="/monitoring-config/.scrape.yml.$$"
@@ -89,6 +98,10 @@ scrape_configs:
     metrics_path: /operational.prom
     static_configs:
       - targets: ["metrics-exporter:9090"]
+  - job_name: chronicle-public
+    metrics_path: /public.prom
+    static_configs:
+      - targets: ["metrics-exporter:9090"]
   - job_name: chronicle-log-forwarder
     metrics_path: /api/v1/metrics/prometheus
     static_configs:
@@ -128,4 +141,14 @@ EOF
   chmod 0644 /metrics/configuration.prom
 fi
 chown -R "$CHRONICLE_HOST_UID:$CHRONICLE_HOST_GID" /metrics
+# public-probe writes /public-probe; operational-probe shares the public CA through /public-trust.
+for shared in /public-probe /public-trust; do
+  [[ ! -d "$shared" ]] || chown -R "$CHRONICLE_HOST_UID:$CHRONICLE_HOST_GID" "$shared"
+done
+# egress-proxy's allowlist: host:port of the public URLs and of an off-host HTTPS alert webhook.
+if [[ -d /egress ]]; then
+  bash "$(dirname "${BASH_SOURCE[0]}")/egress-allowlist.sh" >"/egress/.allow.$$"
+  chmod 0644 "/egress/.allow.$$"
+  mv -f "/egress/.allow.$$" /egress/allow
+fi
 printf 'monitoring-config: scraper credential installed without printing it\n'
