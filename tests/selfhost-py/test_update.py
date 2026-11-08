@@ -373,6 +373,24 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertEqual('Current: 2026.11.4; selected: 2026.10.18\n', output)
         self.assertEqual('error: update failed: downgrade refused; use guarded rollback with its pre-update dump\n', errors)
 
+    def test_newest_published_release_older_than_the_installed_one_is_nothing_to_do(self):
+        # A withdrawn release leaves servers that installed it ahead of the catalog. A plain
+        # `./chronicle update` must not fail there: nothing newer exists, so there is nothing to do.
+        from chronicle_ops.common import OPERATION_LOCK
+        self.catalog('2026.10.18')
+        newer = self.release.with_name('chronicle-selfhost-2026.11.4')
+        self.release.rename(newer)
+        self.selfhost = newer / 'selfhost'
+        import os
+        os.chdir(self.selfhost)
+        (newer / 'release-manifest.json').write_text(json.dumps({'release_version': '2026.11.4'}))
+        status, output, errors = self.cli()
+        self.assertEqual((0, ''), (status, errors))
+        self.assertEqual('Current: 2026.11.4; selected: 2026.10.18\n'
+                         'Nothing to update: 2026.11.4 is newer than the newest published release.\n', output)
+        self.assertEqual([], [path.name for path in self.state.iterdir() if path.name != OPERATION_LOCK and
+                              not path.name.startswith('.chronicle-owner')])  # nothing downloaded or staged
+
     def test_rerun_resumes_the_recorded_candidate_before_downloading_again(self):
         import fcntl
         import os

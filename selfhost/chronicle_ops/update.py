@@ -584,6 +584,10 @@ def update(check=False, version=None):
         if check:
             return UPDATE_AVAILABLE_EXIT if latest_key > current_key else 0
         if latest_key < current_key:
+            if version is None:
+                # A withdrawn release leaves this server ahead of the catalog: nothing newer exists.
+                print(f'Nothing to update: {current} is newer than the newest published release.', flush=True)
+                return 0
             raise ValueError('downgrade refused; use guarded rollback with its pre-update dump')
         version = latest.removeprefix('v')
         assets = release_assets(release, f'chronicle-selfhost-{version}.tar.gz')
