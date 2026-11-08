@@ -479,6 +479,23 @@ vulnerabilities:
       only connection is plain HTTP to internal victorialogs:9428 (selfhost/monitoring/grafana-datasources.yml),
       so it verifies no certificate chain. Rechecked 2026-11-06: 0.33.1 is still the newest plugin release.
       Drop when a plugin release is built with Go 1.27.3 or newer.
+  - id: CVE-2026-78661
+    paths:
+      - "opt/chronicle-plugins/victoriametrics-logs-datasource/victoriametrics_logs_backend_plugin_linux_amd64"
+      - "usr/share/grafana/data/plugins-bundled/prometheus/gpx_grafana-prometheus-datasource_linux_amd64"
+    expired_at: 2026-12-30
+    owner: uzaira0
+    rechecked: 2026-11-07
+    statement: >-
+      golang.org/x/net/html tokenizer denial of service on crafted HTML (fixed in x/net 0.62.0). The
+      victoriametrics-logs-datasource 0.33.1 backend (x/net 0.60.0) and the bundled prometheus datasource
+      backend (x/net 0.61.0) list the x/net module but link no x/net/html code: their function tables
+      name x/net/http2, hpack, trace, idna, dnsmessage, socks and httpguts and no golang.org/x/net/html
+      symbol (strings over both 2026.11.6 binaries, 2026-11-07), so no HTML is ever tokenized. Monitoring
+      overlay only (opt-in); both talk only to internal victorialogs/victoriametrics. The Grafana server
+      binary, which does link x/net/html, is rebuilt with x/net 0.62.0 (Dockerfile.grafana). Rechecked
+      2026-11-07: 0.33.1 is still the newest victoriametrics-logs-datasource release. Drop when either
+      plugin ships with x/net 0.62.0 or newer.
   - id: CVE-2026-111943
     paths:
       - "usr/bin/cadvisor"
