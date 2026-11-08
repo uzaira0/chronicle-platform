@@ -92,10 +92,10 @@ POOL_BIND=$TOPOLOGY_POOL_PREFIX.1
 MANAGEMENT_BIND=$TOPOLOGY_VPN_PREFIX.1
 export TOPOLOGY_POOL_ENDPOINT="$POOL_BIND:$TOPOLOGY_POOL_PORT"
 export TOPOLOGY_MANAGEMENT_ENDPOINT="$MANAGEMENT_BIND:$TOPOLOGY_INTERNAL_PORT"
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -keyout "$RUN/pki/ca.key" -out "$RUN/pki/ca.crt" -subj /CN=topology-test-CA -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign >/dev/null 2>&1
-openssl req -new -newkey rsa:2048 -nodes -keyout "$RUN/pki/lb.key" -out "$RUN/pki/lb.csr" -subj "/CN=$TOPOLOGY_PUBLIC_HOST" >/dev/null 2>&1
-printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\n' "$TOPOLOGY_PUBLIC_HOST" >"$RUN/pki/lb.ext"
-openssl x509 -req -in "$RUN/pki/lb.csr" -CA "$RUN/pki/ca.crt" -CAkey "$RUN/pki/ca.key" -CAcreateserial -days 2 -extfile "$RUN/pki/lb.ext" -out "$RUN/pki/lb.crt" >/dev/null 2>&1
+# shellcheck source=tests/security/lib/fixture-pki.sh
+source "$ROOT/tests/security/lib/fixture-pki.sh"
+fixture_ca "$RUN/pki" topology-test-CA
+fixture_leaf "$RUN/pki" lb "$TOPOLOGY_PUBLIC_HOST"
 cat "$RUN/pki/lb.crt" "$RUN/pki/lb.key" >"$TOPOLOGY_FIXTURE/lb/lb.pem"
 chmod 640 "$TOPOLOGY_FIXTURE/lb/lb.pem"
 chgrp "$CHRONICLE_HOST_GID" "$TOPOLOGY_FIXTURE/lb/lb.pem"
@@ -281,13 +281,15 @@ commonName=supplied
 [server]
 subjectAltName=DNS:$TOPOLOGY_PUBLIC_HOST
 extendedKeyUsage=serverAuth
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
 EOF
 openssl ca -batch -notext -config "$RUN/pki/ca.conf" -cert "$RUN/pki/ca.crt" -keyfile "$RUN/pki/ca.key" \
   -in "$RUN/pki/lb.csr" -startdate 20200101000000Z -enddate 20200102000000Z -extensions server \
   -out "$RUN/pki/expired.crt" >/dev/null 2>&1
 openssl req -new -newkey rsa:2048 -nodes -subj /CN=topology-intermediate \
   -keyout "$RUN/pki/intermediate.key" -out "$RUN/pki/intermediate.csr" >/dev/null 2>&1
-printf 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n' >"$RUN/pki/intermediate.ext"
+printf 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n' >"$RUN/pki/intermediate.ext"
 openssl x509 -req -in "$RUN/pki/intermediate.csr" -CA "$RUN/pki/ca.crt" -CAkey "$RUN/pki/ca.key" \
   -CAcreateserial -days 2 -extfile "$RUN/pki/intermediate.ext" -out "$RUN/pki/intermediate.crt" >/dev/null 2>&1
 openssl x509 -req -in "$RUN/pki/lb.csr" -CA "$RUN/pki/intermediate.crt" -CAkey "$RUN/pki/intermediate.key" \

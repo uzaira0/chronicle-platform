@@ -280,15 +280,10 @@ printf 'connect-to = %s:80:127.0.0.1:%s\n' "$SMOKE_PUBLIC_HOST" "$(<"${RUN_DIR}/
   >"${RUN_DIR}/curl-home/.curlrc"
 # Host checks use a real TLS-terminating HAProxy; remote acceptance runs separately below.
 mkdir -p "$RUN_DIR/proxy-fixture"
-openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=selfhost-smoke-CA \
-  -keyout "$RUN_DIR/proxy-fixture/ca.key" -out "$RUN_DIR/proxy-fixture/ca.crt" \
-  -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign >/dev/null 2>&1
-openssl req -new -newkey rsa:2048 -nodes -subj "/CN=$SMOKE_PUBLIC_HOST" \
-  -keyout "$RUN_DIR/proxy-fixture/lb.key" -out "$RUN_DIR/proxy-fixture/lb.csr" >/dev/null 2>&1
-printf 'subjectAltName=DNS:%s\n' "$SMOKE_PUBLIC_HOST" >"$RUN_DIR/proxy-fixture/lb.ext"
-openssl x509 -req -in "$RUN_DIR/proxy-fixture/lb.csr" -CA "$RUN_DIR/proxy-fixture/ca.crt" \
-  -CAkey "$RUN_DIR/proxy-fixture/ca.key" -CAcreateserial -days 2 \
-  -extfile "$RUN_DIR/proxy-fixture/lb.ext" -out "$RUN_DIR/proxy-fixture/lb.crt" >/dev/null 2>&1
+# shellcheck source=tests/security/lib/fixture-pki.sh
+source "$ROOT_DIR/tests/security/lib/fixture-pki.sh"
+fixture_ca "$RUN_DIR/proxy-fixture" selfhost-smoke-CA || fail "could not create the proxy fixture CA"
+fixture_leaf "$RUN_DIR/proxy-fixture" lb "$SMOKE_PUBLIC_HOST" || fail "could not issue the proxy fixture certificate"
 cat "$RUN_DIR/proxy-fixture/lb.crt" "$RUN_DIR/proxy-fixture/lb.key" >"$RUN_DIR/proxy-fixture/lb.pem"
 proxy_port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
 cat >"$RUN_DIR/proxy-fixture/lb.cfg" <<EOF
@@ -395,13 +390,13 @@ printf 'Starting isolated fresh-install project %s (bounded wait: 300s).\n' "$PR
 START_WAIT_TIMEOUT_SECONDS=300 ./chronicle up
 verify_with_dashboard_password
 database_encoding="$(docker compose exec -T postgres /bin/bash -ceu \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW server_encoding;"')"
+  'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW server_encoding;"')"
 [[ "$database_encoding" == UTF8 ]] || fail "fresh database encoding is ${database_encoding}, expected UTF8"
 fresh_install=pass
 
 id_range_state="$({
   docker compose exec -T postgres /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAqc "SELECT count(*) || '\''|'\'' || count(*) FILTER (WHERE msb <> 0) || '\''|'\'' || bool_and(lsb < 0) FROM public.id_gen"'
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAqc "SELECT count(*) || '\''|'\'' || count(*) FILTER (WHERE msb <> 0) || '\''|'\'' || bool_and(lsb < 0) FROM public.id_gen"'
 } | tr -d '[:space:]')"
 [[ "$id_range_state" == '65536|0|true' ]] ||
   fail "ID generation ranges are incomplete or do not preserve the initial Range cursor: ${id_range_state}"
@@ -425,7 +420,7 @@ CHRONICLE_PROXY_BASE_URL="https://127.0.0.1:$internal_port" \
   "$ROOT_DIR/scripts/local-ci.sh" selfhost-browser
 # Include aged data in the same-build backup and restore.
 docker compose exec -T postgres /bin/bash -ceu \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL_AGED'
+  'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL_AGED'
 CREATE TABLE release_smoke_aged_data AS
 SELECT id, now() - interval '6 months' AS collected_at, repeat(md5(id::text), 1024) AS payload
 FROM generate_series(1,1024) AS id;
@@ -433,7 +428,7 @@ SQL_AGED
 
 printf 'Writing a database sentinel before backup and restore.\n'
 docker compose exec -T postgres /bin/bash -ceu \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q' <<'SQL'
+  'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -q' <<'SQL'
 CREATE TABLE IF NOT EXISTS release_smoke_sentinel (
   id integer PRIMARY KEY,
   marker text NOT NULL
@@ -445,7 +440,7 @@ SQL
 
 sentinel_marker() {
   docker compose exec -T postgres /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAqc "SELECT marker FROM release_smoke_sentinel WHERE id = 1"'
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAqc "SELECT marker FROM release_smoke_sentinel WHERE id = 1"'
 }
 [[ "$(sentinel_marker)" == before-backup ]] || fail "pre-backup database sentinel is missing"
 
@@ -469,7 +464,7 @@ printf '%s\n' "$SMOKE_PASSWORD" | "${candidate_client[@]}" --records "$RUN_DIR/c
 
 active_tde_key() {
   docker compose exec -T postgres /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT key_name FROM pg_tde_key_info();"'
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT key_name FROM pg_tde_key_info();"'
 }
 
 printf 'Rotating the TDE principal key and proving db-init preserves it across reruns.\n'
@@ -661,13 +656,13 @@ CLEAN_RESTORE_FILE="${BUNDLE}/backups/clean-restore-smoke.sql.gz"
 cp "${BUNDLE}/backups/last/chronicle-latest.sql.gz" "$CLEAN_RESTORE_FILE"
 assert_upload_rows
 docker compose exec -T postgres /bin/bash -ceu \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL_MARKER'
+  'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL_MARKER'
 INSERT INTO release_smoke_sentinel (id, marker) VALUES (2, 'after-clean-backup');
 SQL_MARKER
 ./chronicle restore /backups/clean-restore-smoke.sql.gz --yes --trusted-sha256="$CLEAN_RESTORE_SHA256"
 assert_upload_rows
 post_backup_marker="$(docker compose exec -T postgres /bin/bash -ceu \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FROM release_smoke_sentinel WHERE id = 2"')"
+  'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FROM release_smoke_sentinel WHERE id = 2"')"
 [[ "$post_backup_marker" == 0 ]] || fail "clean restore retained the post-backup marker"
 clean_restore_seconds=$((SECONDS - restore_started))
 [[ ! -e "${BUNDLE}/.chronicle-restore.lock" ]] || fail "clean restore lock was not released"
@@ -677,7 +672,7 @@ printf 'Exhausting the size-capped synthetic database volume and checking recove
 [[ "$PROJECT" == chronicle-release-smoke-* ]] || fail "disk drill requires the isolated smoke project"
 smoke_sql() {
   timeout "$DISK_DRILL_MAX_SECONDS" docker compose exec -T postgres /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -q -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
 }
 smoke_sql <<'SQL'
 CREATE TABLE release_smoke_disk_pressure (payload text);
@@ -867,7 +862,7 @@ docker compose run --rm --no-deps --entrypoint /bin/bash cert-init -ceu "
   set -- /backend-tls backend DNS:backend,DNS:localhost,IP:127.0.0.1; $expiring_leaf
   openssl x509 -req -in <(openssl req -new -newkey rsa:2048 -nodes -keyout /tls/internal-key.pem -subj /CN=chronicle-dashboard 2>/dev/null) \\
     -CA /tls/internal-ca.crt -CAkey /tls/internal-ca.key -CAcreateserial -days 10 -sha256 \\
-    -extfile <(printf 'subjectAltName=DNS:localhost,DNS:web,IP:127.0.0.1\\nextendedKeyUsage=serverAuth\\n') -out /tls/internal-cert.pem 2>/dev/null" >/dev/null
+    -extfile <(printf 'subjectAltName=DNS:localhost,DNS:web,IP:127.0.0.1\\nextendedKeyUsage=serverAuth\\nsubjectKeyIdentifier=hash\\nauthorityKeyIdentifier=keyid,issuer\\n') -out /tls/internal-cert.pem 2>/dev/null" >/dev/null
 renewed_leaves=(cert-init:/postgres-tls/postgres.crt cert-init:/backend-tls/backend.crt cert-init:/tls/internal-cert.pem)
 if [[ "$MONITORING" == true ]]; then
   docker compose run --rm --no-deps --entrypoint /bin/bash monitoring-cert-init -ceu "
@@ -936,7 +931,7 @@ run_container_security_audit "${RUN_DIR}/container-security.txt"
 printf 'Proving the TDE data volume is unreadable without its keyring.\n'
 postgres_query() {
   docker compose exec -T postgres /bin/bash -ceu \
-    'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT marker FROM release_smoke_sentinel WHERE id = 1;"'
+    'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT marker FROM release_smoke_sentinel WHERE id = 1;"'
 }
 keyring_path=/var/lib/postgresql/tde-keyring/chronicle-keyring.per
 docker compose stop backend db-backup postgres >/dev/null
@@ -1073,7 +1068,13 @@ trust = [mount for mount in services['web']['Mounts']
 if len(trust) != 1:
     raise RuntimeError('benchmark backend trust volume is unavailable')
 environment = dict(item.split('=', 1) for item in services['backend']['Config']['Env'])
-secret = environment['CHRONICLE_INTERNAL_WEB_SECRET']
+secret = environment.get('CHRONICLE_INTERNAL_WEB_SECRET')
+if secret is None:
+    # 2026.11.6 and later: the backend reads it from CHRONICLE_SECRETS_DIR (backend-entrypoint.sh).
+    secret = subprocess.check_output(
+        ['docker', 'exec', services['backend']['Id'], 'cat',
+         environment.get('CHRONICLE_SECRETS_DIR', '/run/secrets/chronicle') + '/internal-web-secret'],
+        text=True).rstrip('\n')
 if not secret or '\n' in secret or '\r' in secret:
     raise RuntimeError('benchmark internal-web capability is invalid')
 with open(folder / 'benchmark-listener.env', 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:

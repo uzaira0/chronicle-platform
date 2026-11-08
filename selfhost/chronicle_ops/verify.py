@@ -9,6 +9,7 @@ import getpass
 from http.cookiejar import MozillaCookieJar
 import ipaddress
 import json
+import math
 import os
 import plistlib
 from pathlib import Path
@@ -28,6 +29,7 @@ from .credentials import parse_timestamp, secret_dates
 from .dump import BACKUP_SCRATCH_FACTOR, BACKUP_VERIFICATION_CACHE, TDE_GENERATION_SCHEMA, DumpError, cached_verified_backup, validate_dump, verified_backup
 from .release import free_disk_floor, postgres_sql
 from .env_migration import DeploymentMode, deployment_mode
+from .startup import caddy_duration_nanoseconds
 from .envfile import read_env, value
 from .route_surface import PUBLIC_SURFACE
 
@@ -43,6 +45,8 @@ RATE_LIMIT_PROBE_MAX_REQUESTS = 400
 # window keeps counting the earlier bursts' requests.
 RATE_LIMIT_PROBE_BURSTS = 3
 RATE_LIMIT_PROBE_PAUSE_SECONDS = 5
+# One curl process sends a worker's share of a burst; this bounds each of its requests.
+RATE_LIMIT_PROBE_TIMEOUT_SECONDS = 10
 MONITORING_JOBS = {"chronicle-backend", "chronicle-containers", "chronicle-host", "chronicle-operational",
                    "chronicle-public", "chronicle-log-forwarder", "chronicle-operations", "chronicle-configuration"}
 DATABASE_PRIVILEGES_VIOLATION = 1
@@ -669,25 +673,57 @@ def send_canary(request):
 MOBILE_RATE_PROBE = "/chronicle/v4/study/x/participant/x/enrollment-preview"
 
 
+def send_burst(url, count, workers):
+    """GET url count times from up to `workers` curl processes, each sending its share over one reused
+    connection, so the rate reached depends on the server rather than on process start-up and a TLS
+    handshake per request. Returns (status codes, seconds elapsed); a request with no answer is '000'."""
+    workers = max(1, min(workers, count))
+    shares = [count // workers + (1 if index < count % workers else 0) for index in range(workers)]
+
+    def send(share):
+        more = ''.join(curl_config('url', url) + curl_config('output', '/dev/null') for _ in range(share - 1))
+        codes = curl(url, '-o', '/dev/null', '-w', '%{http_code}\n', config=more,
+                     timeout=RATE_LIMIT_PROBE_TIMEOUT_SECONDS)[1].split()
+        return codes[:share] + ['000'] * (share - len(codes))
+
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        codes = [code for share in pool.map(send, shares) for code in share]
+    return codes, time.monotonic() - started
+
+
 def verify_mobile_rate_limit(settings, pub, report):
     print(f"\n{BLD}Rate limiting{RST}")
     events = int(value(settings, "RATE_LIMIT_MOBILE_ABUSE_EVENTS", "200"))
     require(events > 0, "RATE_LIMIT_MOBILE_ABUSE_EVENTS must be positive")
+    window_text = value(settings, "RATE_LIMIT_MOBILE_WINDOW", "1s")
+    window = caddy_duration_nanoseconds(window_text)
     # Trusted SNAT has a fleet-sized edge ceiling; the backend still limits anonymous traffic.
     burst = min(events * 2, RATE_LIMIT_PROBE_MAX_REQUESTS)
-    sent, limited = 0, False
+    sent, limited, overflowed, fastest = 0, False, window is None, 0.0
     for attempt in range(RATE_LIMIT_PROBE_BURSTS):
         if attempt:
             time.sleep(RATE_LIMIT_PROBE_PAUSE_SECONDS)
-        with ThreadPoolExecutor(max_workers=min(RATE_LIMIT_PROBE_WORKERS, burst)) as pool:
-            codes = list(pool.map(lambda _: curl(pub + MOBILE_RATE_PROBE, "-o", "/dev/null", "-w", "%{http_code}")[1],
-                                  range(burst)))
+        codes, elapsed = send_burst(pub + MOBILE_RATE_PROBE, burst, RATE_LIMIT_PROBE_WORKERS)
         sent += burst
         if "429" in codes:
             limited = True
             break
-    report(limited, "mobile enrollment abuse is rate limited by the edge" if limited
-           else f"{sent} requests to mobile enrollment were never rate limited")
+        answered = sum(code != "000" for code in codes)
+        fastest = max(fastest, answered / max(elapsed, 1e-9))
+        # The burst's elapsed time is covered by ceil(elapsed / window) disjoint windows; more answered
+        # requests than `events` in each of them puts more than `events` in one, which the edge must refuse.
+        if window and answered > events * max(1, math.ceil(elapsed * 1e9 / window)):
+            overflowed = True
+    if limited:
+        report(True, "mobile enrollment abuse is rate limited by the edge")
+    elif overflowed:
+        report(False, f"{sent} requests to mobile enrollment were never rate limited")
+    else:
+        # The host never sent fast enough to exceed the limit: a missing 429 proves nothing either way.
+        report(False, f"mobile enrollment rate limiting is unproven: this host sent at most {fastest:.0f} "
+               f"requests/s, too few to exceed {events} per {window_text}; rerun ./chronicle verify when "
+               "the host is less busy", warning=True)
 
 
 def verify_configured_backups(settings, report) -> None:

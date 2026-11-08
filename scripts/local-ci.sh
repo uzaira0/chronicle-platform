@@ -1392,6 +1392,8 @@ write_ci_smoke_tls() {
   mkdir -p "$certs_dir/ca" "$certs_dir/server"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
     -subj "/CN=Chronicle local smoke CA" \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+    -addext 'subjectKeyIdentifier=hash' \
     -keyout "$certs_dir/ca/ca.key" \
     -out "$certs_dir/ca/ca.crt" >/dev/null 2>&1
   cat > "$certs_dir/server/server.cnf" <<'EOF'
@@ -1405,6 +1407,11 @@ CN=postgres
 
 [v3_req]
 subjectAltName=@alt_names
+
+[v3_server]
+subjectAltName=@alt_names
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
 
 [alt_names]
 DNS.1=postgres
@@ -1420,7 +1427,7 @@ EOF
     -CA "$certs_dir/ca/ca.crt" \
     -CAkey "$certs_dir/ca/ca.key" \
     -CAcreateserial \
-    -extensions v3_req \
+    -extensions v3_server \
     -extfile "$certs_dir/server/server.cnf" \
     -out "$certs_dir/server/server.crt" >/dev/null 2>&1
   # The CI smoke key is generated in a temporary directory and bind-mounted

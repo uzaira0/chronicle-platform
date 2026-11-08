@@ -13,10 +13,10 @@ def startup_timeout(raw, name):
     return raw
 
 
-def valid_caddy_duration(raw):
-    """Accept positive Caddy durations within signed 64-bit nanoseconds, including days."""
+def caddy_duration_nanoseconds(raw):
+    """A positive Caddy duration within signed 64-bit nanoseconds, including days, in nanoseconds; else None."""
     if not raw or len(raw) > 128:
-        return False
+        return None
     duration = raw.removeprefix("+")
     units = {"ns": 1, "us": 1000, "µs": 1000, "μs": 1000, "ms": 1000000,
              "s": 1000000000, "m": 60000000000, "h": 3600000000000, "d": 86400000000000}
@@ -26,9 +26,14 @@ def valid_caddy_duration(raw):
         context.prec = 200
         for match in component.finditer(duration):
             if match.start() != offset:
-                return False
+                return None
             nanoseconds += int(Decimal(match.group(1)) * units[match.group(2)])
             if nanoseconds > 2**63 - 1:
-                return False
+                return None
             offset = match.end()
-    return offset == len(duration) and nanoseconds > 0
+    return nanoseconds if offset == len(duration) and nanoseconds > 0 else None
+
+
+def valid_caddy_duration(raw):
+    """Accept positive Caddy durations within signed 64-bit nanoseconds, including days."""
+    return caddy_duration_nanoseconds(raw) is not None

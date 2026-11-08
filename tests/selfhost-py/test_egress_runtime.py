@@ -93,7 +93,8 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=f
 openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=chronicle.example.org \
   -keyout key.pem -out leaf.csr 2>/dev/null
 printf '%s\n' 'subjectAltName=DNS:chronicle.example.org' 'extendedKeyUsage=serverAuth' \
-  'authorityInfoAccess=OCSP;URI:http://ocsp.chronicle.test:8888' > leaf.ext
+  'authorityInfoAccess=OCSP;URI:http://ocsp.chronicle.test:8888' \
+  'subjectKeyIdentifier=hash' 'authorityKeyIdentifier=keyid,issuer' > leaf.ext
 openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 2 -extfile leaf.ext -out leaf.pem 2>/dev/null
 cat leaf.pem ca.pem > cert.pem
 cp cert.pem internal-cert.pem

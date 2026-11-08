@@ -16,13 +16,16 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$work_dir/ca.
 openssl req -x509 -new -sha256 -days 825 \
   -key "$work_dir/ca.key" \
   -subj "/CN=Chronicle Hetzner PostgreSQL CA" \
+  -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+  -addext 'subjectKeyIdentifier=hash' \
   -out "$output_dir/ca.crt"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$output_dir/postgres.key"
 openssl req -new -sha256 \
   -key "$output_dir/postgres.key" \
   -subj "/CN=postgres" \
   -out "$work_dir/postgres.csr"
-printf '%s\n' 'subjectAltName=DNS:postgres' 'extendedKeyUsage=serverAuth' > "$work_dir/extensions"
+printf '%s\n' 'subjectAltName=DNS:postgres' 'extendedKeyUsage=serverAuth' \
+  'subjectKeyIdentifier=hash' 'authorityKeyIdentifier=keyid,issuer' > "$work_dir/extensions"
 openssl x509 -req -sha256 -days 397 \
   -in "$work_dir/postgres.csr" \
   -CA "$output_dir/ca.crt" \
@@ -33,4 +36,5 @@ openssl x509 -req -sha256 -days 397 \
 
 chmod 0600 "$output_dir/postgres.key"
 chmod 0644 "$output_dir/postgres.crt" "$output_dir/ca.crt"
-openssl verify -CAfile "$output_dir/ca.crt" "$output_dir/postgres.crt"
+# Strict, as Python 3.13+ clients verify: a CA-signed leaf without an Authority Key Identifier fails here.
+openssl verify -x509_strict -CAfile "$output_dir/ca.crt" "$output_dir/postgres.crt"

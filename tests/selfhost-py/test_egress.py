@@ -664,6 +664,9 @@ class SecretFileTests(unittest.TestCase):
                    'verify.capacity_checks': inspect.getsource(verify.capacity_checks)}
         for path in ('chronicle', 'doctor.sh', 'rotate-secret.sh'):
             sources[path] = (SELFHOST / path).read_text()
+        # The release smoke and its client exec into 2026.11.6+ containers that have only the password file.
+        for path in ('tests/smoke/selfhost-release-smoke.sh', 'tests/deployment/selfhost-client.py'):
+            sources[path] = (SELFHOST.parent / path).read_text()
         for label, source in sources.items():
             with self.subTest(caller=label):
                 self.assertNotIn('PGPASSWORD="$POSTGRES_PASSWORD"', source.replace('export PGPASSWORD="$POSTGRES_PASSWORD"\n', ''))
@@ -677,6 +680,17 @@ class SecretFileTests(unittest.TestCase):
                 result = subprocess.run(['bash', '-ceu', command], env=dict(environment, PATH=os.environ['PATH']),
                                         capture_output=True, text=True, timeout=10)
                 self.assertEqual(expected, result.stdout)
+
+    def test_harnesses_never_read_a_file_delivered_secret_from_a_container_environment(self):
+        # The release smoke read CHRONICLE_INTERNAL_WEB_SECRET from the backend's configured environment;
+        # 2026.11.6 delivers every secret secrets-init writes as a file, so that lookup raised KeyError.
+        import re
+        names = set(re.findall(r'^write /out/\S+ \S+ \S+ "\$\{?([A-Z_]+)', (SELFHOST / 'secrets-init.sh').read_text(), re.M))
+        self.assertIn('CHRONICLE_INTERNAL_WEB_SECRET', names)
+        for path in ('tests/smoke/selfhost-release-smoke.sh', 'tests/deployment/selfhost-client.py'):
+            source = (SELFHOST.parent / path).read_text()
+            with self.subTest(harness=path):
+                self.assertEqual([], sorted(name for name in names if f"['{name}']" in source))
 
     def test_rotation_rewrites_the_files_before_recreating_services_without_dependencies(self):
         text = (SELFHOST / 'rotate-secret.sh').read_text()

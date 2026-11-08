@@ -820,7 +820,7 @@ def main():
         records = json.loads(Path(args.records).read_text())
         def query(sql):
             result = subprocess.run(['docker', 'compose', '-p', args.project, 'exec', '-T', 'postgres', '/bin/bash', '-ceu',
-                                     'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 '
+                                     'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -v ON_ERROR_STOP=1 -h 127.0.0.1 '
                                      '-U "${POSTGRES_USER:-chronicle}" -d "${POSTGRES_DB:-chronicle}" -f -'],
                                     input=sql, capture_output=True, text=True, timeout=REQUEST_TIMEOUT_SECONDS, check=True)
             return result.stdout

@@ -291,6 +291,13 @@ Android open flavor (versionCode 85) on Play internal testing.
 - Update and rollback no longer wait for `db-backup`'s first dump before reopening ingress. Its health needs a fresh full dump plus a restore check (up to `BACKUP_VERIFY_TIMEOUT_SECONDS`), so a slow dump kept participants out and could roll a good update back; the update has already taken its own safety dump. `db-backup` is started once the other services are healthy, and after the commit the update says whether it is still taking that backup or has failed. Scheduled backups run as before; `./chronicle doctor` reports `service-db-backup` (a first backup in progress is a warning) and `./chronicle verify` still checks the newest restore-verified backup, a backup already missing before the update remaining a warning.
 - A deployment with no alert recipient (`CHRONICLE_ALERT_WEBHOOK_URL` unset, the default) no longer makes `./chronicle doctor` exit 1 and every scheduled reconciliation record a failure. `alert-route` is a warning that says to add the setting to `.env` and run `./chronicle up`.
 - The first update from 2026.11.2 is discovered and downloaded by 2026.11.2's own code, which does not use a proxy or retry; `docs/UPGRADE-ROLLBACK.md` now says proxy support and retries apply to updates run by 2026.11.6 and later, and gives a host that reaches GitHub only through a proxy a one-time path: the release's three files and a one-row `releases.json` on a server it reaches directly, named by `CHRONICLE_RELEASES_URL`. Publishing a release now runs every supported installed release's own discovery, from its git tag, on the catalog as it will be published, and refuses if any of them would not select the release (2026.11.2 rejects the whole catalog for one row it cannot parse).
+- `./chronicle verify` no longer fails its mobile enrollment rate-limit check on a host too slow or too
+  busy to exceed the limit. A burst that drew no 429 now fails the check only when its requests were fast
+  enough that the edge had to refuse some of them (more than `RATE_LIMIT_MOBILE_ABUSE_EVENTS` answered
+  requests per `RATE_LIMIT_MOBILE_WINDOW` window over the burst); otherwise the check is a warning that
+  names the rate the host reached. Each probe worker now sends its share of a burst over one connection,
+  so the rate depends on the server, not on a new process and TLS handshake per request. A failed check
+  in an update's verification rolls the update back, so a slow host could lose an update to it.
 
 ### Android (open flavor, versionCode 85)
 
