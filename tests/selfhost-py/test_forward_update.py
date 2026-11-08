@@ -278,6 +278,118 @@ class InterruptedUpdateTests(unittest.TestCase):
                 os.chdir(origin)
 
 
+class InterruptedUpdateRerunTests(unittest.TestCase):
+    """The operator only ever runs ./chronicle update: one rerun after a killed update must finish it."""
+
+    def rerun(self, phase, recovered, **journal):
+        from chronicle_ops.update import apply_candidate
+        from chronicle_ops.upgrade import UPGRADE_LOCK
+        from chronicle_ops.reconcile import RECOVERY_FILE
+        from chronicle_ops.release import UPDATE_DIRECTORY_PREFIX
+        from chronicle_ops.receipts import write_json
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name).resolve()
+        previous, state = root / 'previous', root / 'state'
+        candidate = root / (UPDATE_DIRECTORY_PREFIX + 'fixture') / 'bundle/selfhost'
+        for path in (previous, state, candidate):
+            path.mkdir(parents=True)
+        (previous / '.env').write_text('CHRONICLE_STATE_DIR=' + str(state) + '\n')
+        (previous / '.env').chmod(0o600)
+        marker = state / UPGRADE_LOCK
+        marker.mkdir()
+        write_json(marker / RECOVERY_FILE, dict(previous=str(previous), owner=str(candidate), phase=phase, **journal))
+        def recover(state_dir):  # the real recovery clears the journal and serves `recovered`
+            (Path(state_dir) / UPGRADE_LOCK / RECOVERY_FILE).unlink()
+            Path(state_dir, UPGRADE_LOCK).rmdir()
+            return {'previous': previous, 'candidate': candidate}[recovered]
+        calls = []
+        def upgrade(old, new):
+            calls.append((Path(old).resolve(), Path(new).resolve(), Path.cwd().resolve()))
+            return 0
+        origin = Path.cwd()
+        self.addCleanup(os.chdir, origin)
+        os.chdir(candidate)
+        with patch('chronicle_ops.upgrade.recover_update', side_effect=recover), \
+             patch('chronicle_ops.upgrade.upgrade', side_effect=upgrade), \
+             patch('chronicle_ops.release.current_owner', return_value=candidate), \
+             patch('chronicle_ops.release.cleanup_releases'):
+            status = apply_candidate(previous)
+        return status, calls, previous, candidate
+
+    def test_rerun_after_a_kill_before_the_commit_recovers_then_updates(self):
+        from chronicle_ops.upgrade import PREPARED
+        from chronicle_ops.reconcile import RECOVERY_PHASE
+        for phase in (PREPARED, RECOVERY_PHASE):
+            with self.subTest(phase=phase):
+                status, calls, previous, candidate = self.rerun(phase, 'previous')
+                self.assertEqual(0, status)
+                self.assertEqual([(previous, candidate, candidate)], calls)
+
+    def test_rerun_after_a_kill_after_the_commit_only_finishes_it(self):
+        from chronicle_ops.upgrade import COMMITTED
+        status, calls, _, _ = self.rerun(COMMITTED, 'candidate')
+        self.assertEqual((0, []), (status, calls))
+
+    def test_a_rollback_of_a_failed_update_is_not_retried(self):
+        # The update already failed (its verification, say) and was rolling back when it died: the
+        # recovery finishes the rollback and reports the failure instead of retrying the same release.
+        from chronicle_ops.upgrade import PREPARED
+        from chronicle_ops.restore import ROLLBACK_PHASES
+        for phase in (PREPARED, ROLLBACK_PHASES[0], ROLLBACK_PHASES[-1]):
+            with self.subTest(phase=phase):
+                status, calls, _, _ = self.rerun(phase, 'previous', failed=True)
+                self.assertEqual((1, []), (status, calls))
+
+    def test_a_killed_recovery_of_an_interrupted_update_still_carries_on(self):
+        # The first rerun was itself killed mid-rollback: the next one finishes it and updates.
+        from chronicle_ops.restore import ROLLBACK_PHASES
+        status, calls, previous, candidate = self.rerun(ROLLBACK_PHASES[1], 'previous')
+        self.assertEqual(0, status)
+        self.assertEqual([(previous, candidate, candidate)], calls)
+
+    def test_upgrade_marks_its_journal_failed_only_for_a_real_failure(self):
+        from chronicle_ops import upgrade as module
+        from chronicle_ops.upgrade import Interrupted, PREPARED, UPGRADE_LOCK, upgrade
+        from chronicle_ops.reconcile import RECOVERY_FILE
+        from chronicle_ops.receipts import write_json
+        unwritable = OSError('No space left on device')
+        cases = ((ValueError('candidate verify failed'), True, None), (Interrupted(15), False, None),
+                 (ValueError('candidate verify failed'), False, unwritable))  # the rollback still runs
+        for error, failed, mark_error in cases:
+            with self.subTest(error=type(error).__name__, mark_error=mark_error), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder).resolve()
+                previous, candidate, state = root / 'previous', root / 'candidate', root / 'state'
+                for path in (previous, candidate, state):
+                    path.mkdir()
+                (previous / '.env').write_text('CHRONICLE_STATE_DIR=' + str(state) + '\n')
+                (previous / '.env').chmod(0o600)
+                seen = []
+                class Failing:
+                    failed_services = []
+                    def __init__(self, *_):
+                        (state / UPGRADE_LOCK).mkdir()
+                        write_json(state / UPGRADE_LOCK / RECOVERY_FILE,
+                                   dict(previous=str(previous), owner=str(candidate), phase=PREPARED))
+                    def prepare(self):
+                        raise error
+                def recover(state_dir):
+                    seen.append(json.loads((Path(state_dir) / UPGRADE_LOCK / RECOVERY_FILE).read_text()))
+                    return previous
+                origin = Path.cwd()
+                self.addCleanup(os.chdir, origin)
+                with patch.object(module, 'Upgrade', Failing), \
+                     patch.object(module, 'require_current_owner'), \
+                     patch.object(module, 'recover_update', side_effect=recover), \
+                     patch.object(module, 'finish_operation'), \
+                     patch.object(module, 'mark_failed', side_effect=mark_error) if mark_error else patch.dict({}), \
+                     patch.dict(os.environ):
+                    status = upgrade(previous, candidate)
+                self.assertNotEqual(0, status)
+                self.assertEqual(1, len(seen))
+                self.assertEqual(failed, seen[0].get('failed', False))
+
+
 class LedgerMigrationTests(unittest.TestCase):
     def test_committed_ledger_freezes_published_files_without_tags(self):
         from chronicle_ops.migrations import (MIGRATION_LEDGER, migration_hashes,

@@ -177,6 +177,10 @@ It reads the durable recovery record under the shared lock. Before commit it del
 rolls back, even if the candidate had started successfully; after commit it verifies the
 committed release and completes cleanup without restoring an older dump. A pre-migration interruption restarts the old
 release; after migrations may have started, recovery restores the safety dump first.
+Once the previous release serves again, the same command runs the update again: one rerun
+finishes an interrupted update and exits 0 when it succeeds. An update that had already failed
+(its startup or verification) when it was interrupted is not retried: the rerun finishes its
+rollback and exits non-zero.
 Rollback resumes through database restore, project shutdown, settings archival, ownership
 transfer, startup and verification. Ingress and automatic reconciliation stay fenced until
 the selected release is verified. Preserve the journal until this command completes.

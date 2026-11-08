@@ -386,14 +386,29 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
             self.assertEqual(1, rejected.execute())
         self.assertEqual('retained', self.sql('SELECT value FROM public.forward_drill_data WHERE id=1;'))
 
-    def check_failure_and_interruption(self, host, first, second):
-        # Return to N using the first verified safety dump, then try a failing N+1.
-        active = Path((self.work / 'state' / release.OWNER_FILE).read_text().strip())
-        backup = sorted(self.backups.glob('pre-upgrade-*.sql.gz'))[0]
-        os.chdir(active)
+    def return_to_shipped(self, host, backup):
+        """Guarded rollback from the release that owns the deployment back to N with a safety dump."""
         from chronicle_ops.restore import rollback
         from chronicle_ops.dump import file_sha256
+        os.chdir(Path((self.work / 'state' / release.OWNER_FILE).read_text().strip()))
         self.assertEqual(0, rollback(host, '/backups/' + backup.name, file_sha256(backup), True))
+        self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
+        self.assertEqual(self.shipped_version, self.schema_version())
+
+    def assert_updated_by_one_rerun(self, host):
+        # An interrupted update needs one rerun of ./chronicle update: it recovers, updates again and
+        # exits 0 (invoke() also checks that the journal is gone and the data was kept).
+        self.assertEqual(0, self.invoke(host))
+        owner = (self.work / 'state' / release.OWNER_FILE).read_text().strip()
+        self.assertNotEqual(str(host.resolve()), owner)
+        self.assertEqual(self.forward_version, self.schema_version())
+        self.assertEqual('t', self.sql('SELECT migrated FROM public.forward_drill_data;'))
+        # Back to N with the dump this update took before it changed anything.
+        self.return_to_shipped(host, sorted(self.backups.glob('pre-upgrade-*.sql.gz'))[-1])
+
+    def check_failure_and_interruption(self, host, first, second):
+        # Return to N using the first verified safety dump, then try a failing N+1.
+        self.return_to_shipped(host, sorted(self.backups.glob('pre-upgrade-*.sql.gz'))[0])
         self.fail_version = second
         self.assertEqual(1, self.invoke(host, second))
         self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
@@ -407,11 +422,8 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         self.assertEqual(self.shipped_version, self.schema_version())
         self.assertTrue(marker.exists())
         self.kill_rollback_phase = None
-        # Real PREPARED recovery excludes ca-export from up --wait. It ends on the previous
-        # release, so the rerun reports the rolled-back update as a failure (93151f3a).
-        self.assertEqual(1, self.invoke(host))
-        self.assertFalse(marker.exists())
-        self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
+        # Real PREPARED recovery excludes ca-export from up --wait; the rerun then updates again.
+        self.assert_updated_by_one_rerun(host)
         self.kill_after_migration = True
         self.assertNotEqual(0, self.invoke(host, second))
         self.kill_after_migration = False
@@ -421,10 +433,8 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         abandoned = Path(record['owner'])
         self.dc_fixture(abandoned, 'restart', 'web')
         self.assert_fenced(abandoned)  # Caddy restart after updater death still refuses participants.
-        self.assertEqual(1, self.invoke(host))  # SIGKILL left the durable fence and safety dump; rolled back.
-        self.assertFalse(marker.exists())
-        self.assertEqual(str(host.resolve()), (self.work / 'state' / release.OWNER_FILE).read_text().strip())
-        self.assertEqual(self.shipped_version, self.schema_version())
+        # SIGKILL left the durable fence and safety dump: the rerun restores it, then updates again.
+        self.assert_updated_by_one_rerun(host)
 
         from chronicle_ops.restore import ROLLBACK_PHASES
         for phase in ROLLBACK_PHASES:
@@ -436,7 +446,8 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
                 self.assertTrue(fence_path(self.work / 'state').exists())
                 self.kill_rollback_phase = None
                 self.fail_version = None
-                self.assertEqual(1, self.invoke(host))  # finishes the rollback
+                # The update had failed (journal marked failed): the rerun only finishes the rollback.
+                self.assertEqual(1, self.invoke(host))
                 self.assertFalse(marker.exists())
                 self.assertFalse(fence_path(self.work / 'state').exists())
                 self.assertEqual(self.shipped_version, self.schema_version())

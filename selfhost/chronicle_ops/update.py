@@ -502,8 +502,18 @@ def apply_candidate(previous):
         require(same_path(data['previous'], previous) and same_path(data['owner'], candidate),
                 'candidate does not match the verified update handoff')
         recovered = recover_update(state)
-        # A recovery that ended on the previous release is a rolled-back update: report failure.
-        status = (0 if Path(recovered).resolve() == candidate else 1) if recovered else upgrade(previous, candidate)
+        if not recovered:
+            status = upgrade(previous, candidate)
+        elif Path(recovered).resolve() == candidate:
+            status = 0  # the interrupted update had committed and is finished
+        elif data.get('failed'):
+            status = 1  # the update failed and its rollback is now finished: report the failure
+        else:
+            # The update was interrupted before its commit and is rolled back: one rerun of
+            # ./chronicle update carries on to the update instead of asking for another.
+            print(f'The interrupted update was rolled back; updating to {candidate} again.', flush=True)
+            os.chdir(candidate)
+            status = upgrade(previous, candidate)
         if not record.exists():
             handoff.unlink(missing_ok=True)
             # Never remove the release that owns the deployment, whatever the status says.

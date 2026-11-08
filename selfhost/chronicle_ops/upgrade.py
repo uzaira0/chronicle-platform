@@ -454,6 +454,17 @@ def settle_failed_recovery(state):
          'Resolve the failure above, then run ./chronicle update to finish it')
 
 
+def mark_failed(state):
+    """Record on the journal that the update itself failed, before its rollback starts. A rerun that
+    finds a journal without this mark is finishing an interrupted update (killed process, host
+    restart, a recovery that was itself interrupted): after recovering it updates again. With the
+    mark it only finishes the rollback and reports the failure. rollback() keeps the key."""
+    path = Path(state) / UPGRADE_LOCK / RECOVERY_FILE
+    record = json.loads(path.read_text())
+    record['failed'] = True
+    write_json(path, record)
+
+
 def recover_update(state):
     """Called under the operation lock, including after SIGKILL or host restart. Returns False when
     no update was pending, else the release directory that serves afterwards: the candidate when the
@@ -539,6 +550,12 @@ def upgrade(previous, candidate):
         if (state / UPGRADE_LOCK / RECOVERY_FILE).exists():
             try:
                 os.chdir(previous)
+                if not isinstance(error, Interrupted):
+                    try:
+                        mark_failed(state)
+                    except (OSError, ValueError, KeyError) as mark_error:  # never in the way of the rollback
+                        warn(f'could not record the failure in the update journal ({mark_error}); '
+                             'if this rollback is interrupted, the next update retries the release')
                 # A failure after the durable commit is finished forward: the candidate serves.
                 if Path(recover_update(state) or previous).resolve() == candidate:
                     status = 0

@@ -84,7 +84,9 @@ class ExitAndHandoffTests(unittest.TestCase):
             (candidate / '.env').write_text((previous / '.env').read_text())
             journal = state / UPGRADE_LOCK
             journal.mkdir()
-            record = {'previous': str(previous), 'owner': str(candidate), 'phase': PREPARED}
+            # The update failed (failed=True) and was killed while rolling back: the rerun finishes
+            # the rollback and reports the failure. Without the mark it would update again.
+            record = {'previous': str(previous), 'owner': str(candidate), 'phase': PREPARED, 'failed': True}
             write_json(journal / RECOVERY_FILE, record)
             (state / updater.HANDOFF_FILE).write_text(json.dumps(record))
             origin = Path.cwd()

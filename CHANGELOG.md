@@ -262,8 +262,11 @@ Android open flavor (versionCode 85) on Play internal testing.
 - Self-host README: the battery steps name each Android version's own Settings path (Battery
   optimization > Don't optimize on Android 8–14; App battery usage > Allow background usage >
   Unrestricted on 15 and later).
-- Self-host update: an update that rolled back automatically, including one finished by a rerun
-  after an interruption, now exits non-zero (it exited 0). A leftover handoff to a staged candidate
+- Self-host update: an update that failed and rolled back automatically now exits non-zero (it
+  exited 0), including when a rerun finishes that rollback. An update interrupted before its commit
+  (a killed process, a host restart) needs one rerun of `./chronicle update`: it restores the
+  previous release with its data, then updates again and exits 0 when that update succeeds.
+  A leftover handoff to a staged candidate
   that no longer exists is cleared and the update starts again, instead of failing on every run.
   An `.env` readable by other accounts is set to mode 0600 with a warning instead of refusing.
 - A host without Linux cron (a macOS trial, a minimal image, a stopped `cron` service) no longer stops setup or update. A new install starts with `CHRONICLE_RECONCILE_ENABLED=false`; on a deployment that has it enabled, setup, update and `doctor` warn and name what is missing. A crontab the update cannot read or write warns after verification instead of rolling the update back. `./chronicle up` installs a missing schedule once cron is available.
