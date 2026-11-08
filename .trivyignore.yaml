@@ -483,6 +483,8 @@ vulnerabilities:
     paths:
       - "opt/chronicle-plugins/victoriametrics-logs-datasource/victoriametrics_logs_backend_plugin_linux_amd64"
       - "usr/share/grafana/data/plugins-bundled/prometheus/gpx_grafana-prometheus-datasource_linux_amd64"
+      - "usr/bin/cadvisor"
+      - "victoria-metrics-prod"
     expired_at: 2026-12-30
     owner: uzaira0
     rechecked: 2026-11-07
@@ -494,8 +496,11 @@ vulnerabilities:
       symbol (strings over both 2026.11.6 binaries, 2026-11-07), so no HTML is ever tokenized. Monitoring
       overlay only (opt-in); both talk only to internal victorialogs/victoriametrics. The Grafana server
       binary, which does link x/net/html, is rebuilt with x/net 0.62.0 (Dockerfile.grafana). Rechecked
-      2026-11-07: 0.33.1 is still the newest victoriametrics-logs-datasource release. Drop when either
-      plugin ships with x/net 0.62.0 or newer.
+      2026-11-07: 0.33.1 is still the newest victoriametrics-logs-datasource release. cadvisor v0.60.6
+      (x/net 0.57.0) and victoria-metrics v1.155.0 (x/net 0.60.0, amd64 manifest) also link no
+      x/net/html code (same strings check over the amd64 binaries, 2026-11-07); both are monitoring-overlay
+      only and still the newest releases (GitHub releases, 2026-11-07). Drop each path when its vendor
+      release ships x/net 0.62.0 or newer.
   - id: CVE-2026-111943
     paths:
       - "usr/bin/cadvisor"
@@ -509,6 +514,24 @@ vulnerabilities:
       These serve and scrape plain HTTP on the monitoring network and verify no TLS server
       certificates. Drop when the vendor image is rebuilt.
       Rechecked 2026-11-06: cadvisor v0.60.6 and victoria-logs v1.53.0 are still the newest releases. victoria-metrics moved to v1.155.0, which scans clean without waivers (scan-selfhost-release-images.sh, 2026-11-06).
+  - id: CVE-2026-107891
+    purls:
+      - "pkg:apk/alpine/musl@1.2.5-r23?arch=x86_64&distro=3.23.6"
+      - "pkg:apk/alpine/musl-utils@1.2.5-r23?arch=x86_64&distro=3.23.6"
+      - "pkg:apk/alpine/musl@1.2.6-r2?arch=x86_64&distro=3.24.1"
+      - "pkg:apk/alpine/musl-utils@1.2.6-r2?arch=x86_64&distro=3.24.1"
+    expired_at: 2026-12-30
+    owner: uzaira0
+    rechecked: 2026-11-07
+    statement: >-
+      musl regcomp integer overflow on a crafted regular expression (fixed in 1.2.5-r24 / 1.2.6-r3) in
+      the vendor images cadvisor v0.60.6 (Alpine 3.23.6) and tecnativa/docker-socket-proxy v0.5.0
+      (Alpine 3.24.1), both monitoring-overlay only. Neither service compiles a pattern anyone else
+      supplies: the amd64 cadvisor binary imports no regcomp (Go regexp is pure Go), HAProxy in the
+      socket proxy is built with PCRE2 and imports no regcomp, and the only regcomp caller left is
+      busybox grep/sed in the images' own fixed entrypoint scripts. Neither publishes a host port;
+      both sit on internal networks. Rechecked 2026-11-07: v0.60.6 and v0.5.0 are still the newest
+      releases. Drop when the vendor images are rebuilt on the fixed musl.
 # Findings in the pinned Percona 18.6.1-4 image (also the backup image base) reviewed 2026-10-21.
   - id: CVE-2026-53615
     purls:
