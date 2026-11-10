@@ -622,7 +622,7 @@ def domain_contract(schema: dict) -> dict[str, Any]:
         "schemaVersion": "chronicle-domain-contracts/v1",
         "generatedBy": "scripts/generate-chronicle-contracts.py",
         "manualEdit": False,
-        "sourceRepo": "methodic",
+        "sourceRepo": "chronicle-platform",
         "sourceFiles": {
             "linkml": {
                 "path": "ontology/chronicle.linkml.yaml",

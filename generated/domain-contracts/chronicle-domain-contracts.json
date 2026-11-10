@@ -2,7 +2,7 @@
   "schemaVersion": "chronicle-domain-contracts/v1",
   "generatedBy": "scripts/generate-chronicle-contracts.py",
   "manualEdit": false,
-  "sourceRepo": "methodic",
+  "sourceRepo": "chronicle-platform",
   "sourceFiles": {
     "linkml": {
       "path": "ontology/chronicle.linkml.yaml",

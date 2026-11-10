@@ -1797,7 +1797,7 @@ job_gitleaks() {
   for repo in . chronicle chronicle-api chronicle-ios chronicle-models \
     chronicle-server chronicle-web rhizome rhizome-client; do
     name="$repo"
-    [[ "$repo" == "." ]] && name="methodic-root"
+    [[ "$repo" == "." ]] && name="chronicle-platform-root"
     if [[ "$repo" == chronicle-ios && ! -e "$ROOT_DIR/$repo/.git" && \
           "$(git config -f "$ROOT_DIR/.gitmodules" --get submodule.chronicle-ios.update)" == none ]]; then
       log "gitleaks: chronicle-ios is outside the initialized module scope (update=none)"

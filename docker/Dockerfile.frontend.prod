@@ -55,9 +55,9 @@ RUN apk upgrade --no-cache && \
 
 COPY LICENSE /usr/share/doc/chronicle/LICENSE
 COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web
-RUN printf 'Corresponding Chronicle source: https://github.com/uzaira0/methodic/tree/%s\n' "$SOURCE_REF" \
+RUN printf 'Corresponding Chronicle source: https://github.com/uzaira0/chronicle-platform/tree/%s\n' "$SOURCE_REF" \
     > /usr/share/doc/chronicle/SOURCE-CODE
-LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic" \
+LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle-platform" \
       org.opencontainers.image.version="${SOURCE_REF}"
 
 # Copy custom nginx config (must use port 8080)

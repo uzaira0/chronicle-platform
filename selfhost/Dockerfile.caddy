@@ -87,9 +87,9 @@ RUN --mount=type=bind,source=selfhost/os-packages/apk-install-aged.sh,target=/us
     sh /usr/local/sbin/apk-install-aged.sh v3.24 \
       --add libqrencode-tools \
       --pin libpng=1.6.59-r0 libqrencode=4.1.1-r3 libqrencode-tools=4.1.1-r3 && \
-    printf 'Corresponding Chronicle source: https://github.com/uzaira0/methodic/tree/%s\n' "$SOURCE_REF" \
+    printf 'Corresponding Chronicle source: https://github.com/uzaira0/chronicle-platform/tree/%s\n' "$SOURCE_REF" \
         > /usr/share/doc/chronicle/SOURCE-CODE
-LABEL org.opencontainers.image.source="https://github.com/uzaira0/methodic" \
+LABEL org.opencontainers.image.source="https://github.com/uzaira0/chronicle-platform" \
       org.opencontainers.image.version="${SOURCE_REF}"
 
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]

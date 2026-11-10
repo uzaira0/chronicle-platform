@@ -93,7 +93,7 @@ class PushGuardTests(unittest.TestCase):
     ALLOWED = 'https://github.com/uzaira0/methodic-dev.git'
 
     def test_refuses_public_and_upstream_repositories(self):
-        for url in ('https://github.com/uzaira0/methodic.git', 'https://github.com/methodic-labs/chronicle-web.git',
+        for url in ('https://github.com/uzaira0/chronicle-platform.git', 'https://github.com/methodic-labs/chronicle-web.git',
                     'git@github.com:uzaira0/methodic-dev.git', 'https://github.com/uzaira0/methodic-dev.git.evil'):
             with self.subTest(url=url), self.assertRaises(SystemExit):
                 runner.push_command(url, SHA, Path('/x.git'))
@@ -110,9 +110,9 @@ class PushGuardTests(unittest.TestCase):
             repo, sha = repo_with_commit(base)
             for key, value in (('remote.origin.url', self.ALLOWED), ('remote.origin.pushurl', self.ALLOWED),
                                ('push.followTags', 'true'), ('push.recurseSubmodules', 'on-demand'),
-                               ('url.https://github.com/uzaira0/methodic.git.pushInsteadOf', self.ALLOWED)):
+                               ('url.https://github.com/uzaira0/chronicle-platform.git.pushInsteadOf', self.ALLOWED)):
                 git(repo, 'config', '--add', key, value)
-            git(repo, 'config', '--add', 'remote.origin.pushurl', 'https://github.com/uzaira0/methodic.git')
+            git(repo, 'config', '--add', 'remote.origin.pushurl', 'https://github.com/uzaira0/chronicle-platform.git')
             work = base / 'work'
             work.mkdir()
             with FakeGit(base) as fake:
@@ -135,7 +135,7 @@ class PushGuardTests(unittest.TestCase):
             git_dir = Path(next(a for a in argv if a.startswith('--git-dir=')).split('=', 1)[1])
             self.assertNotEqual(git_dir.resolve(), (repo / '.git').resolve())
             local_config = (git_dir / 'config').read_text()
-            for setting in ('pushurl', 'insteadOf', 'followTags', 'recurseSubmodules', 'methodic.git'):
+            for setting in ('pushurl', 'insteadOf', 'followTags', 'recurseSubmodules', 'chronicle-platform.git'):
                 self.assertNotIn(setting, local_config)
             # The commit is reachable from that repository, so the real push sends exactly it.
             self.assertEqual('commit', subprocess.run(['git', f'--git-dir={git_dir}', 'cat-file', '-t', sha],

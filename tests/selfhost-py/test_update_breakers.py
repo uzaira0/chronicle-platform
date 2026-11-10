@@ -371,9 +371,9 @@ class DownloadPathTests(unittest.TestCase):
 
     def test_discovery_falls_back_from_the_api_to_the_release_feed(self):
         feed = (b'<feed><entry><link rel="alternate" type="text/html" '
-                b'href="https://github.com/uzaira0/methodic/releases/tag/2026.11.5"/></entry>'
+                b'href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.11.5"/></entry>'
                 b'<entry><link rel="alternate" type="text/html" '
-                b'href="https://github.com/uzaira0/methodic/releases/tag/2026.11.6-rc.1"/></entry></feed>')
+                b'href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.11.6-rc.1"/></entry></feed>')
         asked = []
         def fetch(url, *_, **__):
             asked.append(url)
@@ -389,7 +389,7 @@ class DownloadPathTests(unittest.TestCase):
         chosen = updater.select_release(releases)
         self.assertEqual('2026.11.5', chosen['tag_name'])
         assets = updater.release_assets(chosen, 'chronicle-selfhost-2026.11.5.tar.gz')
-        self.assertEqual('https://github.com/uzaira0/methodic/releases/download/2026.11.5/chronicle-selfhost-2026.11.5.tar.gz.sha256.sig',
+        self.assertEqual('https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.5/chronicle-selfhost-2026.11.5.tar.gz.sha256.sig',
                          assets.signature.url)
         self.assertIn('trying the next release source', errors.getvalue())
 

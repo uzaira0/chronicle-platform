@@ -1257,4 +1257,4 @@ Fixes for hangs, crashes and erasure/consent races, most of which predate 2026.9
 
 ### Fixed
 
-- Public selfhost deployments now admit the Android app's bounded startup synchronization burst while retaining per-client edge and backend rate limits. [#159](https://github.com/uzaira0/methodic/pull/159)
+- Public selfhost deployments now admit the Android app's bounded startup synchronization burst while retaining per-client edge and backend rate limits. [#159](https://github.com/uzaira0/chronicle-platform/pull/159)

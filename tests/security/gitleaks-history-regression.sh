@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/chronicle-gitleaks-history.XXXXXX")
 trap 'rm -rf -- "$RUN_DIR"' EXIT
 # The ignore list covers private history and is not published; curated public history passes without it.
-IGNORE="$ROOT_DIR/tests/security/gitleaks-ignore/methodic-root.gitleaksignore"
+IGNORE="$ROOT_DIR/tests/security/gitleaks-ignore/chronicle-platform-root.gitleaksignore"
 ignore_args=()
 [[ ! -f "$IGNORE" ]] || ignore_args=(--gitleaks-ignore-path "$IGNORE")
 gitleaks git --no-banner --redact "${ignore_args[@]}" \

@@ -50,7 +50,7 @@ def uploaded_assets(version):
 def published_catalog(version):
     def row(tag, names):
         return dict(tag_name=tag, draft=False, prerelease=False, assets=[
-            dict(name=name, browser_download_url=f'https://github.com/uzaira0/methodic/releases/download/{tag}/{name}')
+            dict(name=name, browser_download_url=f'https://github.com/uzaira0/chronicle-platform/releases/download/{tag}/{name}')
             for name in names])
     previous = f'chronicle-selfhost-{UPGRADE_FROM_MINIMUM}.tar.gz'
     return [row(version, uploaded_assets(version)),
@@ -82,7 +82,7 @@ class PublishDiscoveryTests(unittest.TestCase):
     def test_every_supported_release_discovers_the_release_being_published(self):
         version = next_release()
         catalog = published_catalog(version)
-        expected = [version, [f'https://github.com/uzaira0/methodic/releases/download/{version}/chronicle-selfhost-{version}.tar.gz{suffix}'
+        expected = [version, [f'https://github.com/uzaira0/chronicle-platform/releases/download/{version}/chronicle-selfhost-{version}.tar.gz{suffix}'
                               for suffix in ('', '.sha256', '.sha256.sig')]]
         self.assertEqual(expected, self.discover(ROOT / 'selfhost', catalog, version))
         tags = supported_tags(version)
@@ -118,7 +118,7 @@ def promotion_catalog(version):
     draft['assets'] = []
     for name in uploaded_assets(version):
         asset = copy.deepcopy(template)
-        asset.update(name=name, browser_download_url=f'https://github.com/uzaira0/methodic/releases/download/{version}/{name}')
+        asset.update(name=name, browser_download_url=f'https://github.com/uzaira0/chronicle-platform/releases/download/{version}/{name}')
         draft['assets'].append(asset)
     return [[draft, *recorded]]  # --slurp: one list per page
 

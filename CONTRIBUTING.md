@@ -6,7 +6,7 @@ messages. Experiments, reverts, and operational detail stay private.
 
 ## How to contribute
 
-- **Issues** are open on the root repository ([uzaira0/methodic](https://github.com/uzaira0/methodic)).
+- **Issues** are open on the root repository ([uzaira0/chronicle-platform](https://github.com/uzaira0/chronicle-platform)).
   Include the commit you are on (`git rev-parse --short HEAD`) and what you observed.
 - **Pull requests** are welcome against the default branch of any public repository. A
   maintainer integrates an accepted change into the private tree, and the next publish
@@ -49,7 +49,7 @@ messages. Experiments, reverts, and operational detail stay private.
 The root repository pins every submodule to a public commit. Clone recursively:
 
 ```bash
-git clone --recurse-submodules https://github.com/uzaira0/methodic.git chronicle
+git clone --recurse-submodules https://github.com/uzaira0/chronicle-platform.git chronicle
 ```
 
 Changes that span repositories should be one pull request per repository, cross-linked.

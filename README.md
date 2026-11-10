@@ -10,7 +10,7 @@ Linux servers); arm64 hosts are not supported. Three commands, from nothing to a
 dashboard:
 
 ```bash
-git clone https://github.com/uzaira0/methodic.git chronicle
+git clone https://github.com/uzaira0/chronicle-platform.git chronicle
 cd chronicle/selfhost
 ./chronicle setup     # asks a handful of questions and writes .env
 ./chronicle up        # builds the images, starts the stack, initialises the database
@@ -67,7 +67,7 @@ This is a Gradle multi-project that uses git submodules:
 `selfhost/` checks out the ones it needs on first run. To clone them all up front:
 
 ```bash
-git clone --recurse-submodules https://github.com/uzaira0/methodic.git
+git clone --recurse-submodules https://github.com/uzaira0/chronicle-platform.git
 ```
 
 ## Development setup
