@@ -351,7 +351,7 @@ def latest_stable_release(releases, require_assets=False):
     return max(candidates, key=lambda release: version_key(release["tag_name"]))
 
 
-RELEASES_REPOSITORY = "uzaira0/methodic"
+RELEASES_REPOSITORY = "uzaira0/chronicle-platform"
 API_RELEASES_URL = f"https://api.github.com/repos/{RELEASES_REPOSITORY}/releases?per_page={RELEASES_PAGE_SIZE}"
 # The releases feed and download URLs are served without the REST API's 60-requests-an-hour
 # limit for unauthenticated hosts; the feed lists published (never draft) releases.

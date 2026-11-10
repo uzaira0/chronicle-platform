@@ -328,8 +328,8 @@ class UpdateCommandTests(unittest.TestCase):
             # Every release source fails (the fake knows no GitHub URL); the configured one is named first.
             ('catalog object', lambda: self.pages.update({'https://updates.example.cl/releases?per_page=100': {'tag_name': '2026.11.4'}}),
              'no release source answered; updates.example.cl: release catalog must be an array; '
-             "api.github.com: 'https://api.github.com/repos/uzaira0/methodic/releases?per_page=100'; "
-             "github.com: 'https://github.com/uzaira0/methodic/releases.atom'"),
+             "api.github.com: 'https://api.github.com/repos/uzaira0/chronicle-platform/releases?per_page=100'; "
+             "github.com: 'https://github.com/uzaira0/chronicle-platform/releases.atom'"),
             # A malformed row is skipped with a warning; with nothing else published there is nothing to select.
             ('unflagged draft', lambda: self.pages.update({'https://updates.example.cl/releases?per_page=100': [{'tag_name': '2026.11.4'}]}),
              'no published stable releases'),

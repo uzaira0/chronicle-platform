@@ -243,7 +243,7 @@ run_gitleaks_scan() {
   fi
   rm -r -- "$canary"
   # Reviewed history findings are fingerprinted privately; the public mirror has its own history.
-  ignore="$ROOT_DIR/tests/security/gitleaks-ignore/methodic-root.gitleaksignore"
+  ignore="$ROOT_DIR/tests/security/gitleaks-ignore/chronicle-platform-root.gitleaksignore"
   [[ -f "$ignore" ]] || ignore=/dev/null
   gitleaks detect --source "$ROOT_DIR" \
     --config "$ROOT_DIR/tests/security/gitleaks.toml" \

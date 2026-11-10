@@ -26,7 +26,7 @@ class GateRegressions(unittest.TestCase):
     def test_W64_only_audited_fixture_fingerprints_are_baselined(self):
         approved={
             'chronicle-web': [f'7ceef73c4d9c24ff985e59645d94e0e992222a61:src/modern/generated/chronicle-payload-contracts.generated.ts:generic-api-key:{line}' for line in (1031,1041,1051)],
-            'methodic-root': [f'{commit}:tests/security/selfhost-deletion-status.sh:generic-api-key:{line}'
+            'chronicle-platform-root': [f'{commit}:tests/security/selfhost-deletion-status.sh:generic-api-key:{line}'
                 for commit,lines in [('1837e1075e90470a5e8fd0bb2643a96312918ee2',(49,50,55)),('53fd926e60a7b6343d64bc8a91a6d3b3cfe9f051',(47,48,53)),('42f716cd59dda05f05f1372fb2ca24dc734acd14',(47,48,53))] for line in lines],
             'chronicle': ['167ff8340f8e4d0ccd3a34d1157fca2ed81fde55:app/src/test/java/com/openlattice/chronicle/collection/upload/UploadTelemetryRedactionTest.kt:generic-api-key:29']+
                 [f'{commit}:collection-base/src/androidTest/java/com/openlattice/chronicle/storage/EnrollmentReplayDaoTest.kt:generic-api-key:{line}' for commit in ('167ff8340f8e4d0ccd3a34d1157fca2ed81fde55','ce2e9f5a90e4502d99fb93df7e88e717ba6d19d8','f2658a1ce187803d1ddf0aa8fdcc9fcb20bff461') for line in (124,227)],

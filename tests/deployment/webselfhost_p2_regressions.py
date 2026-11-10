@@ -91,7 +91,7 @@ def check_w47() -> None:
     ):
         dockerfile = read(path)
         assert "COPY LICENSE /usr/share/doc/chronicle/LICENSE" in dockerfile, path
-        assert "org.opencontainers.image.source=\"https://github.com/uzaira0/methodic\"" in dockerfile, path
+        assert "org.opencontainers.image.source=\"https://github.com/uzaira0/chronicle-platform\"" in dockerfile, path
         assert "Corresponding Chronicle source:" in dockerfile and "SOURCE_REF" in dockerfile, path
     assert "COPY chronicle-web/LICENSE /usr/share/doc/chronicle/LICENSE-chronicle-web" in read("selfhost/Dockerfile.frontend")
     assert "!LICENSE" in read(".dockerignore")

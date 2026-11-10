@@ -137,7 +137,7 @@ cd chronicle-selfhost-<version>/selfhost
   set -euo pipefail
   # 1. Clone the public repository. The operator script initializes only the server
   #    submodules it needs; chronicle-ios intentionally remains unchecked out.
-  git clone https://github.com/uzaira0/methodic.git chronicle
+  git clone https://github.com/uzaira0/chronicle-platform.git chronicle
   cd chronicle/selfhost
 
   # 2. Configure interactively. Secrets are generated and never printed.

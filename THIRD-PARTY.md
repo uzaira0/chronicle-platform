@@ -15,7 +15,7 @@ their inclusion in a GPL-3.0 work. The container images a deployment runs carry 
 | `ghcr.io/uzaira0/chronicle-selfhost-grafana` (monitoring overlay) | AGPL-3.0 (Grafana; server rebuilt from the 13.2.5 tag with go-jose 4.1.8, and only the bundled Prometheus datasource kept) plus the Apache-2.0 victoriametrics-logs-datasource plugin 0.33.1 added at `/opt/chronicle-plugins` (its LICENSE ships beside it) | https://github.com/grafana/grafana (13.2.5) and https://github.com/VictoriaMetrics/victorialogs-datasource (v0.33.1), built by `selfhost/Dockerfile.grafana` |
 
 Each Chronicle image is built from the commit recorded in `release-manifest.json` as
-`public_revision`: a commit of https://github.com/uzaira0/methodic (the release tag points at
+`public_revision`: a commit of https://github.com/uzaira0/chronicle-platform (the release tag points at
 it) whose submodules pin the exact `chronicle-server` and `chronicle-web` source.
 
 ## Third-party images

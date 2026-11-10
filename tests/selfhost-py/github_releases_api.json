@@ -2,7 +2,7 @@
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-backend-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-backend-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:04:56Z",
     "digest": "sha256:f1189c814ec1bdd657c9835cab2e060b00d9c9f7a29f857161e104adcf106bda",
@@ -35,10 +35,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708157691"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708157691"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-backup-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-backup-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:04:58Z",
     "digest": "sha256:78d5d6ad381c6464219d4cbb123a4c32fb0f261283433b2d34d5a8c207b463f9",
@@ -71,10 +71,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708157753"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708157753"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-caddy-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-caddy-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:00Z",
     "digest": "sha256:2143995ebaa964909c767ac05c8de318681907da833c0accb80eb66a923c1f57",
@@ -107,10 +107,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708157844"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708157844"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-fluentbit-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-fluentbit-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:01Z",
     "digest": "sha256:f953893fbf3221c96f1b023400f05f7220d189e07d5ac4d680aa27741864f61a",
@@ -143,10 +143,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708157913"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708157913"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-frontend-2026.11.2-npm.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-frontend-2026.11.2-npm.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:03Z",
     "digest": "sha256:4e94b4fb585f3ab962a3263ea20b0a5a0b93c7633e770c68f46023649b494cf8",
@@ -179,10 +179,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158018"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158018"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-frontend-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-frontend-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:05Z",
     "digest": "sha256:96345f5ffdcaa95b7a8f201832fe5a6895e93e7b3ca3732bb67fb812a36dc1fa",
@@ -215,10 +215,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158089"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158089"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-frontend-vulnerabilities-2026.11.2.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-frontend-vulnerabilities-2026.11.2.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:06Z",
     "digest": "sha256:dc23b3e2a9f3e6489af44bf419b6401b2b4628e750fe60fd0600d918107892e3",
@@ -251,10 +251,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158146"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158146"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-grafana-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-grafana-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:08Z",
     "digest": "sha256:a05fcd1d4b1a1349154f765bc7c4455f8767cdc999f35eb7efebdc7414e530dc",
@@ -287,10 +287,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158214"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158214"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-image-sboms-2026.11.2.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-image-sboms-2026.11.2.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:09Z",
     "digest": "sha256:d77d40f77096dfe4fd026293ce8b0c59028b369ea511012668db7f155912669e",
@@ -323,10 +323,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158279"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158279"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-image-sboms-2026.11.2.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-image-sboms-2026.11.2.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:11Z",
     "digest": "sha256:3b6cc7b621252cc4287917f2e5cf5d9de8da850d860afa04720e07685baf15e6",
@@ -359,10 +359,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158358"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158358"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-postgres-2026.11.2.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-postgres-2026.11.2.spdx.json",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:12Z",
     "digest": "sha256:c5a27b0138eb97a67ade62f53e0e392d0d16da9013b690e8c908f58c321be45e",
@@ -395,10 +395,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158419"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158419"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-selfhost-2026.11.2.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-selfhost-2026.11.2.tar.gz",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:14Z",
     "digest": "sha256:5f57ffc8e8f1654aca2957b17326bd9c0b08e9f787e07237648a3a7a0b9266c1",
@@ -431,10 +431,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158496"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158496"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-selfhost-2026.11.2.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-selfhost-2026.11.2.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:15Z",
     "digest": "sha256:a7bbb287d19c9f112755f42cd5518713b7fa01b4ee3d4422599885482b597f48",
@@ -467,10 +467,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158552"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158552"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.11.2/chronicle-selfhost-2026.11.2.tar.gz.sha256.sig",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.11.2/chronicle-selfhost-2026.11.2.tar.gz.sha256.sig",
     "content_type": "application/octet-stream",
     "created_at": "2026-11-04T04:05:16Z",
     "digest": "sha256:1100ce7d7c8e5da11875a7b9cb7040d0fca7e0b71cb04b48c346283bbdf75969",
@@ -503,10 +503,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/708158590"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/708158590"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/432243864/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/432243864/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -531,7 +531,7 @@
   "body": "",
   "created_at": "2026-11-04T02:41:33Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.11.2",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.11.2",
   "id": 432243864,
   "immutable": false,
   "name": null,
@@ -539,17 +539,17 @@
   "prerelease": false,
   "published_at": "2026-11-03T11:16:35Z",
   "tag_name": "2026.11.2",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.11.2",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.11.2",
   "target_commitish": "61584727a59434279323c1344147373eb213519d",
   "updated_at": "2026-11-04T04:05:17Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/432243864/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/432243864",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.11.2"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/432243864/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/432243864",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.11.2"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-backend-2026.10.9.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-backend-2026.10.9.spdx.json",
     "content_type": "application/json",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:a04d2aee5387efbc21d5548b78395833c90d34312fe5dbf5df3f77dd317a10f3",
@@ -582,10 +582,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661364"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661364"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-backup-2026.10.9.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-backup-2026.10.9.spdx.json",
     "content_type": "application/json",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:85391cdea85fd89ec3dd9ba35df4a339daf4cbc15543d3b3a7067317879c09eb",
@@ -618,10 +618,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661398"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661398"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-caddy-2026.10.9.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-caddy-2026.10.9.spdx.json",
     "content_type": "application/json",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:f3959316e1688624698558f828d66545b3d67cdd311d3c03d3bbc931480154ff",
@@ -654,10 +654,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661397"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661397"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-frontend-2026.10.9.spdx.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-frontend-2026.10.9.spdx.json",
     "content_type": "application/json",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:428e0f2e470dddf6ed41d810dcc5c41019831202951c047339d5021f9c89bc9b",
@@ -690,10 +690,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661372"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661372"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-image-sboms-2026.10.9.json",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-image-sboms-2026.10.9.json",
     "content_type": "application/json",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:da7e5c7ec3f9936d9e4152393e765f8ee8361975e343103cdc120ae9c7f5f406",
@@ -726,10 +726,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661403"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661403"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-image-sboms-2026.10.9.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-image-sboms-2026.10.9.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:78caa2028a33f0a82ed6aba26060c19ec6353a719e0ff05013b6b810e923c7f4",
@@ -762,10 +762,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661402"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661402"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-selfhost-2026.10.9.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-selfhost-2026.10.9.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:f8e4af42a817a9023986af7ba6e0b9beff13c15a93f658bcad437745d68f1521",
@@ -798,10 +798,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661375"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661375"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-selfhost-2026.10.9.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-selfhost-2026.10.9.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:97d6c49457b008f950604e10ba55d888b378575b009ea695cb2a01d9a50ab7b6",
@@ -834,10 +834,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661370"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661370"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.9/chronicle-selfhost-2026.10.9.tar.gz.sha256.sig",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.9/chronicle-selfhost-2026.10.9.tar.gz.sha256.sig",
     "content_type": "application/pgp-signature",
     "created_at": "2026-10-11T19:54:13Z",
     "digest": "sha256:42cfd097d812f2d634b91f00bd263807451871ef39763c616d1f373b2cc3880c",
@@ -870,10 +870,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/631661371"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/631661371"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/409887047/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/409887047/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -898,7 +898,7 @@
   "body": "",
   "created_at": "2026-10-11T19:52:39Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.10.9",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.9",
   "id": 409887047,
   "immutable": false,
   "name": null,
@@ -906,17 +906,17 @@
   "prerelease": false,
   "published_at": "2026-10-11T21:02:19Z",
   "tag_name": "2026.10.9",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.10.9",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.10.9",
   "target_commitish": "96aa911c43ab40a2dca68eab6e410d9a46a84233",
   "updated_at": "2026-10-15T17:38:49Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/409887047/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/409887047",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.10.9"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/409887047/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/409887047",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.10.9"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.3/chronicle-selfhost-2026.10.3.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.3/chronicle-selfhost-2026.10.3.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-10-02T02:38:03Z",
     "digest": "sha256:b2598912797f4a3d506c51bb4fc2a525581de172309e269f01b3fb624db2e5da",
@@ -949,10 +949,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/604646444"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/604646444"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.3/chronicle-selfhost-2026.10.3.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.3/chronicle-selfhost-2026.10.3.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-10-02T02:38:04Z",
     "digest": "sha256:fe5bce2d89d74aaed41f977f231162118ac7eb8bb7bc1202908999477112ed76",
@@ -985,10 +985,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/604646451"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/604646451"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/401500998/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/401500998/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1013,7 +1013,7 @@
   "body": "",
   "created_at": "2026-10-02T02:34:53Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.10.3",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.3",
   "id": 401500998,
   "immutable": false,
   "name": null,
@@ -1021,17 +1021,17 @@
   "prerelease": false,
   "published_at": "2026-10-02T02:38:04Z",
   "tag_name": "2026.10.3",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.10.3",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.10.3",
   "target_commitish": "45b52162d3b5d69babd4c95167296b2f682fd2e3",
   "updated_at": "2026-10-02T02:38:04Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/401500998/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/401500998",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.10.3"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/401500998/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/401500998",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.10.3"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.2/chronicle-selfhost-2026.10.2.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.2/chronicle-selfhost-2026.10.2.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-10-02T02:32:31Z",
     "digest": "sha256:3a982f8ac679a0708bbd4b92ac582a8a17b145e4e01e93515a7e28c9ca2fc989",
@@ -1064,10 +1064,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/604636697"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/604636697"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.2/chronicle-selfhost-2026.10.2.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.2/chronicle-selfhost-2026.10.2.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-10-02T02:32:31Z",
     "digest": "sha256:017fd2ed8b302d8ceb944eae97b9c49de266385ba6c78c6cdd7145ee80c44065",
@@ -1100,10 +1100,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/604636703"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/604636703"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/401498962/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/401498962/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1128,7 +1128,7 @@
   "body": "",
   "created_at": "2026-10-02T02:30:48Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.10.2",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.2",
   "id": 401498962,
   "immutable": false,
   "name": null,
@@ -1136,17 +1136,17 @@
   "prerelease": false,
   "published_at": "2026-10-02T02:32:32Z",
   "tag_name": "2026.10.2",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.10.2",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.10.2",
   "target_commitish": "6d36fb4fa41489c5e9506bd2a25ce6990c437d87",
   "updated_at": "2026-10-02T02:38:20Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/401498962/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/401498962",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.10.2"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/401498962/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/401498962",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.10.2"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.1/chronicle-selfhost-2026.10.1.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.1/chronicle-selfhost-2026.10.1.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-30T23:53:55Z",
     "digest": "sha256:971c7587be9be3f6b52975e5f54ceb1b87120ea49739c898e0cd3fbf959fc4e2",
@@ -1179,10 +1179,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/602035514"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/602035514"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.10.1/chronicle-selfhost-2026.10.1.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.10.1/chronicle-selfhost-2026.10.1.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-30T23:53:55Z",
     "digest": "sha256:53922c5916d09b09d9aa50ebb2f3c86ba1fd39e24b411c0b7a2722a7ce0fc064",
@@ -1215,10 +1215,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/602035516"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/602035516"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/400519793/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/400519793/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1243,7 +1243,7 @@
   "body": "",
   "created_at": "2026-09-30T23:46:00Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.10.1",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.1",
   "id": 400519793,
   "immutable": false,
   "name": null,
@@ -1251,17 +1251,17 @@
   "prerelease": false,
   "published_at": "2026-09-30T23:53:56Z",
   "tag_name": "2026.10.1",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.10.1",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.10.1",
   "target_commitish": "318611f39abe4581b6acd2a61eb7eb27e187c0b0",
   "updated_at": "2026-09-30T23:53:56Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/400519793/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/400519793",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.10.1"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/400519793/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/400519793",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.10.1"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.30/chronicle-selfhost-2026.9.30.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.30/chronicle-selfhost-2026.9.30.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-30T22:04:31Z",
     "digest": "sha256:896078950371d778c21785ca7f475af4ae6822e71d240fc7caa4472c63306dcf",
@@ -1294,10 +1294,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/601881180"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/601881180"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.30/chronicle-selfhost-2026.9.30.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.30/chronicle-selfhost-2026.9.30.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-30T22:04:31Z",
     "digest": "sha256:63eae16d3bec34cb23c02317270b23502016c159ca23d35c1daae3dbe8a47749",
@@ -1330,10 +1330,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/601881178"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/601881178"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/400470676/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/400470676/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1358,7 +1358,7 @@
   "body": "",
   "created_at": "2026-09-30T22:03:12Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.30",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.30",
   "id": 400470676,
   "immutable": false,
   "name": null,
@@ -1366,17 +1366,17 @@
   "prerelease": false,
   "published_at": "2026-09-30T22:04:32Z",
   "tag_name": "2026.9.30",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.30",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.30",
   "target_commitish": "59b2e615b3c91bcef044c9ca1f50b8ff331f61b1",
   "updated_at": "2026-09-30T22:04:32Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/400470676/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/400470676",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.30"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/400470676/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/400470676",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.30"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.29/chronicle-selfhost-2026.9.29.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.29/chronicle-selfhost-2026.9.29.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-30T16:58:42Z",
     "digest": "sha256:2a19bc0267012d0ddb58f948b649214a078689ddff72c6611ac9a9f81fd96364",
@@ -1409,10 +1409,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/601399599"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/601399599"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.29/chronicle-selfhost-2026.9.29.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.29/chronicle-selfhost-2026.9.29.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-30T16:58:42Z",
     "digest": "sha256:7ec9f00f2a7e74a1d4086801bb618c326224f4077c0efb3de35dae56ae6054b1",
@@ -1445,10 +1445,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/601399600"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/601399600"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/400257441/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/400257441/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1473,7 +1473,7 @@
   "body": "",
   "created_at": "2026-09-30T16:54:11Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.29",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.29",
   "id": 400257441,
   "immutable": false,
   "name": null,
@@ -1481,17 +1481,17 @@
   "prerelease": false,
   "published_at": "2026-09-30T16:58:43Z",
   "tag_name": "2026.9.29",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.29",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.29",
   "target_commitish": "f08fd5c7cfee4d121b9ba8fde849e6f7d88b578f",
   "updated_at": "2026-09-30T20:43:24Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/400257441/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/400257441",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.29"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/400257441/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/400257441",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.29"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.28/chronicle-selfhost-2026.9.28.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.28/chronicle-selfhost-2026.9.28.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-28T19:44:06Z",
     "digest": "sha256:008fab4c5e385a711e2514c575f6a40a5197a3fcedcb996d12abcab4d28b498f",
@@ -1524,10 +1524,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/596255242"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/596255242"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.28/chronicle-selfhost-2026.9.28.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.28/chronicle-selfhost-2026.9.28.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-28T19:44:06Z",
     "digest": "sha256:493732dd5fd5f95e079b0fe127fb44ed0b25a97b0c9a57800767152d569681c2",
@@ -1560,10 +1560,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/596255239"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/596255239"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/398568606/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/398568606/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1588,7 +1588,7 @@
   "body": "",
   "created_at": "2026-09-28T19:41:59Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.28",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.28",
   "id": 398568606,
   "immutable": false,
   "name": null,
@@ -1596,17 +1596,17 @@
   "prerelease": false,
   "published_at": "2026-09-28T19:44:07Z",
   "tag_name": "2026.9.28",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.28",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.28",
   "target_commitish": "fdbee689d0c022b0d3fb298bf7344dc242e9dda0",
   "updated_at": "2026-09-28T19:44:07Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/398568606/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/398568606",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.28"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/398568606/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/398568606",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.28"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.27/chronicle-selfhost-2026.9.27.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.27/chronicle-selfhost-2026.9.27.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-28T01:24:28Z",
     "digest": "sha256:1a471aa5e8269b2e4fd3fb3b39c298bd441fea0c10fc40ff3d560a5c888ca5b9",
@@ -1639,10 +1639,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/594173134"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/594173134"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.27/chronicle-selfhost-2026.9.27.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.27/chronicle-selfhost-2026.9.27.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-28T01:24:28Z",
     "digest": "sha256:890a964dcf2dc5920d765d61f901d2907fefe0a0404a14e8e743b156fde94052",
@@ -1675,10 +1675,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/594173135"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/594173135"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/397887403/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/397887403/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1703,7 +1703,7 @@
   "body": "",
   "created_at": "2026-09-28T01:20:15Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.27",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.27",
   "id": 397887403,
   "immutable": false,
   "name": null,
@@ -1711,17 +1711,17 @@
   "prerelease": false,
   "published_at": "2026-09-28T01:24:29Z",
   "tag_name": "2026.9.27",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.27",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.27",
   "target_commitish": "c3df1cfbcf402a93a656a6f233fa7627c9d268d8",
   "updated_at": "2026-09-28T01:24:29Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/397887403/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/397887403",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.27"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/397887403/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/397887403",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.27"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.25/chronicle-selfhost-2026.9.25.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.25/chronicle-selfhost-2026.9.25.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-25T22:30:47Z",
     "digest": "sha256:4a94712f6af0fac7a069adb10fa5c15fa3c465dfda4b327bb544e341f19acab9",
@@ -1754,10 +1754,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/589382809"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/589382809"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.25/chronicle-selfhost-2026.9.25.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.25/chronicle-selfhost-2026.9.25.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-25T22:30:47Z",
     "digest": "sha256:dc0105bd0e7b020c3374ea48ff832eea0ef0cdd81e5a2ec5d2d8cf11ff990b55",
@@ -1790,10 +1790,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/589382810"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/589382810"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/396963563/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/396963563/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1818,7 +1818,7 @@
   "body": "",
   "created_at": "2026-09-25T22:03:04Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.25",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.25",
   "id": 396963563,
   "immutable": false,
   "name": null,
@@ -1826,17 +1826,17 @@
   "prerelease": false,
   "published_at": "2026-09-25T22:30:48Z",
   "tag_name": "2026.9.25",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.25",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.25",
   "target_commitish": "9ca24e2d4997e8868ae754b0afb1ddc9549a20dc",
   "updated_at": "2026-09-25T22:30:48Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/396963563/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/396963563",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.25"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/396963563/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/396963563",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.25"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.22/chronicle-selfhost-2026.9.22.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.22/chronicle-selfhost-2026.9.22.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-22T15:55:08Z",
     "digest": "sha256:4a98a00632e6dd01a918f9855e9a27cb73af3ce6b238d4cfec89cd407726b6db",
@@ -1869,10 +1869,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/581728460"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/581728460"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.22/chronicle-selfhost-2026.9.22.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.22/chronicle-selfhost-2026.9.22.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-22T15:55:08Z",
     "digest": "sha256:70c6402d1992b8c69aae95834d01fa31470baa84061265472d1b982d64ed46cf",
@@ -1905,10 +1905,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/581728459"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/581728459"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/393890161/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/393890161/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -1933,7 +1933,7 @@
   "body": "",
   "created_at": "2026-09-22T15:51:58Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.22",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.22",
   "id": 393890161,
   "immutable": false,
   "name": null,
@@ -1941,17 +1941,17 @@
   "prerelease": false,
   "published_at": "2026-09-22T15:55:09Z",
   "tag_name": "2026.9.22",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.22",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.22",
   "target_commitish": "main",
   "updated_at": "2026-09-22T15:55:09Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/393890161/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/393890161",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.22"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/393890161/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/393890161",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.22"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.18/chronicle-selfhost-2026.9.18.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.18/chronicle-selfhost-2026.9.18.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-17T15:37:13Z",
     "digest": "sha256:51243f13b4629012749e30905e1b7f4616dde77f065879d8e2e64dfe94825440",
@@ -1984,10 +1984,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/570551863"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/570551863"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.18/chronicle-selfhost-2026.9.18.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.18/chronicle-selfhost-2026.9.18.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-17T15:37:13Z",
     "digest": "sha256:26b655ffd01a7ccd2ef617f71ba9a6fd320549b94ab36aa26ce069a5edc97d02",
@@ -2020,10 +2020,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/570551862"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/570551862"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/390845333/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/390845333/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -2048,7 +2048,7 @@
   "body": "",
   "created_at": "2026-09-17T15:35:27Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.18",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.18",
   "id": 390845333,
   "immutable": false,
   "name": null,
@@ -2056,17 +2056,17 @@
   "prerelease": false,
   "published_at": "2026-09-17T15:37:14Z",
   "tag_name": "2026.9.18",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.18",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.18",
   "target_commitish": "main",
   "updated_at": "2026-09-17T15:37:14Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/390845333/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/390845333",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.18"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/390845333/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/390845333",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.18"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.17/chronicle-selfhost-2026.9.17.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.17/chronicle-selfhost-2026.9.17.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-17T13:56:12Z",
     "digest": "sha256:3f88388725e346ef3108492e511fe7e24c9658fa03926cb76d96361b9f09a0d9",
@@ -2099,10 +2099,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/570372423"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/570372423"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.17/chronicle-selfhost-2026.9.17.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.17/chronicle-selfhost-2026.9.17.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-17T13:56:12Z",
     "digest": "sha256:f0b6842971e595373c2b7748a75bfbf2bc8028d6484cd8cd0ad228e407c59339",
@@ -2135,10 +2135,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/570372420"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/570372420"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/390764492/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/390764492/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -2163,7 +2163,7 @@
   "body": "",
   "created_at": "2026-09-17T13:54:40Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.17",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.17",
   "id": 390764492,
   "immutable": false,
   "name": null,
@@ -2171,17 +2171,17 @@
   "prerelease": false,
   "published_at": "2026-09-17T13:56:13Z",
   "tag_name": "2026.9.17",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.17",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.17",
   "target_commitish": "main",
   "updated_at": "2026-09-17T13:56:13Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/390764492/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/390764492",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.17"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/390764492/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/390764492",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.17"
  },
  {
   "assets": [
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.14/chronicle-selfhost-2026.9.14.tar.gz",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.14/chronicle-selfhost-2026.9.14.tar.gz",
     "content_type": "application/x-gtar",
     "created_at": "2026-09-15T18:39:19Z",
     "digest": "sha256:40e44a8bfa35d8b6af43b213f6bd0c4f27d5b9ff75f066bfc444e5467774d139",
@@ -2214,10 +2214,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/566281368"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/566281368"
    },
    {
-    "browser_download_url": "https://github.com/uzaira0/methodic/releases/download/2026.9.14/chronicle-selfhost-2026.9.14.tar.gz.sha256",
+    "browser_download_url": "https://github.com/uzaira0/chronicle-platform/releases/download/2026.9.14/chronicle-selfhost-2026.9.14.tar.gz.sha256",
     "content_type": "application/octet-stream",
     "created_at": "2026-09-15T18:39:19Z",
     "digest": "sha256:a7a7bbb0f6f8cfaee6083d2b7192b3436ce4e879f59ae38f98980cbf5a31fb34",
@@ -2250,10 +2250,10 @@
      "url": "https://api.github.com/users/uzaira0",
      "user_view_type": "public"
     },
-    "url": "https://api.github.com/repos/uzaira0/methodic/releases/assets/566281371"
+    "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/assets/566281371"
    }
   ],
-  "assets_url": "https://api.github.com/repos/uzaira0/methodic/releases/389385770/assets",
+  "assets_url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/389385770/assets",
   "author": {
    "avatar_url": "https://avatars.githubusercontent.com/u/124936575?v=4",
    "events_url": "https://api.github.com/users/uzaira0/events{/privacy}",
@@ -2278,7 +2278,7 @@
   "body": "",
   "created_at": "2026-09-14T23:20:19Z",
   "draft": false,
-  "html_url": "https://github.com/uzaira0/methodic/releases/tag/2026.9.14",
+  "html_url": "https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.14",
   "id": 389385770,
   "immutable": false,
   "name": null,
@@ -2286,11 +2286,11 @@
   "prerelease": false,
   "published_at": "2026-09-15T18:39:20Z",
   "tag_name": "2026.9.14",
-  "tarball_url": "https://api.github.com/repos/uzaira0/methodic/tarball/2026.9.14",
+  "tarball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/tarball/2026.9.14",
   "target_commitish": "main",
   "updated_at": "2026-09-15T18:39:20Z",
-  "upload_url": "https://uploads.github.com/repos/uzaira0/methodic/releases/389385770/assets{?name,label}",
-  "url": "https://api.github.com/repos/uzaira0/methodic/releases/389385770",
-  "zipball_url": "https://api.github.com/repos/uzaira0/methodic/zipball/2026.9.14"
+  "upload_url": "https://uploads.github.com/repos/uzaira0/chronicle-platform/releases/389385770/assets{?name,label}",
+  "url": "https://api.github.com/repos/uzaira0/chronicle-platform/releases/389385770",
+  "zipball_url": "https://api.github.com/repos/uzaira0/chronicle-platform/zipball/2026.9.14"
  }
 ]

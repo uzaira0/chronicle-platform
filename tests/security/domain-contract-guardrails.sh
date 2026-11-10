@@ -131,7 +131,7 @@ python3 "$ROOT_DIR/tests/security/contract-drift-diff.py" "$ROOT_DIR" ||
   fail "shared value sets drift across LinkML, chronicle-models, web, OpenAPI or the ast-grep rule"
 pass "Shared value sets agree across LinkML, chronicle-models, web, OpenAPI and Android"
 
-# iOS is intentionally pinned with `submodule.<name>.update=none` in methodic. An
+# iOS is intentionally pinned with `submodule.<name>.update=none` in chronicle-platform. An
 # incidental developer checkout must not silently broaden root CI. Run this section
 # only when CHRONICLE_CHECK_IOS_CONTRACTS=1 or CHRONICLE_IOS_DIR is explicitly supplied;
 # otherwise the chronicle-ios repository owns its generated-artifact gate.

@@ -9,7 +9,7 @@ metadataTest:
   workdir: "/server"
   labels:
     - key: "org.opencontainers.image.source"
-      value: "https://github.com/uzaira0/methodic"
+      value: "https://github.com/uzaira0/chronicle-platform"
     - key: "org.opencontainers.image.vendor"
       value: "Chronicle Project"
   envVars:
@@ -61,7 +61,7 @@ fileContentTests:
 
   - name: "corresponding source is referenced"
     path: "/usr/share/doc/chronicle/SOURCE-CODE"
-    expectedContents: ["https://github.com/uzaira0/methodic/tree/"]
+    expectedContents: ["https://github.com/uzaira0/chronicle-platform/tree/"]
 
   - name: "launch script references chronicle-server main class"
     path: "/server/bin/chronicle-server"
