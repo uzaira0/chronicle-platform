@@ -163,3 +163,11 @@ ecosystem = "Go"
 vulnerability.ignore = true
 effectiveUntil = 2026-12-31
 reason = "GO-2026-5932 covers only golang.org/x/crypto/openpgp (unmaintained; fixed only by a pseudo-version that removes it). The caddy build (selfhost/caddy/module) links no openpgp package: `go list -deps -tags nobadger,nomysql,nopgx .` lists 0 golang.org/x/crypto/openpgp packages (triage 2026-11-06, dependency-intake lane). Drop when x/crypto ships a release without openpgp. Owner: uzaira0 (selfhost images). Rechecked 2026-11-06."
+
+[[PackageOverrides]]
+name = "org.json:json"
+version = "20231013"
+ecosystem = "Maven"
+vulnerability.ignore = true
+effectiveUntil = 2026-12-04
+reason = "GHSA-ghc9-756g-vrcv (CVE-2026-59171): JSONTokener spends seconds of CPU on a JSON document with a very long number; fixed in 20260719. Build-time only, in neither the APK nor the backend image: no gradle.lockfile in the repository lists org.json:json (git grep over *.lockfile; chronicle/app/gradle.lockfile holds the APK's release runtime classpaths). It is resolved only onto the buildscript classpath of the included build chronicle-api: chronicle/settings.gradle has includeBuild('../chronicle-api'); chronicle-api/build.gradle puts io.swagger.codegen.v3:swagger-codegen:3.0.82 on its buildscript classpath; swagger-codegen-3.0.82.pom requires io.swagger:swagger-codegen 2.4.46, and swagger-codegen-2.4.46.pom requires org.json:json at json-version 20231013 (swagger-codegen-project-2.4.46.pom). That classpath serves the swaggerDocs, swaggerJava and validateOpenApiSpec tasks, which read the repository's own chronicle-api/chronicle.yaml; nothing on it parses input from a network peer. Drop when swagger-codegen 3.x requires a 2.x codegen with org.json 20260719 or newer, or raise org.json with a buildscript constraint in chronicle-api (handoff to the backend lane, triage 2026-11-12). Owner: uzaira0 (backend and Android builds). Rechecked 2026-11-12."
