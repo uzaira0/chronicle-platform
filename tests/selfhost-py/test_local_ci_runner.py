@@ -157,7 +157,10 @@ sys.exit(7 if failed.is_file() and args[-1] == failed.read_text() else 0)
                             recorded = [json.loads(line) for line in calls.read_text().splitlines()]
                             self.assertEqual(suites, [Path(args[-1]) for args in recorded])
 
-    def test_k6_failure_stops_later_suites_including_keep_going(self):
+    def test_k6_failure_fails_the_job_after_every_suite_has_run(self):
+        """A failing script fails the job and is named, and the scripts after it still run. The job
+        stopped at the first failure until fc0f9010, so four scripts had never run in the release
+        smoke; this test still held it to stopping, with k6's own exit status."""
         with tempfile.TemporaryDirectory() as folder:
             fixture = Path(folder)
             calls, environment, suites = self.fake_k6_toolchain(fixture)
@@ -170,9 +173,10 @@ sys.exit(7 if failed.is_file() and args[-1] == failed.read_text() else 0)
                     result = run([modern_bash(), str(ROOT / 'scripts/local-ci.sh'), 'k6-benchmarks'],
                                  env=dict(environment, CHRONICLE_LOCAL_CI_KEEP_GOING=keep_going),
                                  capture=True, stderr=subprocess.PIPE, timeout=10)
-                    self.assertEqual(1 if keep_going == '1' else 7, result.returncode, result.stdout + result.stderr)
+                    self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+                    self.assertIn('k6 benchmarks failed: ' + failed.name, result.stdout + result.stderr)
                     recorded = [json.loads(line) for line in calls.read_text().splitlines()]
-                    self.assertEqual(suites[:2], [Path(args[-1]) for args in recorded])
+                    self.assertEqual(suites, [Path(args[-1]) for args in recorded])
 
     def test_fuzz_job_executes_every_bounded_target_and_fails_when_it_finds_none(self):
         import shutil

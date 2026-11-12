@@ -1,0 +1,14 @@
+id: k6-latency-outside-checks
+valid:
+- |
+  check(res, { 'concurrent: status is not 5xx': (r) => r.status < 500 });
+- |
+  concurrentP95.add(res.timings.duration);
+  check(res, { 'slowloris: connection accepted': (r) => r.status !== 0 });
+invalid:
+- |
+  check(res, { 'concurrent: responds within 5s': (r) => r.timings.duration < 5000 });
+- |
+  check(res, { 'slowloris: not connection refused': (r) => r.status !== 0 && r.timings.duration < 5000 });
+- |
+  check(res, { 'pagination: responds within 10s': (r) => r.timings.waiting < 10000 });

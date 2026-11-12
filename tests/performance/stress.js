@@ -1,5 +1,6 @@
 import { group, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { thresholds } from '../load/latency-budgets.js';
 import http from 'k6/http';
 import { check } from 'k6';
 import {
@@ -89,8 +90,16 @@ export const options = {
     // Cooldown
     { duration: '15s', target: 0 },
   ],
-  thresholds: {
+  thresholds: thresholds({
     checks: ['rate==1'],
+    // Error budgets — more lenient for stress test
+    read_errors: ['rate<0.10'],
+    write_errors: ['rate<0.10'],
+    enroll_errors: ['rate<0.15'],
+
+    // Global
+    http_req_failed: ['rate<0.10'],
+  }, {
     // Health must stay responsive even under stress
     'http_req_duration{name:health}': ['p(95)<1000'],
 
@@ -102,15 +111,7 @@ export const options = {
 
     // Enrollment
     enroll_duration: ['p(95)<3000'],
-
-    // Error budgets — more lenient for stress test
-    read_errors: ['rate<0.10'],
-    write_errors: ['rate<0.10'],
-    enroll_errors: ['rate<0.15'],
-
-    // Global
-    http_req_failed: ['rate<0.10'],
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------------

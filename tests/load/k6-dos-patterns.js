@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
+import { thresholds } from './latency-budgets.js';
 
 /**
  * k6 load test for application-layer DoS pattern testing.
@@ -35,6 +36,8 @@ const MOBILE_HEADERS = JSON.parse(open('../../chronicle-web/e2e/dsl/mobile-heade
 // ---------------------------------------------------------------------------
 const serverErrors = new Rate('server_errors');  // 5xx rate
 const concurrentP95 = new Trend('concurrent_p95', true);
+const paginationDuration = new Trend('pagination_duration', true);
+const slowlorisDuration = new Trend('slowloris_duration', true);
 
 // ---------------------------------------------------------------------------
 // Helper: generate deeply nested JSON
@@ -116,17 +119,21 @@ export const options = {
     },
   },
 
-  thresholds: {
+  thresholds: thresholds({
     checks: ['rate==1'],
     // No scenario should produce > 5% server errors (5xx)
     'server_errors': ['rate<0.05'],
 
-    // Concurrent connections: p95 response time under 5 seconds
-    'concurrent_p95': ['p(95)<5000'],
-
     // Overall HTTP failure rate (non-expected errors)
     'http_req_failed': ['rate<0.10'],
-  },
+  }, {
+    // Concurrent connections: p95 under 5 seconds and every response within 5 seconds
+    'concurrent_p95': ['p(95)<5000', 'max<5000'],
+    // Pagination abuse: every response within 10 seconds
+    'pagination_duration': ['max<10000'],
+    // Connection churn: every response within 5 seconds
+    'slowloris_duration': ['max<5000'],
+  }),
 };
 
 // ---------------------------------------------------------------------------
@@ -168,10 +175,10 @@ export function paginationAbuse() {
 
   const is5xx = res.status >= 500 && res.status < 600;
   serverErrors.add(is5xx);
+  paginationDuration.add(res.timings.duration);
 
   check(res, {
     'pagination: not a 500 server error': (r) => r.status < 500,
-    'pagination: responds within 10s': (r) => r.timings.duration < 10000,
     'pagination: capped or rejected (not OOM)': (r) => r.status !== 502 && r.status !== 503,
   });
 
@@ -217,7 +224,7 @@ export function jsonDepthBomb() {
 // Scenario 4: Concurrent Connections
 //
 // 50 VUs hit /chronicle/v3/study simultaneously for 30s. The server must
-// stay responsive: error rate < 5%, p95 response time < 5s.
+// stay responsive: error rate < 5%, p95 and every response time < 5s.
 // ---------------------------------------------------------------------------
 export function concurrentConnections() {
   const url = `${BASE_URL}/chronicle/v3/study`;
@@ -230,7 +237,6 @@ export function concurrentConnections() {
 
   check(res, {
     'concurrent: status is not 5xx': (r) => r.status < 500,
-    'concurrent: responds within 5s': (r) => r.timings.duration < 5000,
   });
 
   sleep(0.2);
@@ -267,10 +273,10 @@ export function slowlorisStyle() {
 
   const isError = res.status === 0; // connection refused / timeout
   serverErrors.add(isError);
+  slowlorisDuration.add(res.timings.duration);
 
   check(res, {
     'slowloris: connection accepted': (r) => r.status !== 0,
-    'slowloris: not connection refused': (r) => r.status !== 0 && r.timings.duration < 5000,
   });
 
   // No sleep — intentionally rapid to stress connection handling

@@ -61,6 +61,26 @@ Replace `tests/perf/k6-baselines.json` with the measured summary and a `measurem
 containing `verified: true`, `runs`, `source_revision`, `environment` and `fixtures`. The release regression gate rejects the unmeasured budget.
 An explicitly local budget check can set `K6_ALLOW_UNMEASURED_BUDGET=true`.
 
+## Latency budgets and emulated backends
+
+Every script declares its thresholds with `thresholds(functional, latency)` from
+`latency-budgets.js`. Functional thresholds (status classes, error rates, check rates, counts)
+always gate. Latency thresholds gate when `K6_LATENCY_BUDGETS` is `gate` (the default) and are
+only measured and printed when it is `record`. Latency never goes inside a `check()`; the
+`k6-latency-outside-checks` ast-grep rule enforces that.
+
+The release smoke picks the mode from the running backend container
+(`latency-budget-mode.sh`): `gate` when its image matches the Docker host's OS and architecture,
+`record` otherwise, and writes `k6_latency_budgets=gated` or
+`k6_latency_budgets=unqualified-emulated-<image>-on-<host>` into its result. The release images
+are linux/amd64. On an arm64 Mac they run under emulation, and the 2026.11.12 smoke runs there
+(ab2wuc, R2ZK96) failed only the DoS concurrent budget: p95 9.0 s and 7.8 s at 50 VUs, with the
+backend using about 1.2 of its 4 CPUs while all 50 request threads were runnable. The same
+backend jars in a 50-task burst (JWT verify, indexed Hazelcast query, Jackson list serialization)
+took 4.2-4.5 s cold and 0.3-1.2 s warm per wave on the release image's amd64 JRE under emulation,
+against 0.66-0.72 s cold and 2-20 ms warm on a native arm64 JRE, both with a 4-CPU quota. A latency
+budget is qualified only by a run on the images' own architecture.
+
 ## Performance ingestion fixtures
 
 `make perf-load` and `make perf-stress` register disposable participants, issue enrollment

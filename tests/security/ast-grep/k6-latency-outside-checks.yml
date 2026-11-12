@@ -1,0 +1,20 @@
+id: k6-latency-outside-checks
+language: JavaScript
+note: |
+  Blind spots: only a check() whose predicate object mentions `.timings` in the same call matches;
+  a predicate function defined elsewhere and passed by name is not resolved.
+severity: error
+message: >-
+  Put latency in the latency argument of thresholds() from tests/load/latency-budgets.js, not in a
+  check(). A check mixes latency into the functional checks rate, which gates on every host, and the
+  release smoke records latency as unqualified on an emulated backend.
+files:
+- 'tests/load/**/*.js'
+- 'tests/performance/**/*.js'
+- 'tests/security/k6-*.js'
+rule:
+  pattern: check($RESPONSE, $PREDICATES)
+  has:
+    kind: member_expression
+    regex: \.timings\b
+    stopBy: end

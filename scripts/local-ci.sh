@@ -1669,11 +1669,20 @@ job_k6_benchmarks() {
   : "${TEST_RANDOM_DEVICE_ID:?Set its enrolled synthetic device}"
   : "${API_KEY:?Set its enrolled device API key}"
   : "${DEVICE_FIXTURES_FILE:?Set its enrolled synthetic device inventory}"
-  local suite
+  # K6_LATENCY_BUDGETS (tests/load/latency-budgets.js): gate, or record on an emulated backend.
+  log "k6 latency budgets: ${K6_LATENCY_BUDGETS:-gate}"
+  # Every script runs even after one fails: a failure early in the list must not hide the rest.
+  local suite failed=()
   for suite in "$ROOT_DIR"/tests/load/chronicle-load-test.js "$ROOT_DIR"/tests/load/k6-*.js; do
-    JWT_TOKEN="$AUTH_TOKEN" STUDY_ID="$TEST_STUDY_ID" PARTICIPANT_ID="$TEST_PARTICIPANT_ID" \
-      k6 run --include-system-env-vars "$suite"
+    if ! JWT_TOKEN="$AUTH_TOKEN" STUDY_ID="$TEST_STUDY_ID" PARTICIPANT_ID="$TEST_PARTICIPANT_ID" \
+        k6 run --include-system-env-vars "$suite"; then
+      failed+=("${suite##*/}")
+    fi
   done
+  if (( ${#failed[@]} )); then
+    log "k6 benchmarks failed: ${failed[*]}"
+    return 1
+  fi
 }
 
 job_pit() {

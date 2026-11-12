@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { thresholds } from './latency-budgets.js';
 
 /**
  * k6 load test for Chronicle study read endpoints.
@@ -27,10 +28,11 @@ export const options = {
     { duration: '1m', target: 10 },   // Hold at 10 VUs
     { duration: '10s', target: 0 },   // Ramp down
   ],
-  thresholds: {
-    http_req_duration: ['p(95)<500'],  // 95% of requests under 500ms
+  thresholds: thresholds({
     http_req_failed: ['rate<0.01'],    // Less than 1% error rate
-  },
+  }, {
+    http_req_duration: ['p(95)<500'],  // 95% of requests under 500ms
+  }),
 };
 
 export default function () {

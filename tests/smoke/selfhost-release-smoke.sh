@@ -1027,6 +1027,20 @@ SELFHOST_PYTHON_PACKAGE="$BUNDLE" run_selfhost_python_suite test_restore_schemas
   >"$RUN_DIR/fresh-volume-restore.log" 2>&1 || fail 'fresh-volume restore failed'
 
 printf 'Qualifying every k6 benchmark against the enrolled disposable backend.\n'
+# Latency budgets gate only when the backend runs on the host's own CPU architecture; an emulated
+# backend (the linux/amd64 release images on an arm64 host) measures the emulator, so its latency is
+# recorded as unqualified while every functional threshold still gates (tests/load/latency-budgets.js).
+source "$ROOT_DIR/tests/load/latency-budget-mode.sh"
+benchmark_latency_mode="$(k6_latency_budget_mode "$(docker compose -p "$PROJECT" ps -q backend)")" ||
+  fail 'could not read the backend and Docker host platforms'
+read -r BENCHMARK_LATENCY_BUDGETS benchmark_image_platform benchmark_host_platform <<<"$benchmark_latency_mode"
+if [[ "$BENCHMARK_LATENCY_BUDGETS" == gate ]]; then
+  k6_latency_budgets=gated
+else
+  k6_latency_budgets="unqualified-emulated-${benchmark_image_platform}-on-${benchmark_host_platform}"
+  printf 'Backend image is %s on a %s host: latency budgets are recorded, not qualified.\n' \
+    "$benchmark_image_platform" "$benchmark_host_platform"
+fi
 # Read the peak from the actual benchmark options; its inventory must contain one real
 # credential per VU. The initial entry is only for inspect, which performs no requests.
 python3 - "$RUN_DIR/enrollment-credentials.json" "$RUN_DIR/benchmark-inspect-devices.json" <<'BENCHMARK_INSPECT'
@@ -1141,6 +1155,7 @@ benchmark_endpoint="$(docker port "$BENCHMARK_LISTENER_CONTAINER" 8080/tcp)"
 (
   source "$RUN_DIR/benchmark.env.sh"
   export BASE_URL="http://$benchmark_endpoint" DEVICE_FIXTURES_FILE="$RUN_DIR/benchmark-devices.json"
+  export K6_LATENCY_BUDGETS="$BENCHMARK_LATENCY_BUDGETS"
   unset MANAGEMENT_URL UPLOAD_CONNECT_TO
   python3 - <<'BENCHMARK_READY'
 import json
@@ -1175,6 +1190,7 @@ BENCHMARK_READY
   echo 'source_free_archive=pass'
   echo 'upload_security=pass'
   echo 'k6_benchmarks=pass'
+  echo "k6_latency_budgets=${k6_latency_budgets}"
   echo 'selfhost_topology=pass'
   echo "fresh_install=$fresh_install"
   echo "database_encoding=$database_encoding"

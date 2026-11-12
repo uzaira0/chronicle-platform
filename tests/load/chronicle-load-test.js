@@ -2,6 +2,7 @@ import http from 'k6/http';
 import { check, group, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
+import { thresholds } from './latency-budgets.js';
 import { generateUsageEventBatch, generateSensorDataBatch, signedMobileHeaders, uploadAcknowledged, MOBILE_HEADERS } from './mobile-client.js';
 
 /**
@@ -96,19 +97,17 @@ export const options = {
   // handleSummary's compact summary reads these values; k6 reports only up to p(95) by default.
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 
-  thresholds: {
-    // Upload latency thresholds
-    upload_duration: ['p(95)<500', 'p(99)<2000'],
-    sensor_upload_duration: ['p(95)<500', 'p(99)<2000'],
-
+  thresholds: thresholds({
     // Error rate thresholds
     upload_errors: ['rate<0.01'],
     sensor_upload_errors: ['rate<0.01'],
-
-    // Global
     http_req_failed: ['rate<0.01'],
+  }, {
+    // Upload latency thresholds
+    upload_duration: ['p(95)<500', 'p(99)<2000'],
+    sensor_upload_duration: ['p(95)<500', 'p(99)<2000'],
     http_req_duration: ['p(95)<1000'],
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------------

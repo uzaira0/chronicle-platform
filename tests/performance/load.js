@@ -1,5 +1,6 @@
 import { group, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { thresholds } from '../load/latency-budgets.js';
 import {
   checkHealth,
   listStudies,
@@ -59,8 +60,13 @@ export const options = {
     { duration: '20s', target: 50 },   // Sustained load
     { duration: '5s', target: 0 },     // Ramp down
   ],
-  thresholds: {
+  thresholds: thresholds({
     checks: ['rate==1'],
+    // Error budgets
+    read_errors: ['rate<0.05'],
+    write_errors: ['rate<0.05'],
+    http_req_failed: ['rate<0.05'],
+  }, {
     // Health endpoint
     'http_req_duration{name:health}': ['p(95)<500'],
 
@@ -69,12 +75,7 @@ export const options = {
 
     // Write API endpoints
     write_api_duration: ['p(95)<2000', 'p(99)<5000'],
-
-    // Error budgets
-    read_errors: ['rate<0.05'],
-    write_errors: ['rate<0.05'],
-    http_req_failed: ['rate<0.05'],
-  },
+  }),
 };
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { group, sleep } from 'k6';
+import { thresholds } from '../load/latency-budgets.js';
 import {
   checkHealth,
   listStudies,
@@ -22,16 +23,17 @@ import {
 export const options = {
   vus: 1,
   duration: '10s',
-  thresholds: {
-    // Health endpoint must be fast
-    'http_req_duration{name:health}': ['p(95)<500'],
-    // Authenticated endpoints get more headroom
-    'http_req_duration{name:list_studies}': ['p(95)<2000'],
+  thresholds: thresholds({
     // No failures allowed in smoke
     http_req_failed: ['rate==0'],
     // All checks must pass
     checks: ['rate==1'],
-  },
+  }, {
+    // Health endpoint must be fast
+    'http_req_duration{name:health}': ['p(95)<500'],
+    // Authenticated endpoints get more headroom
+    'http_req_duration{name:list_studies}': ['p(95)<2000'],
+  }),
 };
 
 export default function () {
