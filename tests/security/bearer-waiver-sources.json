@@ -1,0 +1,943 @@
+{
+ "08ba67fcf719a94c359397f7f0543a45_0": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "}",
+   "if request.Method != http.MethodConnect {"
+  ],
+  "statement": [
+   "log.Printf(\"refused %s (only CONNECT is served)\", request.Method)"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_1": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "target, err := normalizeTarget(request.Host)",
+   "if err != nil || !allowed[target] {"
+  ],
+  "statement": [
+   "log.Printf(\"refused CONNECT %q: not in the allowlist\", request.Host)"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_2": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "connection, err := net.DialTimeout(\"tcp\", target, dialTimeout)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Printf(\"CONNECT %s: %v\", target, err)"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_3": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "allowed, err := loadAllowlist(allowFile)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_4": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "address, err := net.ResolveTCPAddr(\"tcp\", \":\"+port)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_5": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "listener, err := net.ListenTCP(\"tcp\", address)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_6": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "log.Fatal(err)",
+   "}"
+  ],
+  "statement": [
+   "log.Printf(\"CONNECT proxy on :%s for %d allowed target(s)\", port, len(allowed))"
+  ]
+ },
+ "08ba67fcf719a94c359397f7f0543a45_7": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "}",
+   "log.Printf(\"CONNECT proxy on :%s for %d allowed target(s)\", port, len(allowed))"
+  ],
+  "statement": [
+   "log.Fatal(serveConnectListener(listener, allowed, make(chan struct{}, maxConnections)))"
+  ]
+ },
+ "0e093084955f353ba14f0212e3c01349_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-python-dev-pins.py",
+  "above": [
+   "return problems",
+   "def tracked_python_files(root: Path) -> list[str]:"
+  ],
+  "statement": [
+   "listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', '--', '*.py'],",
+   "capture_output=True, text=True, check=True).stdout"
+  ]
+ },
+ "10e5b3a8e687bbe3167289e49a265c3a_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/build-selfhost-release.py",
+  "above": [
+   "allowed.write_text(f\"{RELEASE_SIGNER} {public_key.read_text().strip()}\\n\")",
+   "with checksum.open(\"rb\") as message:"
+  ],
+  "statement": [
+   "result = subprocess.run(",
+   "[\"ssh-keygen\", \"-Y\", \"verify\", \"-f\", str(allowed), \"-I\", RELEASE_SIGNER,",
+   "\"-n\", RELEASE_SIGNER, \"-s\", str(signature)],",
+   "stdin=message, capture_output=True, timeout=30)"
+  ]
+ },
+ "10e5b3a8e687bbe3167289e49a265c3a_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/build-selfhost-release.py",
+  "above": [
+   "fail(\"release has no valid public source revision\")",
+   "ref = f\"refs/tags/{tag}\""
+  ],
+  "statement": [
+   "result = subprocess.run([\"git\", \"ls-remote\", remote, ref, ref + \"^{}\"],",
+   "check=True, capture_output=True, text=True, timeout=60)"
+  ]
+ },
+ "10e5b3a8e687bbe3167289e49a265c3a_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/build-selfhost-release.py",
+  "above": [
+   "\"\"\"Bind the claimed source revision to the bytes eligible for this bundle.\"\"\"",
+   "try:"
+  ],
+  "statement": [
+   "head = subprocess.run([\"git\", \"-C\", str(root), \"rev-parse\", \"HEAD\"],",
+   "check=True, capture_output=True, text=True).stdout.strip()"
+  ]
+ },
+ "10e5b3a8e687bbe3167289e49a265c3a_3": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/build-selfhost-release.py",
+  "above": [
+   "fail(\"release source revision does not match HEAD\")",
+   "inputs = [\"selfhost\", \"docker/init-db-roles.sql\", \"LICENSE\", \"THIRD-PARTY.md\", \"CHANGELOG.md\", \"SECURITY.md\"]"
+  ],
+  "statement": [
+   "state = subprocess.run([\"git\", \"-C\", str(root), \"status\", \"--porcelain\", \"--untracked-files=no\", \"--\", *inputs],",
+   "check=True, capture_output=True, text=True).stdout"
+  ]
+ },
+ "10e5b3a8e687bbe3167289e49a265c3a_4": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/build-selfhost-release.py",
+  "above": [
+   "def tracked_source_paths(root: Path) -> set[str]:",
+   "\"\"\"Return the repository index manifest used to define release source inputs.\"\"\""
+  ],
+  "statement": [
+   "result = subprocess.run(",
+   "[\"git\", \"-C\", str(root), \"ls-files\", \"--full-name\", \"-z\"],",
+   "check=False,",
+   "stdout=subprocess.PIPE,",
+   "stderr=subprocess.PIPE,",
+   ")"
+  ]
+ },
+ "1429fc6c47c3fa1bdb2fcb009dea9931_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/diff-coverage.py",
+  "above": [
+   "import xml.etree.ElementTree as ET",
+   "def git(repo, *arguments, required=True):"
+  ],
+  "statement": [
+   "result = subprocess.run([\"git\", \"-C\", str(repo), *arguments], capture_output=True, text=True)"
+  ]
+ },
+ "1429fc6c47c3fa1bdb2fcb009dea9931_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/diff-coverage.py",
+  "above": [
+   "command += [\"--exclude\", *(str(repo / p) for p in exclusions)]",
+   "print(f\"[diff-coverage] {repo}: base={base}, {len(reports)} report(s)\", flush=True)"
+  ],
+  "statement": [
+   "failed = subprocess.run(command, cwd=repo).returncode != 0 or failed"
+  ]
+ },
+ "19deed0c625e1621902084eb5ffca171_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/image_signatures.py",
+  "above": [
+   "signature_path.write_bytes(signature)",
+   "message_path.write_bytes(message)"
+  ],
+  "statement": [
+   "result = subprocess.run(['openssl', 'dgst', '-sha256', '-verify', str(public_key), '-signature',",
+   "str(signature_path), str(message_path)], capture_output=True, check=False)"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "\"\"\"Files from an image, copied out of a created (never started) container.\"\"\"",
+   "image = amd64_reference(reference)"
+  ],
+  "statement": [
+   "if subprocess.run(['docker', 'image', 'inspect', image], capture_output=True, check=False).returncode:"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "image = amd64_reference(reference)",
+   "if subprocess.run(['docker', 'image', 'inspect', image], capture_output=True, check=False).returncode:"
+  ],
+  "statement": [
+   "pulled = subprocess.run(['docker', 'pull', '--quiet', image], capture_output=True, text=True, check=False)"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "if pulled.returncode:",
+   "raise Indeterminate(f'cannot pull {image}: {pulled.stderr.strip()}')"
+  ],
+  "statement": [
+   "container = subprocess.run(['docker', 'create', image, '/nonexistent'], capture_output=True, text=True,",
+   "check=False)"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_3": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "try:",
+   "for path in paths:"
+  ],
+  "statement": [
+   "copied = subprocess.run(['docker', 'cp', '-L', f'{cid}:{path}', '-'], capture_output=True, check=False)"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_4": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "found[path] = handle.read().decode('utf-8', 'replace')",
+   "finally:"
+  ],
+  "statement": [
+   "subprocess.run(['docker', 'rm', '--volumes', cid], capture_output=True, check=False)"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_5": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "'sh', '/usr/local/sbin/apt-install-aged.sh', distro, snapshot, '--https',",
+   "*(['--download'] if download else []), '--resolve', *names]"
+  ],
+  "statement": [
+   "result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=1800)"
+  ]
+ },
+ "2a257d2e59da81a2e0eef23098d60669_6": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/os-package-pins.py",
+  "above": [
+   "if chosen:",
+   "return [root / path for path in chosen]"
+  ],
+  "statement": [
+   "tracked = subprocess.run(['git', '-C', str(root), 'ls-files'], capture_output=True, text=True, check=True).stdout"
+  ]
+ },
+ "3f423e53bc78e24bb4b165c54c266d43_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/web_dependency_age.py",
+  "above": [
+   "if time.monotonic() > deadline:",
+   "break"
+  ],
+  "statement": [
+   "result = subprocess.run([*CURL, family, url], capture_output=True, timeout=120, check=False)"
+  ]
+ },
+ "493785f99993eee4eec2d5571028c345_0": {
+  "rule": "go_gosec_filesystem_filereadtaint",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "// with a list it cannot read.",
+   "func loadAllowlist(path string) (map[string]bool, error) {"
+  ],
+  "statement": [
+   "data, err := os.ReadFile(path)"
+  ]
+ },
+ "5324a6b0bfa9a9b4315b83c48225ed5d_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/migrations.py",
+  "above": [
+   "texts = []",
+   "for path in (POSTGRES_DOCKERFILE, COMPOSE_FILE):"
+  ],
+  "statement": [
+   "shown = subprocess.run(['git', '-C', str(root), 'show', f'refs/tags/{version}:{path}'],",
+   "capture_output=True, text=True, check=False)"
+  ]
+ },
+ "55af5552566a4de582ed359e3fb80f6b_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/deps-regenerate.py",
+  "above": [
+   "target.parent.mkdir(parents=True, exist_ok=True)",
+   "clone = ['cp', '-cR'] if sys.platform == 'darwin' else ['cp', '-a', '--reflink=auto']"
+  ],
+  "statement": [
+   "subprocess.run([*clone, str(source), str(target)], check=True)"
+  ]
+ },
+ "55af5552566a4de582ed359e3fb80f6b_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/deps-regenerate.py",
+  "above": [
+   "args = ['bash', str(SANDBOX), '--image', image, '--network', network, str(copy), '--', *command]",
+   "print('+ ' + ' '.join(args), flush=True)"
+  ],
+  "statement": [
+   "ok = subprocess.run(args, check=False).returncode == 0"
+  ]
+ },
+ "55af5552566a4de582ed359e3fb80f6b_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/deps-regenerate.py",
+  "above": [
+   "('bun.lock',), changed)",
+   "def git(root: Path, *args: str) -> subprocess.CompletedProcess:"
+  ],
+  "statement": [
+   "return subprocess.run(['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-C', str(root),",
+   "*args], capture_output=True, text=True, check=False)"
+  ]
+ },
+ "55b306da99c07561d724907f98a043cd_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-dependency-age.py",
+  "above": [
+   "# ---------------------------------------------------------------- git",
+   "def git(cwd: Path, *args: str, check: bool = True) -> str:"
+  ],
+  "statement": [
+   "result = subprocess.run(['git', '-C', str(cwd), *args], capture_output=True, text=True, check=False)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "env = with_git_safety(env)",
+   "if log is None:"
+  ],
+  "statement": [
+   "result = subprocess.run(args, cwd=cwd, env=env, check=False)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "handle.write(f'\\n$ {shlex.join(args)}\\n'.encode())",
+   "handle.flush()"
+  ],
+  "statement": [
+   "result = subprocess.run(args, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT, check=False)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "def out(args: list[str], cwd: Path, check: bool = True) -> str:",
+   "env = with_git_safety(None) if args[0] == 'git' else None"
+  ],
+  "statement": [
+   "result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, check=False)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_3": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "if not (git_dir / 'HEAD').is_file():",
+   "git_dir.parent.mkdir(parents=True, exist_ok=True)"
+  ],
+  "statement": [
+   "subprocess.run(['git', 'init', '--bare', '--quiet', '--template=', str(git_dir)], env=env, check=True)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_4": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "return {ref.removeprefix('refs/heads/'): sha for sha, ref in (line.split('\\t') for line in lines if line)}",
+   "def gate_status(repo: str, sha: str) -> str | None:"
+  ],
+  "statement": [
+   "result = subprocess.run(['gh', 'api', f'repos/{repo}/commits/{sha}/statuses'], capture_output=True, text=True,",
+   "check=False)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_5": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "else:",
+   "args = ['git', '-C', str(tree), 'show', f'{base}:{path}']"
+  ],
+  "statement": [
+   "result = subprocess.run(args, capture_output=True, text=True, env=with_git_safety(None), check=False)"
+  ]
+ },
+ "5a7d6c10a2a99de83045c8b0405188ee_6": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/dependency-gate-runner.py",
+  "above": [
+   "target.parent.mkdir(parents=True, exist_ok=True)",
+   "clone = ['cp', '-cR'] if sys.platform == 'darwin' else ['cp', '-a', '--reflink=auto']"
+  ],
+  "statement": [
+   "subprocess.run([*clone, str(source), str(target)], check=True)"
+  ]
+ },
+ "6ea4e1d347b4f159a1639fafb41f8f6e_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/egress.py",
+  "above": [
+   "destinations.insert(0, (configured, \"CHRONICLE_RELEASES_URL\"))",
+   "for host, purpose in destinations:"
+  ],
+  "statement": [
+   "result = subprocess.run(",
+   "[\"curl\", \"--silent\", \"--output\", \"/dev/null\", \"--proto\", \"=https\",",
+   "\"--connect-timeout\", str(seconds), \"--max-time\", str(seconds * 2), f\"https://{host}/\"],",
+   "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)"
+  ]
+ },
+ "7ae4ee891030589f8475e849f0713312_0": {
+  "rule": "go_lang_log_output_neutralization",
+  "file": "selfhost/caddy/forward/connect.go",
+  "above": [
+   "}",
+   "log.Printf(\"CONNECT proxy on :%s for %d allowed target(s)\", port, len(allowed))"
+  ],
+  "statement": [
+   "log.Fatal(serveConnectListener(listener, allowed, make(chan struct{}, maxConnections)))"
+  ]
+ },
+ "8462e975df41c1e7c47582477f17c4a4_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-dependency-overrides.py",
+  "above": [
+   "gradle_files = set()",
+   "for repository in repositories:"
+  ],
+  "statement": [
+   "listed = subprocess.run([\"git\", \"-C\", str(repository), \"ls-files\", \"-z\", \"--\", \"*.gradle\", \"*.gradle.kts\"],",
+   "capture_output=True, text=True, check=True).stdout"
+  ]
+ },
+ "8623497d2875eb3f2793934a4a7ac1d7_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-machine-paths.py",
+  "above": [
+   "if (root / \".publishignore\").is_file():",
+   "policy = root / \".publishignore\""
+  ],
+  "statement": [
+   "ignored = subprocess.run([\"git\", \"-C\", str(root), \"ls-files\", \"-z\", \"--cached\", \"-i\", \"--exclude-from=\" + str(policy)],",
+   "capture_output=True, text=True, check=True).stdout"
+  ]
+ },
+ "8623497d2875eb3f2793934a4a7ac1d7_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-machine-paths.py",
+  "above": [
+   "found = set()",
+   "for expression, files in ((QUOTED_PATH, [\".\"]), (SHELL_PATH, [\"*.sh\"])):"
+  ],
+  "statement": [
+   "result = subprocess.run([\"git\", \"-C\", str(root), \"grep\", \"--cached\", \"-I\", \"-l\", \"-z\", \"-E\",",
+   "expression, \"--\", *files, *exclusions], capture_output=True, text=True)"
+  ]
+ },
+ "903ec33cdafc197eb84763fd35c7666b_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/backup-image/selfcheck.py",
+  "above": [
+   "if counts else \"SELECT '{}'::json;\")",
+   "def psql(database, sql, capture=True, timeout=None):"
+  ],
+  "statement": [
+   "result = subprocess.run(",
+   "[\"psql\", \"-X\", \"-qAt\", \"-v\", \"ON_ERROR_STOP=1\", \"-d\", database],",
+   "input=sql, text=True, check=True, timeout=timeout,",
+   "stdout=subprocess.PIPE if capture else subprocess.DEVNULL,",
+   ")"
+  ]
+ },
+ "903ec33cdafc197eb84763fd35c7666b_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/backup-image/selfcheck.py",
+  "above": [
+   "environment = os.environ.copy()",
+   "environment[\"PGOPTIONS\"] = environment.get(\"PGOPTIONS\", \"\") + \" -c idle_in_transaction_session_timeout=0\""
+  ],
+  "statement": [
+   "owner = subprocess.Popen(",
+   "[\"psql\", \"-X\", \"-qAt\", \"-v\", \"ON_ERROR_STOP=1\", \"-d\", database],",
+   "stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=environment,",
+   ")"
+  ]
+ },
+ "903ec33cdafc197eb84763fd35c7666b_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/backup-image/selfcheck.py",
+  "above": [
+   "# Keep pg_dump's existing output/options, including its compression and table AMs.",
+   "with open(dump_file, \"xb\") as output:"
+  ],
+  "statement": [
+   "subprocess.run(command, stdout=output, check=True)"
+  ]
+ },
+ "9a08db01ba6e1f8e1426bd83ae2dbe00_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/local-ci-timeout.py",
+  "above": [
+   "return TimedCommand(seconds=options.seconds, log_path=options.log_path.resolve(), argv=tuple(options.command))",
+   "def run_command(request: TimedCommand, log):"
+  ],
+  "statement": [
+   "proc = subprocess.Popen(",
+   "request.argv,",
+   "stdout=subprocess.PIPE,",
+   "stderr=subprocess.PIPE,",
+   "text=True,",
+   "bufsize=1,",
+   "start_new_session=True,",
+   ")"
+  ]
+ },
+ "9b10cad84d97d1cce42b12882e6a7c1b_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-release-discovery.py",
+  "above": [
+   "sys.path.insert(0, str(root / \"selfhost\"))",
+   "from chronicle_ops.release import UPGRADE_FROM_MINIMUM, parse_version"
+  ],
+  "statement": [
+   "tags = subprocess.run([\"git\", \"-C\", str(root), \"tag\", \"--list\"], capture_output=True, text=True, check=True).stdout.split()"
+  ]
+ },
+ "9b10cad84d97d1cce42b12882e6a7c1b_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-release-discovery.py",
+  "above": [
+   "\"\"\"stdout (bytes) of script run by the release whose chronicle_ops is under package_root;",
+   "ValueError with its last error line if it fails.\"\"\""
+  ],
+  "statement": [
+   "result = subprocess.run([sys.executable, \"-I\", \"-c\", script, str(package_root), *arguments],",
+   "env=environment, capture_output=True, timeout=120, check=False)"
+  ]
+ },
+ "9b10cad84d97d1cce42b12882e6a7c1b_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-release-discovery.py",
+  "above": [
+   "environment = dict(os.environ, CHRONICLE_TRANSFER_TIMEOUT_SECONDS=str(seconds))",
+   "try:"
+  ],
+  "statement": [
+   "result = subprocess.run([sys.executable, \"-I\", \"-c\", FETCH_FEED, str(package_root)],",
+   "env=environment, capture_output=True, timeout=seconds + 60, check=False)"
+  ]
+ },
+ "9b10cad84d97d1cce42b12882e6a7c1b_3": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-release-discovery.py",
+  "above": [
+   "dumped = Path(folder) / \"headers\"",
+   "try:"
+  ],
+  "statement": [
+   "result = subprocess.run([sys.executable, \"-I\", \"-c\", INSTALLED_LIST, str(package_root), str(dumped),",
+   "*([str(saved)] if saved else [])],",
+   "env=environment, capture_output=True, timeout=seconds + 30, check=False)"
+  ]
+ },
+ "9b10cad84d97d1cce42b12882e6a7c1b_4": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-release-discovery.py",
+  "above": [
+   "for installed in supported_tags(root, version):",
+   "with tempfile.TemporaryDirectory(prefix=\"release-discovery-\") as folder:"
+  ],
+  "statement": [
+   "archive = subprocess.run([\"git\", \"-C\", str(root), \"archive\", \"--format=tar\", installed, \"selfhost/chronicle_ops\"],",
+   "capture_output=True, check=True).stdout"
+  ]
+ },
+ "9d1c72b9c453b90b76de13b72b700376_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-detekt-waiver-source.py",
+  "above": [
+   "files = set()",
+   "for repo in repos:"
+  ],
+  "statement": [
+   "result = subprocess.run([\"git\", \"-C\", str(repo), \"ls-files\", \"--cached\", \"--others\", \"--exclude-standard\", \"-z\", \"--\", \"*.kt\"],",
+   "text=True, capture_output=True, check=True)"
+  ]
+ },
+ "9dd737690ffe5cd3143934e21eeb8dbf_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/common.py",
+  "above": [
+   "data = data.encode(locale.getpreferredencoding(False))",
+   "if timeout is None:"
+  ],
+  "statement": [
+   "finished = subprocess.run(args, input=data, **streams, **kwargs)"
+  ]
+ },
+ "9dd737690ffe5cd3143934e21eeb8dbf_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/common.py",
+  "above": [
+   "def spawn(args, **kwargs):",
+   "\"\"\"Start an argv command in a process group owned by its caller.\"\"\""
+  ],
+  "statement": [
+   "return subprocess.Popen(args, start_new_session=True, **kwargs)"
+  ]
+ },
+ "a4d1643b219a5857c6b40c129c607904_0": {
+  "rule": "python_lang_file_permissions",
+  "file": "selfhost/chronicle_ops/common.py",
+  "above": [
+   "if os.path.samestat(os.fstat(int(inherited)), path.stat()):",
+   "fcntl.flock(int(inherited), fcntl.LOCK_EX)"
+  ],
+  "statement": [
+   "os.fchmod(int(inherited), OPERATION_LOCK_MODE)"
+  ]
+ },
+ "a4d1643b219a5857c6b40c129c607904_1": {
+  "rule": "python_lang_file_permissions",
+  "file": "selfhost/chronicle_ops/common.py",
+  "above": [
+   "try:",
+   "fcntl.flock(descriptor, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))"
+  ],
+  "statement": [
+   "os.fchmod(descriptor, OPERATION_LOCK_MODE)"
+  ]
+ },
+ "ab867a30f81bcbfb7b805428687368a4_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/release.py",
+  "above": [
+   "path.chmod(0o600)",
+   "fcntl.flock(output, fcntl.LOCK_EX)"
+  ],
+  "statement": [
+   "with subprocess.Popen(command, stdout=subprocess.PIPE, **kwargs) as dump:"
+  ]
+ },
+ "cb3d607ae5ae5eeb17faec2d752cb378_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-python-shell.py",
+  "above": [
+   "repositories = [root] + [path for path in root.iterdir() if path.is_dir() and (path / \".git\").exists()]",
+   "for repository in repositories:"
+  ],
+  "statement": [
+   "listed = subprocess.run([\"git\", \"-C\", str(repository), \"ls-files\", \"-z\", \"--\", \"*.py\", \"*.sh\"],",
+   "capture_output=True, text=True, check=True).stdout"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_0": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "connection, err := net.DialTimeout(\"tcp\", route.upstream, dialTimeout)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Printf(\"forward %s -> %s: %v\", route.listen, route.upstream, err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_1": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "if route.proxy {",
+   "if _, err := upstream.Write(proxyHeader(client.RemoteAddr(), client.LocalAddr())); err != nil {"
+  ],
+  "statement": [
+   "log.Printf(\"forward %s -> %s: PROXY header: %v\", route.listen, route.upstream, err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_2": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "if *checkOnly {",
+   "if err := check([]mapping{{listen: *connectPort}}); err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_3": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "route, err := parseMapping(argument)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_4": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "if *checkOnly {",
+   "if err := check(routes); err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_5": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "address, err := net.ResolveTCPAddr(\"tcp\", \":\"+route.listen)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_6": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "listener, err := net.ListenTCP(\"tcp\", address)",
+   "if err != nil {"
+  ],
+  "statement": [
+   "log.Fatal(err)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_7": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "log.Fatal(err)",
+   "}"
+  ],
+  "statement": [
+   "log.Printf(\"listening on :%s for %s (PROXY header: %t)\", route.listen, route.upstream, route.proxy)"
+  ]
+ },
+ "ccd0f053ee9a598e6a8dba5924410a98_8": {
+  "rule": "go_lang_logger_leak",
+  "file": "selfhost/caddy/forward/main.go",
+  "above": [
+   "go func(route mapping) { failed <- serve(listener, route, slots) }(route)",
+   "}"
+  ],
+  "statement": [
+   "log.Fatal(<-failed)"
+  ]
+ },
+ "d7f277e06d9f383f7de0cd6b9585bbb0_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "selfhost/chronicle_ops/alerts.py",
+  "above": [
+   "\"Open Grafana's Alerting page; each alert links its runbook (docs/MONITORING-RUNBOOK.md)\")",
+   "def syslog(priority, message):"
+  ],
+  "statement": [
+   "subprocess.run([\"logger\", \"-p\", priority, \"-t\", \"chronicle\", message], check=False, timeout=10,",
+   "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+  ]
+ },
+ "e055cef74d63fbbe464da5313953f5ff_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-runtime-images.py",
+  "above": [
+   "def platform_reference(image):",
+   "\"\"\"repository@digest of the linux/amd64 manifest, or the image itself if it is not an index.\"\"\""
+  ],
+  "statement": [
+   "raw = subprocess.run(['docker', 'buildx', 'imagetools', 'inspect', '--raw', image],",
+   "check=True, capture_output=True, text=True).stdout"
+  ]
+ },
+ "e055cef74d63fbbe464da5313953f5ff_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-runtime-images.py",
+  "above": [
+   "reference = platform_reference(image)",
+   "print(f'pulling {image} as {reference}', file=sys.stderr, flush=True)"
+  ],
+  "statement": [
+   "subprocess.run(['docker', 'pull', '--quiet', '--platform', '/'.join(PLATFORM), reference],",
+   "check=True, stdout=subprocess.DEVNULL)"
+  ]
+ },
+ "e055cef74d63fbbe464da5313953f5ff_2": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-runtime-images.py",
+  "above": [
+   "[sys.executable, str(ROOT / 'scripts/check-image-policy.py'),",
+   "*(f'{key}={reference}' for key, reference in pulled)]):"
+  ],
+  "statement": [
+   "status = subprocess.run(command, env=os.environ).returncode or status"
+  ]
+ },
+ "e7eaa4690a312bd574a08f04b68266ca_0": {
+  "rule": "python_lang_code_injection",
+  "file": "selfhost/chronicle_ops/__main__.py",
+  "above": [
+   "os.environ[\"CHRONICLE_OPS_STATE\"] = str(Path(state).resolve())",
+   "os.set_inheritable(int(os.environ[LOCK_FD_ENV]), True)"
+  ],
+  "statement": [
+   "os.execvp(command[0], command)"
+  ]
+ },
+ "f187bd2327048228706883fbaa912501_0": {
+  "rule": "python_lang_exception",
+  "file": "selfhost/chronicle_ops/update.py",
+  "above": [
+   "source = archive.extractfile(member)",
+   "if source is None:"
+  ],
+  "statement": [
+   "raise ValueError(f\"release archive member is not a regular file: {member.name!r}\")"
+  ]
+ },
+ "f187bd2327048228706883fbaa912501_1": {
+  "rule": "python_lang_exception",
+  "file": "selfhost/chronicle_ops/update.py",
+  "above": [
+   "or path.parts[0] != name or not (member.isdir() or member.isfile())",
+   "or path in seen):"
+  ],
+  "statement": [
+   "raise ValueError(f\"unsafe or duplicate release archive member: {member.name!r}\")"
+  ]
+ },
+ "f3c17e39830d80b4a18fbdb84ca015fd_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-image-policy.py",
+  "above": [
+   "setid, tools = set(), set()",
+   "try:"
+  ],
+  "statement": [
+   "with subprocess.Popen(['docker', 'export', container], stdout=subprocess.PIPE) as export:"
+  ]
+ },
+ "f3c17e39830d80b4a18fbdb84ca015fd_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/check-image-policy.py",
+  "above": [
+   "raise subprocess.CalledProcessError(export.returncode, 'docker export')",
+   "finally:"
+  ],
+  "statement": [
+   "subprocess.run(['docker', 'container', 'rm', '--volumes', container], capture_output=True, check=False)"
+  ]
+ },
+ "f43f5192af941a266c59a1abbea25767_0": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/i18n-lint-cases.py",
+  "above": [
+   "by_file = {}",
+   "if tool == \"ast-grep\":"
+  ],
+  "statement": [
+   "out = subprocess.run(",
+   "[\"ast-grep\", \"scan\", \"--json\", cases], capture_output=True, text=True",
+   ").stdout"
+  ]
+ },
+ "f43f5192af941a266c59a1abbea25767_1": {
+  "rule": "python_lang_os_command_injection",
+  "file": "scripts/i18n-lint-cases.py",
+  "above": [
+   ")",
+   "else:"
+  ],
+  "statement": [
+   "out = subprocess.run(",
+   "[",
+   "\"semgrep\",",
+   "\"--metrics=off\",",
+   "\"--quiet\",",
+   "\"--json\",",
+   "\"--config\",",
+   "config,",
+   "cases,",
+   "],",
+   "capture_output=True,",
+   "text=True,",
+   ").stdout"
+  ]
+ },
+ "ff16809942cc066a6facf1923f5f9970_0": {
+  "rule": "python_lang_code_injection",
+  "file": "selfhost/chronicle_ops/update.py",
+  "above": [
+   "os.set_inheritable(int(descriptor), True)",
+   "launcher = str(candidate / 'chronicle')"
+  ],
+  "statement": [
+   "os.execv(launcher, [launcher, 'update', '--apply-from', str(previous)])"
+  ]
+ }
+}

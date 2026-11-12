@@ -97,9 +97,9 @@
   },
   "ff16809942cc066a6facf1923f5f9970_0": {
     "author": "chronicle",
-    "comment": "os.execv replaces this process with the signature-verified release operator and fixed upgrade/--from argv. The verified bundle must own signals and rollback traps; spawning a child breaks interruption recovery. No shell or evaluated code.",
+    "comment": "selfhost/chronicle_ops/update.py:546 False positive: os.execv replaces this process with the signature-verified candidate release's launcher and the fixed argv update --apply-from <the installed release directory>. The verified bundle must own signals and rollback traps; spawning a child breaks interruption recovery. No shell and no evaluation of strings.",
     "false_positive": true,
-    "ignored_at": "2026-10-16T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "9a08db01ba6e1f8e1426bd83ae2dbe00_0": {
     "author": "chronicle",
@@ -289,21 +289,21 @@
   },
   "9b10cad84d97d1cce42b12882e6a7c1b_0": {
     "author": "chronicle",
-    "comment": "scripts/check-release-discovery.py:100 False positive: subprocess receives an argv list (no shell); git -C <this checkout> tag --list.",
+    "comment": "scripts/check-release-discovery.py:263 False positive: subprocess receives an argv list (no shell); git -C <this checkout> tag --list.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "9b10cad84d97d1cce42b12882e6a7c1b_1": {
     "author": "chronicle",
-    "comment": "scripts/check-release-discovery.py:118 False positive: subprocess receives an argv list (no shell); sys.executable -I -c with the fixed DISCOVER source; the package path and version are arguments, not code.",
+    "comment": "scripts/check-release-discovery.py:279 False positive: subprocess receives an argv list (no shell); sys.executable -I -c with a fixed source (DISCOVER or DISCOVER_FEED, the only callers of release_python); the package path, version and URL are arguments, not code.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "9b10cad84d97d1cce42b12882e6a7c1b_2": {
     "author": "chronicle",
-    "comment": "scripts/check-release-discovery.py:147 False positive: subprocess receives an argv list (no shell); git archive of a tag that git tag --list returned and parse_version accepted.",
+    "comment": "scripts/check-release-discovery.py:358 False positive: subprocess receives an argv list (no shell); sys.executable -I -c with the fixed FETCH_FEED source; the package path is an argument, not code.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "e055cef74d63fbbe464da5313953f5ff_0": {
     "author": "chronicle",
@@ -355,51 +355,51 @@
   },
   "ccd0f053ee9a598e6a8dba5924410a98_0": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:105 False positive: logs the listen port, the upstream host:port from the compose command and the dial error; no client data or credentials.",
+    "comment": "selfhost/caddy/forward/main.go:107 False positive: logs the listen port, the upstream host:port from the compose command and the dial error; no client data or credentials.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_1": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:112 False positive: logs the listen port, upstream host:port and the PROXY header write error between internal containers; no client data or credentials.",
+    "comment": "selfhost/caddy/forward/main.go:114 False positive: logs the listen port, upstream host:port and the PROXY header write error between internal containers; no client data or credentials.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_2": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:170 False positive: log.Fatal of parseMapping's error, which quotes the operator's LISTEN=HOST:PORT argument; no secrets.",
+    "comment": "selfhost/caddy/forward/main.go:173 False positive: log.Fatal of the -connect -check healthcheck dial error to 127.0.0.1:<connect port>; no secrets.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_3": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:176 False positive: log.Fatal of the -check healthcheck dial error to 127.0.0.1:<listen port>; no secrets.",
+    "comment": "selfhost/caddy/forward/main.go:188 False positive: log.Fatal of parseMapping's error, which quotes the operator's LISTEN=HOST:PORT argument; no secrets.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_4": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:185 False positive: log.Fatal of ResolveTCPAddr for :<listen port>; no secrets.",
+    "comment": "selfhost/caddy/forward/main.go:194 False positive: log.Fatal of the -check healthcheck dial error to 127.0.0.1:<listen port>; no secrets.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_5": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:189 False positive: log.Fatal of ListenTCP for :<listen port>; no secrets.",
+    "comment": "selfhost/caddy/forward/main.go:203 False positive: log.Fatal of ResolveTCPAddr for :<listen port>; no secrets.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_6": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:191 False positive: startup line with the listen port, upstream host:port and the PROXY flag from the compose command.",
+    "comment": "selfhost/caddy/forward/main.go:207 False positive: log.Fatal of ListenTCP for :<listen port>; no secrets.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "ccd0f053ee9a598e6a8dba5924410a98_7": {
     "author": "chronicle",
-    "comment": "selfhost/caddy/forward/main.go:194 False positive: log.Fatal of a listener's Accept error; no client data or credentials.",
+    "comment": "selfhost/caddy/forward/main.go:209 False positive: startup line with the listen port, upstream host:port and the PROXY flag from the compose command.",
     "false_positive": true,
-    "ignored_at": "2026-11-06T00:00:00Z"
+    "ignored_at": "2026-11-11T00:00:00Z"
   },
   "493785f99993eee4eec2d5571028c345_0": {
     "author": "chronicle",
@@ -466,5 +466,17 @@
     "comment": "selfhost/caddy/forward/main.go:212 False positive: log.Fatal of the first serve loop's error (a listener's Accept error); no client data or credentials.",
     "false_positive": true,
     "ignored_at": "2026-11-06T00:00:00Z"
+  },
+  "9b10cad84d97d1cce42b12882e6a7c1b_3": {
+    "author": "chronicle",
+    "comment": "scripts/check-release-discovery.py:474 False positive: subprocess receives an argv list (no shell); sys.executable -I -c with the fixed INSTALLED_LIST source; the package path, a temporary file and the optional saved answer are arguments, not code.",
+    "false_positive": true,
+    "ignored_at": "2026-11-11T00:00:00Z"
+  },
+  "9b10cad84d97d1cce42b12882e6a7c1b_4": {
+    "author": "chronicle",
+    "comment": "scripts/check-release-discovery.py:582 False positive: subprocess receives an argv list (no shell); git archive of a tag that git tag --list returned and parse_version accepted.",
+    "false_positive": true,
+    "ignored_at": "2026-11-11T00:00:00Z"
   }
 }

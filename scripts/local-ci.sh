@@ -2097,14 +2097,18 @@ job_pmd() {
 
 job_bearer() {
   ensure_bearer
-  local sarif_report
+  local sarif_report all_report no_waivers status=0 all_status=0
   sarif_report="$(report_path "$ROOT_DIR/bearer-results.sarif" "bearer-results.sarif")"
+  all_report="$(report_path "$ROOT_DIR/build/bearer-all-findings.json" "bearer-all-findings.json")"
+  ensure_dir "$(dirname "$all_report")"
   BEARER_SCANNER=sast \
     BEARER_FORMAT=sarif \
     BEARER_OUTPUT="$sarif_report" \
     BEARER_HIDE_PROGRESS_BAR=true \
-    bearer scan "$ROOT_DIR"
-  python3 - "$sarif_report" <<'PY'
+    bearer scan "$ROOT_DIR" || status=$?
+  # 1 is a scan that found something bearer.ignore does not waive; any other status is a scan that did not finish.
+  if [[ "$status" != 0 && "$status" != 1 ]]; then return "$status"; fi
+  python3 - "$sarif_report" <<'PY' || return
 import json
 import sys
 from pathlib import Path
@@ -2116,6 +2120,17 @@ for run in doc.get("runs", []):
         run["results"] = []
 path.write_text(json.dumps(doc, indent=2) + "\n")
 PY
+  # bearer.ignore waives a finding by its position among the findings of its file, so a flagged statement
+  # added above a waived one takes over its waiver. The second scan applies no waiver, and the check
+  # compares what each waiver covers now with the statement recorded when it was reviewed.
+  no_waivers="$(gate_tool_temp)"
+  printf '{}\n' >"$no_waivers"
+  BEARER_SCANNER=sast BEARER_HIDE_PROGRESS_BAR=true bearer scan "$ROOT_DIR" \
+    --ignore-file "$no_waivers" --format json --output "$all_report" --exit-code 0 || all_status=$?
+  rm -f -- "$no_waivers"
+  if [[ "$all_status" != 0 ]]; then return "$all_status"; fi
+  python3 "$ROOT_DIR/scripts/check-bearer-waivers.py" --findings "$all_report" || status=1
+  return "$status"
 }
 
 job_osv() {

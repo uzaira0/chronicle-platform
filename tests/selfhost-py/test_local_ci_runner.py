@@ -447,6 +447,68 @@ sys.exit(int(os.environ['DOCS_FIXTURE_STATUS']) if ':rhizome:javadocJar' in sys.
                                      [line for line in recorded if line.startswith('java ')])
                     self.assertEqual('fresh' in phases, any('check-detekt-waiver-source.py' in line for line in recorded))
 
+    def test_bearer_compares_every_waiver_with_a_scan_that_applies_none(self):
+        cases = (({}, 0, ['waived', 'all'], True),
+                 ({'waived': 1}, 1, ['waived', 'all'], True),
+                 ({'waived': 3}, 3, ['waived'], False),
+                 ({'all': 2}, 2, ['waived', 'all'], False),
+                 ({'check': 7}, 1, ['waived', 'all'], True))
+        with tempfile.TemporaryDirectory() as folder:
+            fixture = Path(folder)
+            calls = fixture / 'calls'
+            (fixture / 'bearer').write_text('#!' + sys.executable + '\n' + '''import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+settings = json.loads(os.environ['BEARER_FIXTURE'])
+if '--ignore-file' in args:
+    waivers = Path(args[args.index('--ignore-file') + 1])
+    Path(__file__).with_name('no-waivers').write_text(str(waivers) + '\\n' + waivers.read_text())
+    args[args.index('--ignore-file') + 1] = '<no waivers>'
+    phase, report, content = 'all', args[args.index('--output') + 1], {}
+else:
+    phase, report, content = 'waived', os.environ['BEARER_OUTPUT'], {'runs': [{'results': None}]}
+    args.append('format=' + os.environ['BEARER_FORMAT'])
+if settings.get(phase, 0) in (0, 1):
+    Path(report).write_text(json.dumps(content))
+with open(os.environ['FIXTURE_CALLS'], 'a') as handle:
+    handle.write(' '.join(['bearer', phase, *args]) + '\\n')
+sys.exit(settings.get(phase, 0))
+''')
+            (fixture / 'python3').write_text('#!' + sys.executable + '\n' + '''import json, os, sys
+args = sys.argv[1:]
+if args[:1] == ['-']:
+    os.execv(sys.executable, [sys.executable, *args])
+with open(os.environ['FIXTURE_CALLS'], 'a') as handle:
+    handle.write(' '.join(['python3', *args]) + '\\n')
+sys.exit(json.loads(os.environ['BEARER_FIXTURE']).get('check', 0))
+''')
+            for tool in ('bearer', 'python3'):
+                (fixture / tool).chmod(0o755)
+            reports = fixture / 'reports'
+            for settings, status, phases, checked in cases:
+                with self.subTest(settings=settings):
+                    calls.write_text('')
+                    result = run(['bash', str(ROOT / 'scripts/local-ci.sh'), 'bearer'], capture=True, stderr=subprocess.PIPE,
+                                 timeout=10, env=dict(os.environ, CHRONICLE_LOCAL_BIN_DIR=str(fixture), FIXTURE_CALLS=str(calls),
+                                                      CHRONICLE_LOCAL_CI_REPORT_DIR=str(reports), CHRONICLE_LOCAL_CI_KEEP_GOING='0',
+                                                      BEARER_FIXTURE=json.dumps(settings)))
+                    self.assertEqual(status, result.returncode, result.stdout + result.stderr)
+                    recorded = calls.read_text().splitlines()
+                    scans = [f'bearer waived scan {ROOT} format=sarif',
+                             f'bearer all scan {ROOT} --ignore-file <no waivers> --format json '
+                             f'--output {reports}/bearer-all-findings.json --exit-code 0']
+                    check = f'python3 {ROOT}/scripts/check-bearer-waivers.py --findings {reports}/bearer-all-findings.json'
+                    self.assertEqual(scans[:len(phases)] + [check] * checked,
+                                     [line for line in recorded if line.startswith('bearer ') or 'check-bearer-waivers' in line])
+                    if 'all' in phases:
+                        # The scan the waivers are compared with read an ignore file that waives nothing.
+                        waivers, content = (fixture / 'no-waivers').read_text().split('\n', 1)
+                        self.assertEqual('{}\n', content)
+                        self.assertEqual(ROOT / 'build/tool-downloads', Path(waivers).parent)
+                        self.assertFalse(Path(waivers).exists())
+                    if settings.get('waived', 0) in (0, 1):
+                        self.assertEqual({'runs': [{'results': []}]}, json.loads((reports / 'bearer-results.sarif').read_text()))
+
     def test_repo_automation_reuses_architecture_within_each_process(self):
         with tempfile.TemporaryDirectory() as folder:
             fixture = Path(folder)
