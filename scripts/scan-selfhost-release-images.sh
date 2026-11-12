@@ -51,15 +51,29 @@ PY_IMAGE_INVENTORY
 fi
 
 # Same platform as publish-images.sh release_platform: purls in the ignore file carry the architecture.
+# Every image is scanned and, with a report directory, gets its report, also after a finding: the run
+# fails at the end and names each image that failed. Trivy exits 1 for a finding and for its own
+# errors alike, so the line says both.
+scanned=0
+failed=()
 while IFS= read -r image; do
   [[ -n "$image" ]] || continue
+  scanned=$((scanned + 1))
   printf 'Scanning release runtime image %s\n' "$image" >&2
   trivy image --quiet --platform linux/amd64 ${image_source[@]+"${image_source[@]}"} --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 \
-    --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$image"
+    --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" "$image" ||
+    failed+=("$image (finding, secret or scanner error)")
   if [[ -n "${CHRONICLE_TRIVY_REPORT_DIR:-}" ]]; then
     mkdir -p "$CHRONICLE_TRIVY_REPORT_DIR"
     trivy image --quiet --platform linux/amd64 ${image_source[@]+"${image_source[@]}"} --scanners vuln --severity HIGH,CRITICAL \
       --skip-db-update --skip-java-db-update --ignorefile "$root/.trivyignore.yaml" --show-suppressed --format json \
-      --output "$CHRONICLE_TRIVY_REPORT_DIR/$(printf %s "$image" | tr -c 'A-Za-z0-9._-' _).json" "$image"
+      --output "$CHRONICLE_TRIVY_REPORT_DIR/$(printf %s "$image" | tr -c 'A-Za-z0-9._-' _).json" "$image" ||
+      failed+=("$image (report not written)")
   fi
 done <<< "$images"
+if [[ ${#failed[@]} -gt 0 ]]; then
+  printf 'error: %s of %s images failed the release scan:\n' \
+    "$(printf '%s\n' "${failed[@]%% (*}" | sort -u | wc -l | tr -d ' ')" "$scanned" >&2
+  printf '  %s\n' "${failed[@]}" >&2
+  exit 1
+fi

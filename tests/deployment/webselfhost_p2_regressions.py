@@ -346,6 +346,60 @@ def check_w67() -> None:
     assert all('--signing-config' in line and '--bundle' in line for line in plan if line.startswith(('cosign sign ', 'cosign attest ')))
     assert any('build-selfhost-release.py' in line and '--image-signatures' in line for line in plan)
 
+    # The publish gate itself: a failed check of one image is recorded, the remaining checks and images
+    # still run, and require_image_checks then fails naming each failure before the source check and
+    # the push. The shipped functions run here against recording stand-ins for the four checks.
+    publish = read("scripts/publish-images.sh")
+    gate = publish[publish.index("# Nothing reaches the registry with"):publish.index("build_component() {")]
+    SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="W67-gate-", dir=SCRATCH_DIR) as temporary:
+        fixture = Path(temporary)
+        (fixture / "scripts").mkdir()
+        gate_calls = fixture / "calls"
+        for name in ("check-image-no-ssh-server.sh", "check-image-listeners.sh", "scan-selfhost-release-images.sh"):
+            (fixture / "scripts" / name).write_text(
+                'name=${0##*/}\n'
+                'printf \'%s %s\\n\' "$name" "$*" >> "$GATE_CALLS"\n'
+                'case ",${GATE_FAIL:-}," in *",$name ${!#},"*) exit 1 ;; esac\n', encoding="utf-8")
+        (fixture / "scripts" / "check-image-policy.py").write_text(
+            "import os, sys\n"
+            "name = os.path.basename(sys.argv[0])\n"
+            "open(os.environ['GATE_CALLS'], 'a').write(name + ' ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+            "sys.exit(f'{name} {sys.argv[-1]}' in os.environ.get('GATE_FAIL', '').split(','))\n", encoding="utf-8")
+        harness = fixture / "gate.sh"
+        harness.write_text(
+            "set -euo pipefail\n"
+            "dry_run=''\n"
+            f"root={fixture}\n"
+            f"trivy_reports={fixture}/reports\n"
+            "stamp() { :; }\n"
+            'run() { "$@"; }\n'
+            + gate +
+            "scan_image tag-a a\n"
+            "scan_image tag-b b\n"
+            "if declare -F require_image_checks >/dev/null; then require_image_checks; fi\n"
+            "echo reached-push\n", encoding="utf-8")
+        every_check = [f"{name} {argument}" for tag, component in (("tag-a", "a"), ("tag-b", "b"))
+                       for name, argument in (("check-image-no-ssh-server.sh", tag), ("check-image-listeners.sh", tag),
+                                              ("check-image-policy.py", f"{component}={tag}"),
+                                              ("scan-selfhost-release-images.sh", tag))]
+        for failing, named in (("", []),
+                               ("check-image-no-ssh-server.sh tag-a", ["tag-a: SSH server"]),
+                               ("check-image-listeners.sh tag-a,scan-selfhost-release-images.sh tag-b",
+                                ["tag-a: listeners", "tag-b: trivy scan"]),
+                               ("check-image-policy.py b=tag-b", ["tag-b: image policy"])):
+            gate_calls.write_text("", encoding="utf-8")
+            result = subprocess.run(["bash", str(harness)], capture_output=True, text=True,
+                                    env=dict(os.environ, GATE_CALLS=str(gate_calls), GATE_FAIL=failing))
+            assert gate_calls.read_text(encoding="utf-8").splitlines() == every_check, (failing, result.stderr)
+            assert result.returncode == (1 if named else 0), (failing, result.stderr)
+            assert ("reached-push" in result.stdout) == (not named), (failing, result.stdout)
+            if named:
+                lines = result.stderr.splitlines()[-len(named) - 1:]
+                assert lines[0] == f"error: {len(named)} image checks failed; nothing was pushed:", result.stderr
+                assert [line.strip() for line in lines[1:]] == named, result.stderr
+    assert publish.index("\nrequire_image_checks\nrun require_unchanged_source\n") < publish.index("\nstamp push\n")
+
     # Images are built and scanned for the platform the ignore-file purls name; an unpinned build on
     # an arm64 host made arm64 images whose findings no x86_64 entry matched (2026.11.6).
     builds = [line for line in plan if ' docker build ' in line]
@@ -364,13 +418,22 @@ def check_w67() -> None:
         bin_dir.mkdir()
         log = fixture / "trivy.log"
         stub = bin_dir / "trivy"
+        # Records every call. The gating scan (--exit-code N) of TRIVY_FAIL_IMAGE exits N as trivy does for
+        # a finding; the report scan (--output FILE) writes FILE, or fails for TRIVY_FAIL_REPORT_IMAGE.
         stub.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "printf '%s\\n' \"$*\" >> \"$TRIVY_LOG\"\n"
+            "previous='' output='' gating='' image=''\n"
             "for argument in \"$@\"; do\n"
-            "  if [[ -n \"${TRIVY_FAIL_IMAGE:-}\" && \"$argument\" == \"$TRIVY_FAIL_IMAGE\" ]]; then exit 1; fi\n"
-            "done\n",
+            "  [[ \"$previous\" != --output ]] || output=$argument\n"
+            "  [[ \"$previous\" != --exit-code ]] || gating=$argument\n"
+            "  previous=$argument\n"
+            "  image=$argument\n"
+            "done\n"
+            "if [[ -n \"$gating\" && \"$image\" == \"${TRIVY_FAIL_IMAGE:-}\" ]]; then exit \"$gating\"; fi\n"
+            "if [[ -n \"$output\" && \"$image\" == \"${TRIVY_FAIL_REPORT_IMAGE:-}\" ]]; then exit 1; fi\n"
+            "[[ -z \"$output\" ]] || printf '{}\\n' > \"$output\"\n",
             encoding="utf-8",
         )
         stub.chmod(0o755)
@@ -391,23 +454,46 @@ def check_w67() -> None:
                                     "--exit-code", "1", "--skip-db-update", "--skip-java-db-update",
                                     "--ignorefile", str(ROOT / ".trivyignore.yaml")], args
             log.unlink()
-            env["TRIVY_FAIL_IMAGE"] = inventory[0]
-            failed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
-            assert failed.returncode != 0, "a HIGH/CRITICAL scanner failure must stop release scanning"
-            assert len(log.read_text(encoding="utf-8").splitlines()) == 1
-            log.unlink()
+            # A finding fails the run after every image has been scanned, and the last lines name the
+            # images that failed. Stopping at the first one (the 2026.11.12 image gate) hid the findings
+            # of the images behind it.
+            for failing in (inventory[0], inventory[-1]):
+                env["TRIVY_FAIL_IMAGE"] = failing
+                failed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
+                assert failed.returncode == 1, failed.stderr
+                assert [line.split()[-1] for line in log.read_text(encoding="utf-8").splitlines()] == inventory
+                summary = failed.stderr.splitlines()[-2:]
+                assert summary[0].startswith(f"error: 1 of {len(inventory)} images failed the release scan"), failed.stderr
+                assert summary[1].split() == [failing, "(finding,", "secret", "or", "scanner", "error)"], failed.stderr
+                log.unlink()
         # With a report directory each image also gets a JSON report of its waived findings, which
         # tests/security/check-trivy-waivers.py --reports reads to find ignore entries that match nothing.
-        env.pop("TRIVY_FAIL_IMAGE", None)
-        env["CHRONICLE_TRIVY_REPORT_DIR"] = str(fixture / "reports")
-        reported = subprocess.run(["bash", str(helper), *explicit], cwd=ROOT, env=env, capture_output=True, text=True)
-        assert reported.returncode == 0, reported.stderr
-        calls = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
-        assert [args[-1] for args in calls] == [image for image in explicit for _ in (0, 1)]
-        for args in calls[1::2]:
-            assert "--show-suppressed" in args and args[args.index("--format") + 1] == "json"
-            assert "--exit-code" not in args and args[args.index("--output") + 1].startswith(str(fixture / "reports") + "/")
-        log.unlink()
+        # An image with a finding gets its report too: the report is what a waiver is written from.
+        reports = fixture / "reports"
+        env["CHRONICLE_TRIVY_REPORT_DIR"] = str(reports)
+        names = [re.sub(r"[^A-Za-z0-9._-]", "_", image) + ".json" for image in explicit]
+        for failing, failing_report in ((None, None), (explicit[0], None), (explicit[1], None), (None, explicit[0])):
+            env.pop("TRIVY_FAIL_IMAGE", None)
+            env.pop("TRIVY_FAIL_REPORT_IMAGE", None)
+            if failing:
+                env["TRIVY_FAIL_IMAGE"] = failing
+            if failing_report:
+                env["TRIVY_FAIL_REPORT_IMAGE"] = failing_report
+            reported = subprocess.run(["bash", str(helper), *explicit], cwd=ROOT, env=env, capture_output=True, text=True)
+            assert reported.returncode == (1 if failing or failing_report else 0), reported.stderr
+            calls = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+            assert [args[-1] for args in calls] == [image for image in explicit for _ in (0, 1)]
+            for args in calls[1::2]:
+                assert "--show-suppressed" in args and args[args.index("--format") + 1] == "json"
+                assert "--exit-code" not in args and args[args.index("--output") + 1].startswith(str(reports) + "/")
+            written = sorted(path.name for path in reports.iterdir())
+            assert written == sorted(name for name, image in zip(names, explicit) if image != failing_report), written
+            if failing_report:
+                assert reported.stderr.splitlines()[-1].split() == [failing_report, "(report", "not", "written)"], reported.stderr
+            for path in reports.iterdir():
+                path.unlink()
+            log.unlink()
+        env.pop("TRIVY_FAIL_REPORT_IMAGE", None)
         del env["CHRONICLE_TRIVY_REPORT_DIR"]
         for invalid in ("", "--download-db-only", "image:tag\nanother:tag"):
             rejected = subprocess.run(["bash", str(helper), invalid], env=env, capture_output=True)

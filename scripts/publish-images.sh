@@ -463,17 +463,34 @@ next(image for image in SOURCE_IMAGES if image.component == sys.argv[3]).archive
   fi
 }
 # Nothing reaches the registry with a fixable HIGH or CRITICAL finding or a secret in a layer. Each
-# image is scanned right after its build, smallest first, so a finding fails the run before the next
-# build. Every image, built here or third-party (scripts/check-runtime-images.py below), must have no SSH
-# server, no undeclared listener, and a non-root USER, a HEALTHCHECK, no setuid file and no build tool
-# unless config/image-policy.toml says why. The scans' JSON reports go to $trivy_reports, so the run
-# can fail on a .trivyignore.yaml entry that suppressed nothing.
+# image is checked right after its build, smallest first. A failed check is recorded and the run goes
+# on, so one run names every failing image and leaves a report for each; require_image_checks stops
+# it before the push. Every image, built here or third-party (scripts/check-runtime-images.py below),
+# must have no SSH server, no undeclared listener, and a non-root USER, a HEALTHCHECK, no setuid file
+# and no build tool unless config/image-policy.toml says why. The scans' JSON reports go to
+# $trivy_reports, so the run can fail on a .trivyignore.yaml entry that suppressed nothing.
+image_check_failures=()
+image_check() { # image_check <image or file> <check name> <command...>
+  local subject=$1 check=$2
+  shift 2
+  if [[ -n "$dry_run" ]]; then
+    run "$@"
+  elif ! "$@"; then
+    image_check_failures+=("$subject: $check")
+  fi
+}
+require_image_checks() {
+  [[ ${#image_check_failures[@]} -gt 0 ]] || return 0
+  printf 'error: %s image checks failed; nothing was pushed:\n' "${#image_check_failures[@]}" >&2
+  printf '  %s\n' "${image_check_failures[@]}" >&2
+  return 1
+}
 scan_image() { # scan_image <tag> <component>
   stamp "scan $1"
-  run bash "$root/scripts/check-image-no-ssh-server.sh" "$1"
-  run bash "$root/scripts/check-image-listeners.sh" "$1"
-  run python3 "$root/scripts/check-image-policy.py" "$2=$1"
-  run env CHRONICLE_TRIVY_REPORT_DIR="$trivy_reports" bash "$root/scripts/scan-selfhost-release-images.sh" "$1"
+  image_check "$1" 'SSH server' bash "$root/scripts/check-image-no-ssh-server.sh" "$1"
+  image_check "$1" 'listeners' bash "$root/scripts/check-image-listeners.sh" "$1"
+  image_check "$1" 'image policy' python3 "$root/scripts/check-image-policy.py" "$2=$1"
+  image_check "$1" 'trivy scan' env CHRONICLE_TRIVY_REPORT_DIR="$trivy_reports" bash "$root/scripts/scan-selfhost-release-images.sh" "$1"
 }
 build_component() {
   local component=$1 tag=$2 paths context dockerfile
@@ -505,9 +522,10 @@ build_component fluentbit "$fluentbit"
 build_component backend "$backend" \
   --build-arg "VCS_REF=$revision" --build-arg "SOURCE_REF=$release"
 stamp 'scan release runtime dependencies'
-run env CHRONICLE_TRIVY_REPORT_DIR="$trivy_reports" bash "$root/scripts/scan-selfhost-release-images.sh"
-run python3 "$root/scripts/check-runtime-images.py"
-run python3 "$root/tests/security/check-trivy-waivers.py" "$root/.trivyignore.yaml" --reports "$trivy_reports"
+image_check 'third-party runtime images' 'trivy scan' env CHRONICLE_TRIVY_REPORT_DIR="$trivy_reports" bash "$root/scripts/scan-selfhost-release-images.sh"
+image_check 'third-party runtime images' 'image checks' python3 "$root/scripts/check-runtime-images.py"
+image_check '.trivyignore.yaml' 'unused or invalid waivers' python3 "$root/tests/security/check-trivy-waivers.py" "$root/.trivyignore.yaml" --reports "$trivy_reports"
+require_image_checks
 run require_unchanged_source
 stamp 'frontend lockfile vulnerability evidence'
 run mkdir -p "$root/build/releases"
