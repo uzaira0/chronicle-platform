@@ -1,0 +1,110 @@
+id: pipeline-consumer-leaves-early-shell
+language: Bash
+severity: error
+message: This pipeline's consumer stops reading before the producer has finished writing. The producer is then killed by SIGPIPE, and under `set -o pipefail` the pipeline reports 141 for a correct answer. Read all of the input (grep PATTERN >/dev/null, sed -n 1p, sed -n 1,5p, awk with a flag instead of exit); for a producer that never ends, handle the status in the same list with PIPESTATUS and 141.
+note: |
+  On 2026-11-11 `./chronicle up` refused a healthy host with "INTERNAL_BIND=127.0.0.1 is not an
+  address on this host": host_addrs | grep -qx had matched and left, and awk died writing the rest.
+  Flagged as a later stage of a pipeline: grep/egrep/fgrep/rg with -q, --quiet, --silent, -m,
+  --max-count, -l or -L; head; sed with a q or Q command; awk with exit before any END block;
+  read, a group or subshell that reads without a loop or a cat to drain the rest, and a
+  while/until read loop that can break, return or exit.
+  Allowed: the same pipeline as the left side of `|| ...` when that list tests PIPESTATUS for 141
+  (a producer that never ends by itself: docker logs -f, tail -f, yes).
+  It applies whether or not the file sets pipefail itself, because a sourced library runs under
+  its caller's options.
+  Blind spots: a script the bash grammar cannot parse (tests/quality/test_pipe_consumers.py reads
+  those as text), a script inside a here-document or a string, a consumer reached through a
+  function or a variable, and a consumer in another language (python3 -c that reads one line).
+files:
+  - selfhost/**/*.sh
+  - selfhost/chronicle
+  - selfhost/backup-image/hooks/00-webhook
+  - scripts/**/*.sh
+  - tests/**/*.sh
+  - docker/**/*.sh
+  - k8s/**/*.sh
+  - .maestro/**/*.sh
+rule:
+  all:
+    - inside:
+        kind: pipeline
+    - follows:
+        stopBy: end
+        regex: '.'
+    - not:
+        inside:
+          kind: pipeline
+          inside:
+            kind: list
+            regex: 'PIPESTATUS[^\n]*141|141[^\n]*PIPESTATUS'
+    - any:
+        - all:
+            - kind: command
+            - has:
+                field: name
+                regex: '^(.*/)?([efz]?grep|rg)$'
+            - has:
+                kind: word
+                regex: '^(-[A-Za-z]*[qlLm][A-Za-z0-9]*|--quiet|--silent|--max-count(=.*)?|--files-with-matches|--files-without-match)$'
+        - all:
+            - kind: command
+            - has:
+                field: name
+                regex: '^(.*/)?head$'
+        - all:
+            - kind: command
+            - has:
+                field: name
+                regex: '^(.*/)?g?sed$'
+            - has:
+                not:
+                  kind: command_name
+                regex: '(^|[;{}\s''"]|[0-9$/])[qQ]\s*[0-9]*\s*($|[;}''"])'
+        - all:
+            - kind: command
+            - has:
+                field: name
+                regex: '^(.*/)?[gm]?awk$'
+            - has:
+                not:
+                  kind: command_name
+                regex: '^(?s)(?:[^E]|E[^N]|EN[^D])*\bexit\b'
+        - all:
+            - kind: command
+            - has:
+                field: name
+                regex: '^read$'
+        - all:
+            - any:
+                - kind: compound_statement
+                - kind: subshell
+            - has:
+                stopBy: end
+                kind: command
+                has:
+                  field: name
+                  regex: '^read$'
+            - not:
+                has:
+                  stopBy: end
+                  any:
+                    - kind: while_statement
+                    - kind: command
+                      has:
+                        field: name
+                        regex: '^cat$'
+        - all:
+            - kind: while_statement
+            - has:
+                stopBy: end
+                kind: command
+                has:
+                  field: name
+                  regex: '^read$'
+            - has:
+                stopBy: end
+                kind: command
+                has:
+                  field: name
+                  regex: '^(break|return|exit)$'

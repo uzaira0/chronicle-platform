@@ -386,7 +386,7 @@ require_jdk21() {
   fi
 
   local version major
-  version="$("$java_bin" -version 2>&1 | awk -F '"' '/version/ { print $2; exit }')"
+  version="$("$java_bin" -version 2>&1 | awk -F '"' '/version/ && !found { print $2; found = 1 }')"
   major="${version%%.*}"
   if [[ "$major" == "1" ]]; then
     major="$(cut -d. -f2 <<<"$version")"
@@ -604,9 +604,9 @@ extract_binary_from_tar() {
   local tmp_dir found
   tmp_dir="$(gate_tool_temp -d)"
   tar -xzf "$archive" -C "$tmp_dir"
-  found="$(find "$tmp_dir" -type f -name "$binary_name" -perm -111 | head -1)"
+  found="$(find "$tmp_dir" -type f -name "$binary_name" -perm -111 -print -quit)"
   if [[ -z "$found" ]]; then
-    found="$(find "$tmp_dir" -type f -name "$binary_name" | head -1)"
+    found="$(find "$tmp_dir" -type f -name "$binary_name" -print -quit)"
   fi
   if [[ -z "$found" ]]; then
     printf '[local-ci] could not find %s in %s\n' "$binary_name" "$archive" >&2
@@ -626,9 +626,9 @@ extract_binary_from_zip() {
   require_cmd unzip
   tmp_dir="$(gate_tool_temp -d)"
   unzip -q "$archive" -d "$tmp_dir"
-  found="$(find "$tmp_dir" -type f -name "$binary_name" -perm -111 | head -1)"
+  found="$(find "$tmp_dir" -type f -name "$binary_name" -perm -111 -print -quit)"
   if [[ -z "$found" ]]; then
-    found="$(find "$tmp_dir" -type f -name "$binary_name" | head -1)"
+    found="$(find "$tmp_dir" -type f -name "$binary_name" -print -quit)"
   fi
   if [[ -z "$found" ]]; then
     printf '[local-ci] could not find %s in %s\n' "$binary_name" "$archive" >&2
@@ -905,7 +905,7 @@ require_semgrep_pin() {
   local pinned active
   pinned="$(yq -r '.semgrep' "$ROOT_DIR/toolchain-manifest.yaml")"
   require_cmd semgrep "install Semgrep $pinned: uv tool install semgrep==$pinned"
-  active="$(semgrep --version 2>/dev/null | head -1)"
+  active="$(semgrep --version 2>/dev/null | sed -n 1p)"
   if [[ "$active" != "$pinned" ]]; then
     printf '[local-ci] semgrep %s is not the manifest pin %s\n' "${active:-unknown}" "$pinned" >&2
     return 1
@@ -929,6 +929,10 @@ job_engineering() {
       --globs '!tests/security/semgrep-tests/**' --globs '!chronicle-ios/**' . &&
       ast-grep test --config sgconfig.yml --skip-snapshot-tests) || return
   done
+  # The scan above leaves out docker/ and k8s/ and never enters a hidden directory. Their scripts
+  # run under pipefail too, so the pipeline rule reads them here.
+  (cd "$ROOT_DIR" && ast-grep scan --config sgconfig.yml \
+    --filter '^pipeline-consumer-leaves-early-shell$' docker k8s .maestro) || return
   semgrep --test --config "$ROOT_DIR/tests/security/semgrep" "$ROOT_DIR/tests/security/semgrep-tests" || return
   semgrep --error --metrics off --disable-version-check --no-git-ignore --timeout 0 \
     --config "$ROOT_DIR/tests/security/semgrep" \
@@ -1784,7 +1788,7 @@ job_ios_verify() {
     # Pick any available iPhone simulator: runner images and dev machines ship
     # different device sets, and a hard-coded name rots (e.g. "iPhone 17e").
     local sim_name
-    sim_name="$(xcrun simctl list devices available | sed -n 's/^ *\(iPhone[^(]*\)(.*/\1/p' | sed 's/ *$//' | head -1)"
+    sim_name="$(xcrun simctl list devices available | sed -n 's/^ *\(iPhone[^(]*\)(.*/\1/p' | sed 's/ *$//' | sed -n 1p)"
     if [[ -z "$sim_name" ]]; then
       printf '[local-ci] no available iPhone simulator found\n' >&2
       return 1

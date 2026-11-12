@@ -323,7 +323,7 @@ elif grep -Fq '/chronicle/v3/study' <<<"$backend_service"; then
 else
   ok "backend healthcheck uses dependency-aware readiness"
 fi
-if ! grep -A2 -F 'backend:' <<<"$web_service" | grep -Fq 'condition: service_healthy'; then
+if ! grep -A2 -F 'backend:' <<<"$web_service" | grep -F 'condition: service_healthy' >/dev/null; then
   fail "web starts before the backend is dependency-ready"
 else
   ok "web waits for dependency-aware backend health"
@@ -336,22 +336,21 @@ if ! grep -Fq 'window.__CHRONICLE_RUNTIME_CONFIG__' caddy/snippets.caddy ||
   fail "self-host dashboard does not use the canonical participant-facing public origin"
 elif ! grep -Fq 'CHRONICLE_ALLOW_PRIVATE_ENROLLMENT_ORIGIN: "true"' overlays/mode-local-https.yml; then
   fail "local HTTPS trial does not explicitly permit its LAN enrollment origin"
-elif grep -R -F -l \
+elif grep -R -F -q \
   'CHRONICLE_ALLOW_PRIVATE_ENROLLMENT_ORIGIN: "true"' \
   overlays \
-  --exclude='mode-local-https.yml' \
-  | grep -q .; then
+  --exclude='mode-local-https.yml'; then
   fail "a production-facing deployment mode enables private enrollment origins"
 else
   ok "self-host dashboard uses the canonical participant-facing public origin"
 fi
 
 # Invitation links carry the CA root only where the bundle's own CA signs the certificate.
-if ! sed '/^[[:space:]]*#/d' caddy/snippets.caddy | grep -Fq 'localCa: {$CHRONICLE_LOCAL_CA:false}' ||
+if ! sed '/^[[:space:]]*#/d' caddy/snippets.caddy | grep -F 'localCa: {$CHRONICLE_LOCAL_CA:false}' >/dev/null ||
    ! grep -Eq '^[[:space:]]+CHRONICLE_LOCAL_CA: "true"[[:space:]]*(#.*)?$' overlays/mode-local-https.yml ||
-   ! awk '/^:8081 \{/,/^}/' Caddyfile.split.local | grep -Eq '^[[:space:]]*import local_ca_download[[:space:]]*(#.*)?$'; then
+   ! awk '/^:8081 \{/,/^}/' Caddyfile.split.local | grep -E '^[[:space:]]*import local_ca_download[[:space:]]*(#.*)?$' >/dev/null; then
   fail "local HTTPS trial dashboard cannot put its CA root in invitation links"
-elif grep -R -E -l "^[[:space:]]+CHRONICLE_LOCAL_CA: [\"']?true[\"']?[[:space:]]*(#.*)?$" overlays --exclude='mode-local-https.yml' | grep -q .; then
+elif grep -R -E -q "^[[:space:]]+CHRONICLE_LOCAL_CA: [\"']?true[\"']?[[:space:]]*(#.*)?$" overlays --exclude='mode-local-https.yml'; then
   fail "a deployment mode without the bundle's private CA puts a CA root in invitation links"
 else
   ok "only the local HTTPS trial puts its CA root in invitation links"
@@ -583,7 +582,7 @@ done
 # 10. The base compose file must NOT publish ports or mount a Caddyfile of its own. If it
 #     did, a mode overlay could only add to it, so a stack composed with the internal mode
 #     would still publish the public-mode listener alongside it.
-if awk '/^  (web|web-forward):/{f=1;next} /^  [a-z]/{f=0} f' docker-compose.yml | grep -qE '^\s+(ports:|- \./Caddyfile)'; then
+if awk '/^  (web|web-forward):/{f=1;next} /^  [a-z]/{f=0} f' docker-compose.yml | grep -E '^\s+(ports:|- \./Caddyfile)' >/dev/null; then
   fail "docker-compose.yml publishes ports on 'web-forward' or 'web', or mounts a Caddyfile on 'web' — that belongs to the mode overlay, and cannot be overridden away by one"
 else
   ok "base compose leaves ports and the Caddyfile entirely to the mode overlay"
@@ -678,7 +677,7 @@ else
   fail "readability guard does not prune upgrade-receipts/ (check/up fail after every upgrade)"
 fi
 # 4. config-guard writes configuration.prom into the root-owned textfile volume.
-if awk '/^  config-guard:/{f=1;next} f&&/^  [a-z]/{f=0} f' overlays/monitoring.yml | grep -q 'user: "0:0"'; then
+if awk '/^  config-guard:/{f=1;next} f&&/^  [a-z]/{f=0} f' overlays/monitoring.yml | grep 'user: "0:0"' >/dev/null; then
   ok "monitoring overlay runs config-guard as root for the textfile volume"
 else
   fail "monitoring overlay config-guard is not user 0:0; configuration.prom can never be written"

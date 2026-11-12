@@ -14,7 +14,7 @@ STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/chronicle/v3/study" \
   ${JWT_TOKEN:+-H "Authorization: Bearer $JWT_TOKEN"} \
   --connect-timeout 5 --max-time 10 2>/dev/null || echo "000")
 
-if echo "$STATUS" | grep -qE "^(200|401|403)$"; then
+if echo "$STATUS" | grep -E "^(200|401|403)$" >/dev/null; then
   echo "OK (HTTP $STATUS)"
 else
   echo "FAIL (HTTP $STATUS -- backend unreachable)"

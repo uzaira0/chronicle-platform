@@ -471,7 +471,7 @@ postgres_query() {
 }
 
 postgres_can_auth() {
-  postgres_query "$1" 'SELECT 1;' "${POSTGRES_ROTATION_ROLE:-${POSTGRES_USER:-chronicle}}" 2>/dev/null | grep -qx 1
+  postgres_query "$1" 'SELECT 1;' "${POSTGRES_ROTATION_ROLE:-${POSTGRES_USER:-chronicle}}" 2>/dev/null | grep -x 1 >/dev/null
 }
 
 postgres_alter_password() {

@@ -61,7 +61,7 @@ cleanup() {
 trap cleanup EXIT
 # Most checks are bare conditions under errexit; name the one that failed.
 trap '[[ $- != *e* ]] || echo "selfhost-topology: line $LINENO failed: $BASH_COMMAND" >&2' ERR
-TOPOLOGY_CLIENT_IMAGE=${SELFHOST_SMOKE_BACKUP_IMAGE:-$(sed -n 's/^    image: //p' "$STACK/overlays/backups.yml" | head -1)}
+TOPOLOGY_CLIENT_IMAGE=${SELFHOST_SMOKE_BACKUP_IMAGE:-$(sed -n 's/^    image: //p' "$STACK/overlays/backups.yml" | sed -n 1p)}
 TOPOLOGY_LB_IMAGE=$(sed -n '/image: tecnativa\/docker-socket-proxy/s/^    image: //p' "$STACK/overlays/monitoring.yml")
 [[ "$TOPOLOGY_LB_IMAGE" == *@sha256:* ]]
 export TOPOLOGY_CLIENT_IMAGE TOPOLOGY_LB_IMAGE

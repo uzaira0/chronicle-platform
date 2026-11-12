@@ -31,7 +31,7 @@ run_check() {
 
 env_value() {
   local key="$1"
-  sed -n "s/^${key}=//p" .env | head -n 1 | tr -d "'\""
+  sed -n "s/^${key}=//p" .env | sed -n 1p | tr -d "'\""
 }
 
 cd "$SELFHOST_DIR"
@@ -62,7 +62,7 @@ backup_dir="$state_dir/backups"
 if [[ ! -d "$backup_dir" ]]; then
   fail "backup directory is absent"
 elif ! find "$backup_dir" -type f \( -name '*.sql.gz' -o -name '*.manifest' \) \
-    -mtime -2 -print -quit 2>/dev/null | grep -q .; then
+    -mtime -2 -print -quit 2>/dev/null | grep . >/dev/null; then
   fail "no backup artifact newer than 48 hours was found"
 else
   pass "a backup artifact newer than 48 hours exists"

@@ -111,7 +111,7 @@ echo ""
 
 # Step 1: Verify container is running
 echo "1. Checking container..."
-if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
     echo -e "${RED}ABORT: Container $CONTAINER is not running${NC}"
     exit 1
 fi
@@ -143,7 +143,7 @@ fi
 # Step 2: Verify pg_tde is in shared_preload_libraries
 echo "2. Checking shared_preload_libraries..."
 SPL=$(run_psql "SHOW shared_preload_libraries;")
-if ! echo "$SPL" | grep -q "pg_tde"; then
+if ! echo "$SPL" | grep "pg_tde" >/dev/null; then
     echo -e "${RED}ABORT: pg_tde is NOT in shared_preload_libraries${NC}"
     echo "   Current value: $SPL"
     echo "   Add to docker-compose.traefik.yml postgres command:"
@@ -215,7 +215,7 @@ echo "6. Setting principal key..."
 # pg_tde_set_key is idempotent.
 if CREATE_OUT=$(run_psql_verbose "SELECT pg_tde_create_key_using_database_key_provider('${KEY_NAME}', '${PROVIDER_NAME}');"); then
     echo -e "   ${GREEN}Principal key created${NC}"
-elif echo "$CREATE_OUT" | grep -qi "already exists"; then
+elif echo "$CREATE_OUT" | grep -i "already exists" >/dev/null; then
     echo -e "   ${GREEN}Principal key '${KEY_NAME}' already exists${NC}"
 else
     echo -e "   ${RED}Failed to create principal key:${NC}"
@@ -264,7 +264,7 @@ for TABLE in "${SENSITIVE_TABLES[@]}"; do
 
     # Convert table
     OUTPUT=$(run_psql_verbose "ALTER TABLE public.\"$TABLE\" SET ACCESS METHOD tde_heap;" 2>&1)
-    if echo "$OUTPUT" | grep -q "ALTER TABLE"; then
+    if echo "$OUTPUT" | grep "ALTER TABLE" >/dev/null; then
         echo -e "   ${GREEN}DONE${NC} $TABLE (heap -> tde_heap)"
         CONVERTED=$((CONVERTED + 1))
     else

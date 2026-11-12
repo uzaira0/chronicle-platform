@@ -669,7 +669,7 @@ if grep -Eq 'healthcheck:|livenessProbe:|readinessProbe:|startupProbe:' \
     "$ROOT_DIR/docker/docker-compose.production.yml" \
     "$ROOT_DIR/docker/docker-compose.traefik.yml" \
     "$ROOT_DIR/k8s/base/backend.yaml" |
-    grep -Eq '/prometheus/'; then
+    grep -E '/prometheus/' >/dev/null; then
   fail "Backend health probes must not depend on the authenticated metrics endpoint"
 else
   pass "Backend health probes are independent of authenticated metrics"

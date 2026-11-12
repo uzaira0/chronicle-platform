@@ -112,7 +112,7 @@ fi
 log "docker is available"
 
 POSTGRES_RUNNING=false
-if docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+if docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
     POSTGRES_RUNNING=true
     log "PostgreSQL container '$CONTAINER' is running"
 else
@@ -158,7 +158,7 @@ section "Test 2: Tampered Backup Detection"
 if [ "$POSTGRES_RUNNING" = false ] || [ "$KEY_AVAILABLE" = false ]; then
     skip "Test 2: prerequisites not met (container or key missing)"
 else
-    LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+    LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
     if [ -z "$LATEST_BACKUP" ]; then
         skip "Test 2: no backup found to tamper with"
     else
@@ -223,7 +223,7 @@ fi
 # ===========================================================================
 section "Test 3: Wrong Encryption Key"
 
-LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
 if [ -z "$LATEST_BACKUP" ]; then
     skip "Test 3: no backup found"
 elif [ ! -f "$LATEST_BACKUP/database.dump.enc" ]; then
@@ -238,7 +238,7 @@ else
 
     if decrypt_backup_file "$LATEST_BACKUP/database.dump.enc" "$DECRYPT_TMP" "$WRONG_KEY_FILE"; then
         # OpenSSL may exit 0 but produce garbage -- validate content
-        if [ -s "$DECRYPT_TMP" ] && file "$DECRYPT_TMP" 2>/dev/null | grep -qi "postgresql\|data\|archive"; then
+        if [ -s "$DECRYPT_TMP" ] && file "$DECRYPT_TMP" 2>/dev/null | grep -i "postgresql\|data\|archive" >/dev/null; then
             fail "Test 3: Decryption with wrong key produced valid-looking output"
         else
             pass "Test 3: Wrong key produces unreadable output (garbage data)"
@@ -260,7 +260,7 @@ elif [ "$POSTGRES_RUNNING" = false ]; then
 elif [ "$KEY_AVAILABLE" = false ]; then
     skip "Test 4: encryption key not available"
 else
-    LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+    LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
     if [ -z "$LATEST_BACKUP" ] || [ ! -f "$LATEST_BACKUP/database.dump.enc" ]; then
         skip "Test 4: no valid backup found"
     else
@@ -378,7 +378,7 @@ fi
 # ===========================================================================
 section "Test 5: TDE Keyring Backup Check"
 
-LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
 if [ -z "$LATEST_BACKUP" ]; then
     skip "Test 5: no backup found"
 else
@@ -419,7 +419,7 @@ fi
 # ===========================================================================
 section "Test 6: Backup Recency"
 
-LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
 if [ -z "$LATEST_BACKUP" ]; then
     skip "Test 6: no backups found"
 else
@@ -483,7 +483,7 @@ fi
 # ===========================================================================
 section "Test 8: Production Recoverability Artifact Set"
 
-LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+LATEST_BACKUP=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
 if [ -z "$LATEST_BACKUP" ]; then
     skip "Test 8: no backups found"
 elif [ ! -f "$LATEST_BACKUP/manifest.json" ]; then

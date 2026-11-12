@@ -47,7 +47,7 @@ check_jdk() {
     return
   fi
 
-  version="$("$java_bin" -version 2>&1 | awk -F '"' '/version/ { print $2; exit }')"
+  version="$("$java_bin" -version 2>&1 | awk -F '"' '/version/ && !found { print $2; found = 1 }')"
   major="${version%%.*}"
   if [[ "$major" == "1" ]]; then
     major="$(cut -d. -f2 <<<"$version")"

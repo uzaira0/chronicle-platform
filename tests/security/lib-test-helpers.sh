@@ -77,7 +77,7 @@ run_sql() {
 # --- CrowdSec whitelist ---
 
 setup_crowdsec_whitelist() {
-    if ! docker ps --filter name=chronicle-crowdsec --format '{{.Names}}' 2>/dev/null | grep -q chronicle-crowdsec; then
+    if ! docker ps --filter name=chronicle-crowdsec --format '{{.Names}}' 2>/dev/null | grep chronicle-crowdsec >/dev/null; then
         echo "[INFO] CrowdSec not running — skipping whitelist setup"
         return 0
     fi

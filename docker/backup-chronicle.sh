@@ -70,7 +70,7 @@ check_prereqs() {
         exit 1
     fi
 
-    if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+    if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
         log_err "PostgreSQL container '$CONTAINER' is not running"
         exit 1
     fi
@@ -515,7 +515,7 @@ do_full_backup() {
     # 4. Audit logs (from backend container, if running)
     log "  Backing up audit logs..."
     AUDIT_BACKED_UP=false
-    if docker inspect "$BACKEND_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+    if docker inspect "$BACKEND_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
         AUDIT_TMP=$(mktemp); AUDIT_ERR=$(mktemp); TEMP_FILES+=("$AUDIT_TMP" "$AUDIT_ERR")
         if docker exec "$BACKEND_CONTAINER" tar -czf - -C /var/log chronicle > "$AUDIT_TMP" 2>"$AUDIT_ERR"; then
             if [ -s "$AUDIT_TMP" ]; then
@@ -562,7 +562,7 @@ do_verify() {
     check_prereqs
 
     # Find latest backup
-    LATEST=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+    LATEST=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
     if [ -z "$LATEST" ]; then
         log_err "No backups found in ${BACKUP_ROOT}"
         exit 1
@@ -783,13 +783,13 @@ do_prune() {
             TAGS=$(grep -o '"retention_tags"[[:space:]]*:[[:space:]]*\[[^]]*\]' "$MANIFEST" 2>/dev/null || echo "")
 
             # Check monthly tag
-            if echo "$TAGS" | grep -q "monthly" && [ "$MONTHLY_KEPT" -lt "$KEEP_MONTHLY" ]; then
+            if echo "$TAGS" | grep "monthly" >/dev/null && [ "$MONTHLY_KEPT" -lt "$KEEP_MONTHLY" ]; then
                 KEEP=true
                 MONTHLY_KEPT=$((MONTHLY_KEPT + 1))
             fi
 
             # Check weekly tag
-            if echo "$TAGS" | grep -q "weekly" && [ "$WEEKLY_KEPT" -lt "$KEEP_WEEKLY" ]; then
+            if echo "$TAGS" | grep "weekly" >/dev/null && [ "$WEEKLY_KEPT" -lt "$KEEP_WEEKLY" ]; then
                 KEEP=true
                 WEEKLY_KEPT=$((WEEKLY_KEPT + 1))
             fi

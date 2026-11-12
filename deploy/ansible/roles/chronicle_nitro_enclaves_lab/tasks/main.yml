@@ -252,7 +252,7 @@
     - name: Reset Nitro lab CPU and hugepage allocations after disposable run
       ansible.builtin.shell: |
         set -euo pipefail
-        if lsmod | grep -q '^nitro_enclaves'; then
+        if lsmod | grep '^nitro_enclaves' >/dev/null; then
           modprobe -r nitro_enclaves
           modprobe nitro_enclaves
         fi

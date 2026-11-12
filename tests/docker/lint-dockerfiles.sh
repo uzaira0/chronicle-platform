@@ -30,7 +30,7 @@ if ! command -v hadolint &> /dev/null; then
     fi
 
     # Check for missing cleanup
-    if grep "apt-get" "$df" | grep -v "rm -rf" 2>/dev/null | head -1; then
+    if grep "apt-get" "$df" | grep -v "rm -rf" 2>/dev/null | sed -n 1p; then
       echo "WARN: May be missing apt cache cleanup"
     fi
 

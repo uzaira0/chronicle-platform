@@ -15,7 +15,7 @@ for _ in $(seq 1 60); do
   postgres_cid=$(podman ps -a \
     --filter label=io.podman.compose.project=chronicle-next \
     --filter label=io.podman.compose.service=postgres \
-    --format '{{.ID}}' | head -n 1)
+    --format '{{.ID}}' | sed -n 1p)
   status=$(podman inspect --format '{{.State.Health.Status}}' "$postgres_cid" 2>/dev/null || true)
   [[ "$status" == healthy ]] && break
   sleep 2

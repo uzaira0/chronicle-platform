@@ -90,7 +90,7 @@ require_private_file() {
 env_or_file() {
   local key="$1" default="${2:-}" val=""
   if [[ -f "$ENV_FILE" ]]; then
-    val="$(grep -E "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    val="$(grep -E "^${key}=" "$ENV_FILE" | sed -n 1p | cut -d= -f2- || true)"
   fi
   if [[ -z "$val" ]]; then
     case "$key" in

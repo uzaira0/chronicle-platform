@@ -209,7 +209,7 @@ assert_custody() {
   if [[ -d "${SELFHOST_DIR}/.chronicle-secret-rotation" ]]; then
     fail "successful rotation left its transaction directory"
   fi
-  receipt="$(find "${SELFHOST_DIR}/operator-receipts/secret-rotations" -type f -name '*.json' | head -1)"
+  receipt="$(find "${SELFHOST_DIR}/operator-receipts/secret-rotations" -type f -name '*.json' -print -quit)"
   [[ -n "$receipt" && -s "$receipt" ]] || fail "successful rotation emitted no receipt"
   /bin/chmod 0600 "$receipt" 2>/dev/null || true
   for secret in "$OLD_POSTGRES" "$OLD_POSTGRES_APP" "$OLD_JWT" "$OLD_METRICS" \
@@ -535,7 +535,7 @@ run_rotation false --yes tde
   || fail "TDE rotation did not activate a new principal key"
 backup_count="$(find "${SELFHOST_DIR}/backups/secret-rotation" -type f -name '*.sql.gz' | wc -l | tr -d ' ')"
 [[ "$backup_count" == 1 ]] || fail "TDE rotation did not retain exactly one fresh SQL backup"
-gzip -t "$(find "${SELFHOST_DIR}/backups/secret-rotation" -type f -name '*.sql.gz' | head -1)" \
+gzip -t "$(find "${SELFHOST_DIR}/backups/secret-rotation" -type f -name '*.sql.gz' -print -quit)" \
   || fail "TDE pre-rotation backup is not a valid gzip stream"
 [[ -s "$KEYRING_BACKUP_FILE" ]] || fail "TDE rotation did not refresh the keyring backup"
 assert_custody "$OUTPUT" "$ARGS_LOG"
@@ -711,7 +711,7 @@ backup_failure_status=$?
 set -e
 unset CASE_PG_DUMP_FAIL
 [[ "$backup_failure_status" -ne 0 ]] || fail "failed TDE backup unexpectedly allowed rotation"
-if find "${SELFHOST_DIR}/backups/secret-rotation" -type f -name '*.partial' -print -quit 2>/dev/null | grep -q .; then
+if find "${SELFHOST_DIR}/backups/secret-rotation" -type f -name '*.partial' -print -quit 2>/dev/null | grep . >/dev/null; then
   fail "failed TDE pre-rotation backup left a partial file"
 fi
 [[ "$(cat "$TDE_STATE_FILE")" == 'chronicle_key|chronicle_keyring' ]] \

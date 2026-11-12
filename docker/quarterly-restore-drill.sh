@@ -94,14 +94,14 @@ if [ ! -f "$KEY_FILE" ]; then
     exit 1
 fi
 
-if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
     log_err "PostgreSQL container '$CONTAINER' is not running"
     write_metrics 0 0 0 0
     exit 1
 fi
 
 # Find latest backup
-LATEST=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | head -1)
+LATEST=$(ls -d "${BACKUP_ROOT}"/[0-9]*_[0-9]* 2>/dev/null | sort -r | sed -n 1p)
 if [ -z "$LATEST" ]; then
     log_err "No backups found in ${BACKUP_ROOT}"
     write_metrics 0 0 0 0

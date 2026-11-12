@@ -760,7 +760,7 @@ verify_with_dashboard_password >/dev/null
 inode_full_recovery=pass
 
 printf 'Checking dashboard response headers on the internal listener.\n'
-dashboard_user="$(sed -n 's/^DASHBOARD_USER=//p' .env | head -1)"
+dashboard_user="$(sed -n 's/^DASHBOARD_USER=//p' .env | sed -n 1p)"
 curl_internal() { # curl_internal <path> [curl args...]
   local path="$1"; shift
   # A 2026.10.3 install keeps its own internal certificate and has no internal-ca.crt.
@@ -769,10 +769,10 @@ curl_internal() { # curl_internal <path> [curl args...]
 shell_headers="$(curl_internal /chronicle/ -u "${dashboard_user}:${SMOKE_PASSWORD}" -D - -o /dev/null)"
 grep -qi "^content-security-policy: default-src 'self'" <<<"$shell_headers" || fail "dashboard shell lacks a CSP"
 grep -qi '^cache-control: no-cache' <<<"$shell_headers" || fail "dashboard shell is cacheable"
-chunk_path="$(curl_internal /chronicle/ -u "${dashboard_user}:${SMOKE_PASSWORD}" | grep -oE '/chronicle/chunk-[a-z0-9]+\.js' | head -1)"
+chunk_path="$(curl_internal /chronicle/ -u "${dashboard_user}:${SMOKE_PASSWORD}" | grep -oE '/chronicle/chunk-[a-z0-9]+\.js' | sed -n 1p)"
 [[ -n "$chunk_path" ]] || fail "dashboard shell references no hashed chunk"
 curl_internal "$chunk_path" -u "${dashboard_user}:${SMOKE_PASSWORD}" -D - -o /dev/null |
-  grep -qi '^cache-control: public, max-age=31536000, immutable' || fail "hashed chunk is not immutable"
+  grep -i '^cache-control: public, max-age=31536000, immutable' >/dev/null || fail "hashed chunk is not immutable"
 
 printf 'Proving API-created study and researcher permissions survive backend restart.\n'
 printf '%s\n' "$SMOKE_PASSWORD" | python3 "$ROOT_DIR/tests/deployment/selfhost-client.py" \

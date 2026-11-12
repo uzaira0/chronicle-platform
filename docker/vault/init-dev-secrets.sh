@@ -18,7 +18,7 @@ echo "=== Chronicle Vault Dev Init ==="
 echo "  Vault address: ${VAULT_ADDR}"
 
 # ── 1. Enable KV v2 at secret/ (dev mode enables it by default, but be explicit) ─
-vault secrets list | grep -q "^secret/" && echo "KV v2 already enabled at secret/" || \
+vault secrets list | grep "^secret/" >/dev/null && echo "KV v2 already enabled at secret/" || \
     vault secrets enable -path=secret -version=2 kv
 
 # ── 2. Seed development secrets ─────────────────────────────────────────────
@@ -71,7 +71,7 @@ vault policy write chronicle-server /vault/policies/chronicle-server-policy.hcl
 # ── 4. Enable AppRole auth and create role ────────────────────────────────────
 
 echo "Enabling AppRole auth..."
-vault auth list | grep -q "^approle/" && echo "AppRole already enabled" || \
+vault auth list | grep "^approle/" >/dev/null && echo "AppRole already enabled" || \
     vault auth enable approle
 
 echo "Creating chronicle-server AppRole..."

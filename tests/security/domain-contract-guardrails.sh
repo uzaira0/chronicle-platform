@@ -340,7 +340,7 @@ if [[ -f "$ANDROID_PULL_SCHEDULE" && -f "$WEB_STUDY_CONSTANTS" ]]; then
   grep -Eq 'INTERVAL_GATED_MODULES[^=]*=[[:space:]]*CollectionCadenceModules\.intervalGated' "$ANDROID_PULL_SCHEDULE" ||
     fail "Android INTERVAL_GATED_MODULES no longer reads CollectionCadenceModules.intervalGated"
   tr -d '[:space:]' < "$WEB_STUDY_CONSTANTS" |
-    grep -Eq 'INTERVAL_CONFIGURABLE_MODULES[^=]*=newSet<[^>]*>\(INTERVAL_GATED_COLLECTION_MODULE_IDS,?\)' ||
+    grep -E 'INTERVAL_CONFIGURABLE_MODULES[^=]*=newSet<[^>]*>\(INTERVAL_GATED_COLLECTION_MODULE_IDS,?\)' >/dev/null ||
     fail "web INTERVAL_CONFIGURABLE_MODULES no longer reads INTERVAL_GATED_COLLECTION_MODULE_IDS"
   pass "Android and web interval-gated modules both read the chronicle-models list"
 else

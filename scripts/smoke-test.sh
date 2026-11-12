@@ -79,7 +79,7 @@ check_http() {
 
   # Check body substring if provided
   local body_ok=true
-  if [[ -n "$body_substr" ]] && ! echo "$body" | grep -qF "$body_substr"; then
+  if [[ -n "$body_substr" ]] && ! echo "$body" | grep -F "$body_substr" >/dev/null; then
     body_ok=false
   fi
 

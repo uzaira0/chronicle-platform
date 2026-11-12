@@ -297,7 +297,7 @@ DROP_RESULT=$(run_sql "
 " 2>&1)
 run_sql "RESET ROLE; DROP TABLE IF EXISTS __security_test_drop;" &>/dev/null || true
 
-if echo "$DROP_RESULT" | grep -q "dropped"; then
+if echo "$DROP_RESULT" | grep "dropped" >/dev/null; then
   fail "Request role '$APP_ROLE' can DROP tables owned by '$DB_USER'"
 else
   pass "Request role '$APP_ROLE' cannot DROP tables owned by '$DB_USER'"
@@ -473,7 +473,7 @@ fi
 if [ "$PG_AUDIT" = "1" ]; then
   pass "pgaudit extension loaded"
 else
-  if echo "$PRELOAD" | grep -qi "pgaudit"; then
+  if echo "$PRELOAD" | grep -i "pgaudit" >/dev/null; then
     pass "pgaudit in shared_preload_libraries (not yet CREATE EXTENSION'd)"
   else
     skip "pgaudit not configured (optional audit extension)"
@@ -481,7 +481,7 @@ else
 fi
 
 # 6c. pg_tde in shared_preload_libraries
-if echo "$PRELOAD" | grep -qi "pg_tde"; then
+if echo "$PRELOAD" | grep -i "pg_tde" >/dev/null; then
   pass "pg_tde in shared_preload_libraries"
 else
   fail "pg_tde NOT in shared_preload_libraries"

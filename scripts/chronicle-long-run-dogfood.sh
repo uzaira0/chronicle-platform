@@ -104,7 +104,7 @@ if [[ -z "$ADB_BIN" ]]; then
 fi
 [[ -n "$ADB_BIN" ]] || { echo "adb was not found. Set ADB=/path/to/adb." >&2; exit 1; }
 if [[ -z "$SERIAL" ]]; then
-  SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
+  SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" && !found {print $1; found = 1}')"
 fi
 [[ -n "$SERIAL" ]] || { echo "No adb device found. Pass --serial." >&2; exit 1; }
 

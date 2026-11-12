@@ -9,7 +9,7 @@ apk="$(find "$AMAZON_APK_DIR" -name '*.apk' -print -quit)"
   echo "Amazon APK was not downloaded" >&2
   exit 1
 }
-if adb shell pm list packages | grep -q 'com.google.android.gms'; then
+if adb shell pm list packages | grep 'com.google.android.gms' >/dev/null; then
   echo "AOSP image unexpectedly contains Google Play Services" >&2
   exit 1
 fi

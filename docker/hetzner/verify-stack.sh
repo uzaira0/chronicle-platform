@@ -105,7 +105,7 @@ done
 proxy_curl=(curl --silent --show-error --fail --http1.1 \
   --haproxy-protocol --resolve "$domain:$bind_port:127.0.0.1")
 proxy_base_url="http://$domain:$bind_port"
-"${proxy_curl[@]}" "$proxy_base_url/health" | grep -q '^OK$'
+"${proxy_curl[@]}" "$proxy_base_url/health" | grep '^OK$' >/dev/null
 
 for forbidden in / /chronicle /prometheus/ /chronicle/v3/auth /chronicle/api/web/; do
   code=$(curl --silent --output /dev/null --write-out '%{http_code}' --http1.1 \

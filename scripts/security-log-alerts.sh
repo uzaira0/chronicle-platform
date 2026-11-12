@@ -267,7 +267,7 @@ for mount in /home /; do
 done
 
 # ── 8. encrypted-backup freshness ─────────────────────────────────────────
-newest=$(ls -t "$BACKUP_DIR" 2>/dev/null | head -1)
+newest=$(ls -t "$BACKUP_DIR" 2>/dev/null | sed -n 1p)
 if [ -z "$newest" ]; then
   alert backup-missing CRITICAL "no backups found under $BACKUP_DIR"
 else

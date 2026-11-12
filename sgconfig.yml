@@ -1,6 +1,7 @@
 languageGlobs:
   Bash:
     - chronicle
+    - 00-webhook
 ruleDirs:
   - tests/security/ast-grep
 testConfigs:

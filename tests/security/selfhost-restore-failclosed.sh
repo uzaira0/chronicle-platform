@@ -143,14 +143,14 @@ run_failure_case() {
   # ./chronicle restore already pinned this file; a second dump-sized copy only costs free space.
   grep -Fq "ok   ${restore_file} passes its gzip integrity check" "$output_file" ||
     fail "${case_name}: restore.sh did not validate the pinned input in place"
-  if /usr/bin/find "$backups_dir" -name '.reviewed-restore.*' -print -quit | /usr/bin/grep -q .; then
+  if /usr/bin/find "$backups_dir" -name '.reviewed-restore.*' -print -quit | /usr/bin/grep . >/dev/null; then
     fail "${case_name}: restore.sh left a second copy of the pinned input"
   fi
   [[ -f "$pg_dump_marker" ]] || fail "${case_name}: pg_dump failure fixture was not exercised"
   [[ ! -e "$psql_marker" ]] || fail "${case_name}: destructive psql path ran after safety dump failure"
   grep -Fq "FAIL unable to create pre-restore safety dump; refusing to drop the existing schema" "$output_file" ||
     fail "${case_name}: operator output did not explain the fail-closed stop"
-  if /usr/bin/find "$backups_dir" -name 'pre-restore-*.sql.gz' -type f -print -quit | /usr/bin/grep -q .; then
+  if /usr/bin/find "$backups_dir" -name 'pre-restore-*.sql.gz' -type f -print -quit | /usr/bin/grep . >/dev/null; then
     fail "${case_name}: partial safety dump was not removed"
   fi
   if /usr/bin/grep -Fq "continuing" "$output_file"; then

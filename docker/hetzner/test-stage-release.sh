@@ -71,7 +71,7 @@ if stage_release "$bad_release" "$base" "$work/staged/cbe4557-a1a4572-hzn6" >/de
   exit 1
 fi
 
-if find "$work/staged" -maxdepth 1 -name '*.partial.*' -print -quit | grep -q .; then
+if find "$work/staged" -maxdepth 1 -name '*.partial.*' -print -quit | grep . >/dev/null; then
   echo "failed staging left a partial directory" >&2
   exit 1
 fi

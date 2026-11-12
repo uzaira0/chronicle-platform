@@ -33,7 +33,7 @@ warn() { echo -e "\033[1;35m[WARN]\033[0m $*"; WARN=$((WARN + 1)); }
 # =============================================================================
 log "Pre-check: verifying chronicle-vault container is running"
 
-if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^chronicle-vault$'; then
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep '^chronicle-vault$' >/dev/null; then
   skip "chronicle-vault container is not running — skipping all Vault tests"
   echo ""
   echo "=============================================="
@@ -159,7 +159,7 @@ INVALID_TOKEN="s.INVALID_TOKEN_FOR_TESTING_$(date +%s)"
 POLICY_OUTPUT=$(docker exec -e VAULT_TOKEN="$INVALID_TOKEN" chronicle-vault \
   vault token lookup -format=json 2>&1) || true
 
-if echo "$POLICY_OUTPUT" | grep -qi "permission denied\|403\|bad token\|missing client token"; then
+if echo "$POLICY_OUTPUT" | grep -i "permission denied\|403\|bad token\|missing client token" >/dev/null; then
   pass "Test 5: invalid token correctly rejected (permission denied)"
 else
   fail "Test 5: invalid token was NOT rejected — possible misconfiguration"

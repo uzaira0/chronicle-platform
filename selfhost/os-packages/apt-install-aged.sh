@@ -90,7 +90,7 @@ for source in /etc/apt/sources.list "$lists"/*.list "$lists"/*.sources; do
   rewrite "$source" > "$target"
   [ "$mode" != resolve ] || mv "$source" "$source.live"
 done
-if grep -hE '^(URIs:|deb )' "$lists"/snapshot-* | grep -v "$snapshot_url/" | grep -q .; then
+if grep -hE '^(URIs:|deb )' "$lists"/snapshot-* | grep -v "$snapshot_url/" | grep . >/dev/null; then
   echo 'apt-install-aged: a configured source has no snapshot equivalent:' >&2
   grep -hE '^(URIs:|deb )' "$lists"/snapshot-* | grep -v "$snapshot_url/" >&2
   exit 1
@@ -140,7 +140,7 @@ if [ "$mode" = install ]; then
   done
 fi
 for pin in $pins $upgrades; do
-  if ! apt-cache madison "${pin%%=*}" | awk -F' [|] ' '{ gsub(/ /, "", $2); print $2 }' | grep -qxF "${pin#*=}"; then
+  if ! apt-cache madison "${pin%%=*}" | awk -F' [|] ' '{ gsub(/ /, "", $2); print $2 }' | grep -xF "${pin#*=}" >/dev/null; then
     echo "apt-install-aged: $pin is in neither the live mirror nor the $snapshot snapshot" >&2
     exit 1
   fi

@@ -91,9 +91,9 @@ run_restore() {
 
 assert_ordered_success() {
   local stop_line run_line up_line
-  stop_line="$(grep -n '^stop:' "$COMMAND_LOG" | head -1 | cut -d: -f1)"
-  run_line="$(grep -n '^run:' "$COMMAND_LOG" | head -1 | cut -d: -f1)"
-  up_line="$(grep -n '^up:' "$COMMAND_LOG" | head -1 | cut -d: -f1)"
+  stop_line="$(grep -n '^stop:' "$COMMAND_LOG" | sed -n 1p | cut -d: -f1)"
+  run_line="$(grep -n '^run:' "$COMMAND_LOG" | sed -n 1p | cut -d: -f1)"
+  up_line="$(grep -n '^up:' "$COMMAND_LOG" | sed -n 1p | cut -d: -f1)"
   [[ -n "$stop_line" && -n "$run_line" && -n "$up_line" ]] ||
     fail "success case omitted stop, restore, or startup"
   (( stop_line < run_line && run_line < up_line )) ||
@@ -160,7 +160,7 @@ if [[ "$RESTORE_STATUS" -ne 0 ]]; then
   /bin/cat "$OUTPUT" >&2
   fail "rollback restore step failed"
 fi
-grep '^run:' "$COMMAND_LOG" | grep -Fq ' -e CHRONICLE_RESTORE_ROLLBACK=true ' ||
+grep '^run:' "$COMMAND_LOG" | grep -F ' -e CHRONICLE_RESTORE_ROLLBACK=true ' >/dev/null ||
   fail "rollback did not ask restore.sh for the prior-binary continuity proof"
 ! grep -q '^up:' "$COMMAND_LOG" || fail "rollback restore started the application before the previous release took over"
 

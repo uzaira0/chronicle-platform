@@ -99,7 +99,7 @@ stat_field() { # <gnu-format> <bsd-format> <path>
 # range, not loopback. Docker and VPN interfaces also live in private ranges, so this is a
 # suggestion the operator confirms, never a silent choice.
 lan_addr() {
-  host_addrs | grep -vE '^127\.' | grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | head -1
+  host_addrs | grep -vE '^127\.' | grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | sed -n 1p
 }
 
 stat_mode() { stat_field '%a' '%Lp' "$1"; }
@@ -275,7 +275,7 @@ preflight_addresses() {
   # `up` time, long after the operator has stopped looking at .env.
   host_has_addr() {
     [[ "$1" == "0.0.0.0" ]] && return 0
-    host_addrs | grep -qx "$1"
+    host_addrs | grep -x "$1" >/dev/null
   }
   local -a bind_specs=("HTTP_BIND:${HTTP_BIND}" "INTERNAL_BIND:${INTERNAL_BIND}")
   [[ "${COMPOSE_FILE:-}" == *overlays/monitoring.yml* ]] && bind_specs+=("GRAFANA_BIND:${GRAFANA_BIND:-127.0.0.1}")
@@ -333,7 +333,7 @@ preflight_listeners() {
     # so it reported nothing and the failure looked like a broken deployment.
     local pattern="(^|:)(${paddr//./\.}|0\.0\.0\.0|::|\*):${pport}$"
     [[ "$paddr" == "0.0.0.0" ]] && pattern=":${pport}$"
-    local holder; holder=$(host_listening | grep -E "$pattern" | head -1)
+    local holder; holder=$(host_listening | grep -E "$pattern" | sed -n 1p)
     if [[ -n "$holder" ]]; then
       bad "${pname}=${pport} is already in use (${holder}) by another process"
       [[ "$paddr" == "0.0.0.0" ]] && \
@@ -372,7 +372,7 @@ preflight_environment() {
   local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./upgrade-receipts -o -path ./tls -o -name '.env*' -o -name .git -o -name '.chronicle-*' -o -name '.reconcile*' -o -name 'reconcile.*' -o -name __pycache__ ')' -prune )
   local unreadable permission_repair
   unreadable=$(find . "${keep_private[@]}" -o \
-    '(' '(' -type d ! -perm -0005 ')' -o '(' -type f ! -perm -0004 ')' ')' -print 2>/dev/null | sort | head -5 | tr '\n' ' ')
+    '(' '(' -type d ! -perm -0005 ')' -o '(' -type f ! -perm -0004 ')' ')' -print 2>/dev/null | sort | sed -n 1,5p | tr '\n' ' ')
   if [[ -n "$unreadable" ]]; then
     printf -v permission_repair '%q ' find . "${keep_private[@]}" -o -exec chmod a+rX '{}' +
     bad "bundle paths the container users cannot read (a private umask on extraction does this): ${unreadable}. From this selfhost directory run: ${permission_repair}"
@@ -387,7 +387,7 @@ preflight_environment() {
   if command -v timedatectl >/dev/null 2>&1; then
     ntp_synced=$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)
   elif command -v chronyc >/dev/null 2>&1; then
-    chronyc tracking 2>/dev/null | grep -q 'Leap status *: Normal' && ntp_synced=yes || ntp_synced=no
+    chronyc tracking 2>/dev/null | grep 'Leap status *: Normal' >/dev/null && ntp_synced=yes || ntp_synced=no
   fi
   case "$ntp_synced" in
     yes) ok "host clock is NTP-synchronized" ;;
@@ -548,7 +548,7 @@ free_port() {
   while ((tries < 100)); do
     pattern="(^|:)(${addr//./\\.}|0\.0\.0\.0|::|\*):${port}\$"
     [[ "$addr" == "0.0.0.0" ]] && pattern=":${port}\$"
-    if [[ "$port" != "$excluded_port" ]] && ! host_listening | grep -Eq "$pattern"; then
+    if [[ "$port" != "$excluded_port" ]] && ! host_listening | grep -E "$pattern" >/dev/null; then
       printf '%s\n' "$port"
       return 0
     fi
@@ -614,7 +614,7 @@ ask_bind_addr() { # <default> [wildcard]
         printf 'This listener may not bind every interface; give one address.\n' >&2 ;;
       127.0.0.1) printf '%s\n' "$answer"; return ;;
       *)
-        host_addrs | grep -qx "$answer" && { printf '%s\n' "$answer"; return; }
+        host_addrs | grep -x "$answer" >/dev/null && { printf '%s\n' "$answer"; return; }
         printf '%s is not an address on this host. This host has: %s\n' \
           "$answer" "$(host_addrs | tr '\n' ' ')" >&2 ;;
     esac
@@ -749,7 +749,7 @@ setup_mode_and_domain() {
     case "$domain" in
       localhost|127.*) die "$domain is only reachable from this machine; a phone cannot use it" ;;
     esac
-    host_addrs | grep -qx "$domain" ||
+    host_addrs | grep -x "$domain" >/dev/null ||
       die "$domain is not an address on this machine; choose one of: $(host_addrs | tr '\n' ' ')"
     # config-guard refuses the trial on a public address; say so here, not at `up`.
     if bash ./guard-config.sh --validate-public-host "$domain"; then
@@ -790,7 +790,7 @@ setup_mode_and_domain() {
 }
 
 setup_network_policy() {
-  initial_subnet="${keep_subnet:-$(sed -n 's/^CHRONICLE_SUBNET=//p' .env.example | head -1 | tr -d "'\"")}"
+  initial_subnet="${keep_subnet:-$(sed -n 's/^CHRONICLE_SUBNET=//p' .env.example | sed -n 1p | tr -d "'\"")}"
   gateway=$(ops_python -c 'import sys; from chronicle_ops.common import compose_gateway; print(compose_gateway(sys.argv[1]))' "$initial_subnet") || die "invalid Compose subnet"
   researcher_sources_default="$gateway/32 127.0.0.1/32 ::1/128"
   trusted_proxies_default=$(trusted_proxy_sources "$tls_mode" "$http_bind" "$gateway" "${CADDY_TRUSTED_PROXIES:-}") || trusted_proxies_default=""
@@ -876,7 +876,7 @@ setup_dashboard_access() {
 
   hash_pw() {
     local image
-    image="${CADDY_SETUP_HASH_IMAGE:-$(sed -n 's/^CADDY_IMAGE=//p' .env.example | head -1)}"
+    image="${CADDY_SETUP_HASH_IMAGE:-$(sed -n 's/^CADDY_IMAGE=//p' .env.example | sed -n 1p)}"
     case "$image" in
       ""|__CHRONICLE_*)
         # Source-checkout fallback. Published bundles use their own digest-pinned Caddy

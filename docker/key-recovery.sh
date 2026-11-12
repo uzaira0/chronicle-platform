@@ -146,7 +146,7 @@ if [ "$SHAMIR_TOOL" = "ssss" ]; then
     for f in "${SHARE_FILES[@]}"; do
         SHARES_INPUT+="$(cat "$f")"$'\n'
     done
-    RECOVERED_KEY=$(echo "$SHARES_INPUT" | head -n "$SHARES_THRESHOLD" | ssss-combine -t "$SHARES_THRESHOLD" -x -Q 2>/dev/null)
+    RECOVERED_KEY=$(echo "$SHARES_INPUT" | sed -n "1,${SHARES_THRESHOLD}p" | ssss-combine -t "$SHARES_THRESHOLD" -x -Q 2>/dev/null)
 else
     # Use only threshold number of shares
     RECOVERED_KEY=$(python_combine "$SHARES_THRESHOLD" "${SHARE_FILES[@]}")
@@ -188,7 +188,7 @@ if [ "$KEY_TYPE" = "tde" ] && [ "$WRITE_KEYRING" = true ]; then
     log "Writing TDE key to keyring..."
 
     CONTAINER="chronicle-postgres"
-    if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+    if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
         log_err "PostgreSQL container '$CONTAINER' is not running"
         log_err "Start PostgreSQL first, then re-run with --write-keyring"
         exit 1

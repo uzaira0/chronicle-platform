@@ -87,14 +87,14 @@ http_body() {
 # Check if a header exists in the response (case-insensitive)
 has_header() {
     local headers="$1" name="$2"
-    echo "$headers" | grep -qi "^${name}:" && return 0 || return 1
+    echo "$headers" | grep -i "^${name}:" >/dev/null && return 0 || return 1
 }
 
 # Get header value (case-insensitive)
 get_header() {
     local headers="$1" name="$2"
-    echo "$headers" | grep -qi "^${name}:" && \
-        echo "$headers" | grep -i "^${name}:" | head -1 | sed 's/^[^:]*: *//' | tr -d '\r' || true
+    echo "$headers" | grep -i "^${name}:" >/dev/null && \
+        echo "$headers" | grep -i "^${name}:" | sed -n 1p | sed 's/^[^:]*: *//' | tr -d '\r' || true
 }
 
 # =========================================================================
@@ -105,7 +105,7 @@ check_security_headers() {
     shift 2
     local hdrs http_code
     hdrs=$(fetch_headers "$url" "$@")
-    http_code=$(echo "$hdrs" | head -1 | grep -oE '[0-9]{3}' | head -1)
+    http_code=$(echo "$hdrs" | sed -n 1p | grep -oE '[0-9]{3}' | sed -n 1p)
 
     # Skip header checks on error responses (Spring's error handler doesn't set security headers)
     if [ -n "$http_code" ] && [ "$http_code" -ge 400 ] 2>/dev/null && [ "$http_code" != "401" ]; then
@@ -127,7 +127,7 @@ check_security_headers() {
     # X-Content-Type-Options: nosniff
     local xcto
     xcto=$(get_header "$hdrs" "X-Content-Type-Options")
-    if echo "$xcto" | grep -qi "nosniff"; then
+    if echo "$xcto" | grep -i "nosniff" >/dev/null; then
         pass "$label — X-Content-Type-Options: nosniff"
     else
         fail "$label — X-Content-Type-Options missing or not 'nosniff' (got: '$xcto')"
@@ -136,7 +136,7 @@ check_security_headers() {
     # X-Frame-Options: DENY or SAMEORIGIN (or absent on pure API)
     local xfo
     xfo=$(get_header "$hdrs" "X-Frame-Options")
-    if echo "$xfo" | grep -qiE "DENY|SAMEORIGIN"; then
+    if echo "$xfo" | grep -iE "DENY|SAMEORIGIN" >/dev/null; then
         pass "$label — X-Frame-Options present ($xfo)"
     elif [ -z "$xfo" ]; then
         # Absent is acceptable for API-only endpoints
@@ -157,7 +157,7 @@ check_security_headers() {
     server_hdr=$(get_header "$hdrs" "Server")
     if [ -z "$server_hdr" ]; then
         pass "$label — No Server header (good)"
-    elif echo "$server_hdr" | grep -qE '[0-9]+\.[0-9]+'; then
+    elif echo "$server_hdr" | grep -E '[0-9]+\.[0-9]+' >/dev/null; then
         fail "$label — Server header leaks version info: '$server_hdr'"
     else
         pass "$label — Server header present but no version leak: '$server_hdr'"
@@ -170,7 +170,7 @@ check_security_headers() {
         pass "$label — HSTS present: $hsts"
     else
         # HTTP-only internal deployments legitimately lack HSTS; verify this IS an HTTP-only setup
-        if echo "$BACKEND_URL" | grep -q "^http://"; then
+        if echo "$BACKEND_URL" | grep "^http://" >/dev/null; then
             pass "$label — HSTS correctly absent (HTTP-only internal deployment)"
         else
             fail "$label — HSTS missing on HTTPS deployment"
@@ -398,7 +398,7 @@ fi
 # 4e. XSS in query param — response should not reflect it
 log "Testing: XSS in query param"
 body=$(http_body "${BACKEND_URL}/chronicle/v3/study?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
-if echo "$body" | grep -q '<script>alert(1)</script>'; then
+if echo "$body" | grep '<script>alert(1)</script>' >/dev/null; then
     fail "XSS reflected in response body"
 else
     pass "XSS not reflected in response body"
@@ -407,7 +407,7 @@ fi
 # 4f. Path traversal
 log "Testing: path traversal"
 body=$(http_body "${BACKEND_URL}/chronicle/v3/../../../../../../etc/passwd")
-if echo "$body" | grep -q 'root:'; then
+if echo "$body" | grep 'root:' >/dev/null; then
     fail "Path traversal → /etc/passwd content returned!"
 else
     pass "Path traversal → no /etc/passwd content"
@@ -416,7 +416,7 @@ fi
 # Additional path traversal with encoded dots
 log "Testing: encoded path traversal"
 body=$(http_body "${BACKEND_URL}/chronicle/v3/%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd")
-if echo "$body" | grep -q 'root:'; then
+if echo "$body" | grep 'root:' >/dev/null; then
     fail "Encoded path traversal → /etc/passwd content returned!"
 else
     pass "Encoded path traversal → no /etc/passwd content"
@@ -449,8 +449,8 @@ fi
 # 4i. OPTIONS returns CORS headers or proper response
 log "Testing: OPTIONS method returns proper response"
 hdrs=$(fetch_headers "${BACKEND_URL}/chronicle/v3/study" -X OPTIONS)
-status_line=$(echo "$hdrs" | head -1)
-if echo "$status_line" | grep -qE "200|204|405|401"; then
+status_line=$(echo "$hdrs" | sed -n 1p)
+if echo "$status_line" | grep -E "200|204|405|401" >/dev/null; then
     pass "OPTIONS method → valid response ($status_line)"
 elif [ -z "$hdrs" ]; then
     skip "OPTIONS method — endpoint unreachable"
@@ -572,7 +572,7 @@ else
     if [ -n "$acao" ]; then
         if [ "$acao" = "*" ]; then
             fail "CORS allows wildcard origin (*) — should restrict to trusted origins"
-        elif echo "$acao" | grep -qi "evil-site"; then
+        elif echo "$acao" | grep -i "evil-site" >/dev/null; then
             fail "CORS reflects untrusted origin: $acao"
         else
             pass "CORS origin controlled: $acao"
@@ -597,7 +597,7 @@ else
     if [ -n "$acam" ]; then
         pass "CORS allowed methods present: $acam"
         # Verify TRACE is not in the list
-        if echo "$acam" | grep -qi "TRACE"; then
+        if echo "$acam" | grep -i "TRACE" >/dev/null; then
             fail "CORS allows TRACE method — should be excluded"
         else
             pass "CORS does not allow TRACE method"
@@ -635,7 +635,7 @@ if [ -n "${AUTH_TOKEN:-}" ]; then
         -H "Authorization: Bearer ${AUTH_TOKEN}")
     cc=$(get_header "$auth_hdrs" "Cache-Control")
     if [ -n "$cc" ]; then
-        if echo "$cc" | grep -qiE "no-store|no-cache|private"; then
+        if echo "$cc" | grep -iE "no-store|no-cache|private" >/dev/null; then
             pass "Cache-Control restricts caching on auth response: $cc"
         else
             fail "Cache-Control does not restrict caching: $cc"
@@ -652,7 +652,7 @@ fi
 # 7b. No sensitive info in error responses
 log "Testing: error responses do not leak stack traces"
 body=$(http_body "${BACKEND_URL}/chronicle/v3/nonexistent-endpoint-xyz")
-if echo "$body" | grep -qiE "stack.?trace|java\\.lang|at com\\.|NullPointerException|ClassNotFoundException"; then
+if echo "$body" | grep -iE "stack.?trace|java\\.lang|at com\\.|NullPointerException|ClassNotFoundException" >/dev/null; then
     fail "Error response leaks stack trace information"
 else
     pass "Error response does not leak stack traces"

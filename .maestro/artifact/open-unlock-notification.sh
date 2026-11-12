@@ -75,7 +75,7 @@ for node in root.iter("node"):
 
 notification_present() {
   adb_cmd shell cmd notification list | tr -d '\r' |
-    grep -Fq "|${APP_PACKAGE}|13|${IDENTIFICATION_TAG}|"
+    grep -F "|${APP_PACKAGE}|13|${IDENTIFICATION_TAG}|" >/dev/null
 }
 
 [[ "$(adb_cmd get-state)" == "device" ]] || {
@@ -127,7 +127,7 @@ adb_cmd shell input tap "$header_x" "$header_y"
 
 for _ in {1..10}; do
   if adb_cmd shell dumpsys activity activities |
-      grep -Fq "${APP_PACKAGE}/com.openlattice.chronicle.UserIdentificationActivity"; then
+      grep -F "${APP_PACKAGE}/com.openlattice.chronicle.UserIdentificationActivity" >/dev/null; then
     echo "Unlock-identification notification opened the participant-choice screen"
     exit 0
   fi

@@ -34,7 +34,7 @@ PG_CONTAINER="${CHRONICLE_PG_CONTAINER:-chronicle-postgres}"
 
 # `|| true`: under set -euo pipefail a missing key would otherwise kill the script at
 # the assignment, silently — before the explicit diagnostic below can fire.
-pg_env() { { grep -E "^$1=" "${ENV_FILE}" | head -1 | cut -d= -f2-; } || true; }
+pg_env() { { grep -E "^$1=" "${ENV_FILE}" | sed -n 1p | cut -d= -f2-; } || true; }
 PGUSER="$(pg_env POSTGRES_USER)"
 PGPASSWORD="$(pg_env POSTGRES_PASSWORD)"
 PGDB="$(pg_env POSTGRES_DB)"

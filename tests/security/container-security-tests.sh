@@ -134,7 +134,7 @@ for container in "${CONTAINERS[@]}"; do
     else
       cap_drop=$(_cget capdrop "$container")
       no_new_priv=$(_cget secopt "$container")
-      if echo "$cap_drop" | grep -q "ALL" && echo "$no_new_priv" | grep -q "no-new-privileges"; then
+      if echo "$cap_drop" | grep "ALL" >/dev/null && echo "$no_new_priv" | grep "no-new-privileges" >/dev/null; then
         warn "$container — runs as root but has cap_drop:ALL + no-new-privileges (hardened)"
       else
         fail "$container — runs as root or no user specified (User='${user:-<empty>}')"
@@ -162,14 +162,14 @@ for container in "${CONTAINERS[@]}"; do
         info "$container — added capabilities: ${cap_add} (database — may be expected)"
         ;;
       *vault*)
-        if echo "$cap_add" | grep -q "IPC_LOCK"; then
+        if echo "$cap_add" | grep "IPC_LOCK" >/dev/null; then
           pass "$container — IPC_LOCK capability (expected for Vault)"
         else
           warn "$container — unexpected capabilities: ${cap_add}"
         fi
         ;;
       *fail2ban*)
-        if echo "$cap_add" | grep -qE "NET_ADMIN|NET_RAW"; then
+        if echo "$cap_add" | grep -E "NET_ADMIN|NET_RAW" >/dev/null; then
           pass "$container — NET_ADMIN/NET_RAW capabilities (expected for fail2ban)"
         else
           warn "$container — unexpected capabilities: ${cap_add}"
@@ -178,7 +178,7 @@ for container in "${CONTAINERS[@]}"; do
       *backend*)
         # Backend needs SETUID/SETGID (su-exec privilege drop) + CHOWN/DAC_OVERRIDE (config ownership)
         cap_drop=$(_cget capdrop "$container")
-        if echo "$cap_drop" | grep -q "ALL"; then
+        if echo "$cap_drop" | grep "ALL" >/dev/null; then
           pass "$container — minimal caps with cap_drop: ALL (su-exec: ${cap_add})"
         else
           warn "$container — has capabilities without cap_drop: ALL: ${cap_add}"
@@ -187,7 +187,7 @@ for container in "${CONTAINERS[@]}"; do
       *frontend*)
         # nginx needs minimal caps to bind port 80 and manage workers
         cap_drop=$(_cget capdrop "$container")
-        if echo "$cap_drop" | grep -q "ALL"; then
+        if echo "$cap_drop" | grep "ALL" >/dev/null; then
           pass "$container — nginx caps with cap_drop: ALL (hardened: ${cap_add})"
         else
           warn "$container — has capabilities without cap_drop: ALL: ${cap_add}"
@@ -230,7 +230,7 @@ echo ""
 log "Test 4: No New Privileges Flag"
 for container in "${CONTAINERS[@]}"; do
   sec_opts=$(_cget secopt "$container")
-  if echo "$sec_opts" | grep -qE "no-new-privileges(:true)?"; then
+  if echo "$sec_opts" | grep -E "no-new-privileges(:true)?" >/dev/null; then
     pass "$container — no-new-privileges is set"
   else
     warn "$container — no-new-privileges not set (SecurityOpt='${sec_opts}')"
@@ -255,7 +255,7 @@ for container in "${CONTAINERS[@]}"; do
   # Check for Docker socket mount
   has_docker_sock=false
   docker_sock_ro=false
-  if echo "$mounts_json" | grep -q "docker.sock"; then
+  if echo "$mounts_json" | grep "docker.sock" >/dev/null; then
     has_docker_sock=true
     if echo "$mounts_json" | python3 -c "
 import json, sys

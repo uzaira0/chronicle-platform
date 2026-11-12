@@ -60,7 +60,7 @@ fi
 # ── 1b. Python floor (python3 on PATH runs scripts/, tests/, selfhost/ helpers) ──
 if command -v python3 >/dev/null 2>&1; then
   PY_VER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-  if [[ "$(printf '%s\n%s\n' "$PYTHON_MIN" "$PY_VER" | sort -V | head -1)" == "$PYTHON_MIN" ]]; then
+  if [[ "$(printf '%s\n%s\n' "$PYTHON_MIN" "$PY_VER" | sort -V | sed -n 1p)" == "$PYTHON_MIN" ]]; then
     ok "python3 -> $PY_VER (floor $PYTHON_MIN)"
     # PyYAML and openpyxl are pinned with hashes in requirements-dev.txt; a missing or different
     # installed version fails here instead of silently changing generated contracts and gate results.
@@ -82,7 +82,7 @@ fi
 # Semgrep versions differ in what the repo rules match (1.155.0 missed a raw SQLException rethrow
 # that 1.182.0 reports), so an unpinned scanner made the engineering gate host-dependent.
 if command -v semgrep >/dev/null 2>&1; then
-  SEMGREP_ACTIVE="$(semgrep --version 2>/dev/null | head -1)"
+  SEMGREP_ACTIVE="$(semgrep --version 2>/dev/null | sed -n 1p)"
   if [[ "$SEMGREP_ACTIVE" == "$SEMGREP" ]]; then
     ok "semgrep -> $SEMGREP"
   else
@@ -112,7 +112,7 @@ fi
 if [[ -z "$JAVA_BIN" ]]; then
   fail "no java found (manifest jdk.build_runtime is $JDK): install it or set JAVA_HOME"
 else
-  JAVA_VERSION="$("$JAVA_BIN" -version 2>&1 | awk -F '"' '/version/ { print $2; exit }')"
+  JAVA_VERSION="$("$JAVA_BIN" -version 2>&1 | awk -F '"' '/version/ && !found { print $2; found = 1 }')"
   JAVA_MAJOR="${JAVA_VERSION%%.*}"
   [[ "$JAVA_MAJOR" == "1" ]] && JAVA_MAJOR="$(cut -d. -f2 <<<"$JAVA_VERSION")"
   if [[ "$JAVA_MAJOR" == "$JDK" ]]; then

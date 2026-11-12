@@ -7,7 +7,7 @@ BUILDER="${ROOT_DIR}/scripts/build-selfhost-release.py"
 SOURCE_REVISION="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 # The builder requires a CHANGELOG entry for the bundle version: use the newest released heading.
 RELEASE_VERSION=$(git -C "$ROOT_DIR" show "${SOURCE_REVISION}:CHANGELOG.md" |
-  sed -n 's/^## \[\([0-9][0-9.]*\)\]$/\1/p' | head -1)
+  sed -n 's/^## \[\([0-9][0-9.]*\)\]$/\1/p' | sed -n 1p)
 RUN_PARENT="${SELFHOST_RELEASE_TEST_ROOT:-${ROOT_DIR}/build/operator-test-runs/selfhost-release}"
 BACKEND_IMAGE='ghcr.io/example/chronicle-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 FRONTEND_IMAGE='ghcr.io/example/chronicle-selfhost-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
@@ -164,13 +164,13 @@ grep -Fq -- '--public-revision' <<<"$publish_plan" || fail "publish does not pas
 grep -Eq 'gh release create .*--target' <<<"$publish_plan" || fail "GitHub release is not pinned to the public revision"
 # No image reaches the registry with a fixable HIGH/CRITICAL finding.
 for image_name in chronicle-backend chronicle-selfhost-frontend chronicle-selfhost-caddy; do
-  scan_line=$(grep -n "bash .*scan-selfhost-release-images.sh .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
-  push_line=$(grep -n "docker push .*${image_name}:" <<<"$publish_plan" | head -1 | cut -d: -f1 || true)
+  scan_line=$(grep -n "bash .*scan-selfhost-release-images.sh .*${image_name}:" <<<"$publish_plan" | sed -n 1p | cut -d: -f1 || true)
+  push_line=$(grep -n "docker push .*${image_name}:" <<<"$publish_plan" | sed -n 1p | cut -d: -f1 || true)
   [[ -n "$scan_line" && -n "$push_line" && "$scan_line" -lt "$push_line" ]] \
     || fail "publish pushes ${image_name} without a blocking trivy HIGH/CRITICAL scan first"
 done
 # Fail fast: the first image is scanned before the last one is built.
-first_scan=$(grep -n 'bash .*scan-selfhost-release-images.sh ' <<<"$publish_plan" | head -1 | cut -d: -f1)
+first_scan=$(grep -n 'bash .*scan-selfhost-release-images.sh ' <<<"$publish_plan" | sed -n 1p | cut -d: -f1)
 last_build=$(grep -n 'docker build ' <<<"$publish_plan" | tail -1 | cut -d: -f1)
 [[ -n "$first_scan" && -n "$last_build" && "$first_scan" -lt "$last_build" ]] \
   || fail "publish builds every image before scanning any"
@@ -485,7 +485,7 @@ set -e
 [[ "$invalid_status" -ne 0 ]] || fail "builder accepted a source date outside gzip's range"
 grep -Fq 'must fit the gzip timestamp range' "${RUN_DIR}/invalid-source-date.log" \
   || fail "invalid source-date rejection was not comprehensible"
-if [[ -d "$overflow_dir" ]] && find "$overflow_dir" -mindepth 1 -print -quit | grep -q .; then
+if [[ -d "$overflow_dir" ]] && find "$overflow_dir" -mindepth 1 -print -quit | grep . >/dev/null; then
   fail "builder published partial outputs after rejecting an invalid archive timestamp"
 fi
 

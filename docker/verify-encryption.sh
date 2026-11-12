@@ -81,7 +81,7 @@ print_status() {
 
 # Check 1: Container is running
 echo "1. Checking PostgreSQL container..."
-if docker inspect "$CONTAINER_NAME" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+if docker inspect "$CONTAINER_NAME" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
     print_status "PostgreSQL container is running" "PASS" ""
 else
     print_status "PostgreSQL container is NOT running" "FAIL" ""
@@ -94,7 +94,7 @@ echo ""
 # Check 2: shared_preload_libraries includes pg_tde
 echo "2. Checking shared_preload_libraries..."
 SPL=$(run_psql "SHOW shared_preload_libraries;")
-if echo "$SPL" | grep -q "pg_tde"; then
+if echo "$SPL" | grep "pg_tde" >/dev/null; then
     print_status "pg_tde in shared_preload_libraries" "PASS" "$SPL"
 else
     print_status "pg_tde NOT in shared_preload_libraries" "FAIL" "Current: $SPL"
@@ -140,7 +140,7 @@ CREATE_OUTPUT=$(docker compose -p chronicle -f "${COMPOSE_FILE}" exec -T postgre
         INSERT INTO _encryption_test_table (test_data) VALUES ('TDE test');
     \"" 2>&1)
 
-if echo "$CREATE_OUTPUT" | grep -q "CREATE TABLE"; then
+if echo "$CREATE_OUTPUT" | grep "CREATE TABLE" >/dev/null; then
     print_status "Encrypted table creation works" "PASS" ""
 else
     print_status "Failed to create encrypted table" "FAIL" "$CREATE_OUTPUT"
@@ -159,9 +159,9 @@ echo ""
 # Check 6: Keyring directory security
 echo "6. Checking keyring directory security..."
 KEYRING_PERMS=$(docker exec "$CONTAINER_NAME" stat -c "%a %U" /var/lib/postgresql/tde-keyring 2>/dev/null || echo "error")
-if echo "$KEYRING_PERMS" | grep -q "^700 postgres"; then
+if echo "$KEYRING_PERMS" | grep "^700 postgres" >/dev/null; then
     print_status "Keyring directory permissions (700, postgres)" "PASS" ""
-elif echo "$KEYRING_PERMS" | grep -q "error"; then
+elif echo "$KEYRING_PERMS" | grep "error" >/dev/null; then
     print_status "Cannot check keyring directory" "WARN" ""
 else
     print_status "Keyring directory permissions" "WARN" "Got: $KEYRING_PERMS (expected: 700 postgres)"

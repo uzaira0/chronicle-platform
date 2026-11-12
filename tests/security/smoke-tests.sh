@@ -51,7 +51,7 @@ VAULT_CONTAINER="chronicle-vault"
 # Helper: check if a container is running
 # ---------------------------------------------------------------------------
 container_running() {
-  docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null | grep -q "true"
+  docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null | grep "true" >/dev/null
 }
 
 # Helper: run a check only if container is running, otherwise skip
@@ -234,7 +234,7 @@ for container in "${ALL_CONTAINERS[@]}"; do
         if [ "$runtime_user" = "root" ] || [ "$runtime_user" = "0" ]; then
           cap_drop=$(_get capdrop "$container")
           sec_opts=$(_get secopt "$container")
-          if echo "$cap_drop" | grep -q "ALL" && echo "$sec_opts" | grep -q "no-new-privileges"; then
+          if echo "$cap_drop" | grep "ALL" >/dev/null && echo "$sec_opts" | grep "no-new-privileges" >/dev/null; then
             pass "$container — runs as root but hardened (cap_drop:ALL + no-new-privileges)"
           else
             fail "$container — running as root without full hardening"
@@ -322,7 +322,7 @@ JUSER:unknown")
     done
   else
     for f in rhizome.yaml chronicle-auth.yaml mail.yaml mobile-security.yaml cors.yaml; do
-      if echo "$config_missing" | grep -q "$f"; then
+      if echo "$config_missing" | grep "$f" >/dev/null; then
         fail "Backend config template NOT rendered: $f missing"
       else
         pass "Backend config template rendered: $f exists"
@@ -348,7 +348,7 @@ JUSER:unknown")
 
   # 2g. No JWT_SECRET leaked in docker inspect labels (uses prefetched data)
   labels_json=$(_get labels "$BE_CONTAINER")
-  if echo "$labels_json" | grep -qi "JWT_SECRET"; then
+  if echo "$labels_json" | grep -i "JWT_SECRET" >/dev/null; then
     fail "Backend labels contain JWT_SECRET (information leak)"
   else
     pass "Backend labels do not leak JWT_SECRET"
@@ -356,7 +356,7 @@ JUSER:unknown")
 
   # 2h. No sensitive env vars in docker inspect (uses prefetched data)
   env_json=$(_get env "$BE_CONTAINER")
-  if echo "$env_json" | grep -q "JWT_SECRET"; then
+  if echo "$env_json" | grep "JWT_SECRET" >/dev/null; then
     pass "Backend env contains JWT_SECRET (expected — verify .env is not committed to git)"
   else
     skip "Backend JWT_SECRET env var not found (may use alternative config)"
@@ -369,13 +369,13 @@ JUSER:unknown")
   ' 2>/dev/null || echo "AUDIT_DIR:no
 SSL_CERT:no")
 
-  if echo "$be_paths" | grep -q "AUDIT_DIR:yes"; then
+  if echo "$be_paths" | grep "AUDIT_DIR:yes" >/dev/null; then
     pass "Backend audit log directory /var/log/chronicle exists"
   else
     fail "Backend audit log directory /var/log/chronicle missing"
   fi
 
-  if echo "$be_paths" | grep -q "SSL_CERT:yes"; then
+  if echo "$be_paths" | grep "SSL_CERT:yes" >/dev/null; then
     pass "Backend PostgreSQL SSL CA cert mounted at /app/ssl/ca.crt"
   else
     fail "Backend PostgreSQL SSL CA cert missing"
@@ -383,7 +383,7 @@ SSL_CERT:no")
 
   # 2k. No-new-privileges security option (uses prefetched data)
   be_sec_opts=$(_get secopt "$BE_CONTAINER")
-  if echo "$be_sec_opts" | grep -q "no-new-privileges"; then
+  if echo "$be_sec_opts" | grep "no-new-privileges" >/dev/null; then
     pass "Backend has no-new-privileges security option"
   else
     fail "Backend missing no-new-privileges security option"
@@ -391,7 +391,7 @@ SSL_CERT:no")
 
   # 2l. tmpfs mounted for /tmp (uses prefetched data)
   be_tmpfs=$(_get tmpfs "$BE_CONTAINER")
-  if echo "$be_tmpfs" | grep -q "/tmp"; then
+  if echo "$be_tmpfs" | grep "/tmp" >/dev/null; then
     pass "Backend has tmpfs mounted at /tmp (noexec,nosuid)"
   else
     fail "Backend missing tmpfs mount for /tmp"
@@ -426,14 +426,14 @@ if require_container "$FE_CONTAINER" "Frontend checks"; then
 
   # 3b. Returns HTML for root
   fe_html=$(docker exec "$FE_CONTAINER" wget -q -O - --timeout=5 "http://127.0.0.1:${FE_PORT}/" 2>/dev/null || echo "")
-  if echo "$fe_html" | grep -qi '<html'; then
+  if echo "$fe_html" | grep -i '<html' >/dev/null; then
     pass "Frontend returns HTML for root path"
   else
     fail "Frontend does not return HTML for root path"
   fi
 
   # 3c. HTML includes expected app markers
-  if echo "$fe_html" | grep -qi 'chronicle\|root\|app'; then
+  if echo "$fe_html" | grep -i 'chronicle\|root\|app' >/dev/null; then
     pass "Frontend HTML contains expected app markers"
   else
     fail "Frontend HTML missing expected app markers"
@@ -441,7 +441,7 @@ if require_container "$FE_CONTAINER" "Frontend checks"; then
 
   # 3d. Nginx process check (uses prefetched data)
   fe_cap_drop=$(_get capdrop "$FE_CONTAINER")
-  if echo "$fe_cap_drop" | grep -q "ALL"; then
+  if echo "$fe_cap_drop" | grep "ALL" >/dev/null; then
     pass "Frontend has cap_drop: ALL (hardened nginx)"
   else
     fail "Frontend missing cap_drop: ALL"
@@ -457,7 +457,7 @@ if require_container "$FE_CONTAINER" "Frontend checks"; then
 
   # 3f. Static assets have cache headers
   fe_headers=$(docker exec "$FE_CONTAINER" wget -q -S -O /dev/null --timeout=5 "http://127.0.0.1:${FE_PORT}/" 2>&1 || echo "")
-  if echo "$fe_headers" | grep -qi "cache-control\|etag\|last-modified"; then
+  if echo "$fe_headers" | grep -i "cache-control\|etag\|last-modified" >/dev/null; then
     pass "Frontend static assets have cache-related headers"
   else
     skip "Frontend cache headers not detected (may need specific asset path)"
@@ -466,12 +466,12 @@ if require_container "$FE_CONTAINER" "Frontend checks"; then
   # 3g. Config.json endpoint (JWT delivery)
   # config.json may be bind-mounted at /chronicle/config.json (served via Traefik), or directly in the frontend
   fe_config=$(docker exec "$FE_CONTAINER" wget -q -O - --timeout=5 "http://127.0.0.1:${FE_PORT}/config.json" 2>/dev/null || echo "")
-  if echo "$fe_config" | grep -qi "token\|jwt\|bearer"; then
+  if echo "$fe_config" | grep -i "token\|jwt\|bearer" >/dev/null; then
     pass "Frontend /config.json returns JWT configuration"
   else
     # Try the Traefik path (config.json served via separate file mount, not SPA)
     fe_config_traefik=$(curl -sf --max-time 5 "http://${DOMAIN}/chronicle/config.json" 2>/dev/null || echo "")
-    if echo "$fe_config_traefik" | grep -qi "token\|jwt\|bearer"; then
+    if echo "$fe_config_traefik" | grep -i "token\|jwt\|bearer" >/dev/null; then
       pass "Frontend /config.json returns JWT configuration (via Traefik)"
     else
       # Check if generate-jwt.sh has been run and chronicle-config.json exists
@@ -493,7 +493,7 @@ if require_container "$FE_CONTAINER" "Frontend checks"; then
 
   # 3i. No-new-privileges (uses prefetched data)
   fe_sec=$(_get secopt "$FE_CONTAINER")
-  if echo "$fe_sec" | grep -q "no-new-privileges"; then
+  if echo "$fe_sec" | grep "no-new-privileges" >/dev/null; then
     pass "Frontend has no-new-privileges security option"
   else
     fail "Frontend missing no-new-privileges security option"
@@ -507,7 +507,7 @@ section "4. PostgreSQL Service (chronicle-postgres)"
 
 if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   # 4a. Accepts connections
-  if docker exec "$PG_CONTAINER" pg_isready 2>/dev/null | grep -q "accepting connections"; then
+  if docker exec "$PG_CONTAINER" pg_isready 2>/dev/null | grep "accepting connections" >/dev/null; then
     pass "PostgreSQL accepting connections (pg_isready)"
   else
     fail "PostgreSQL not accepting connections"
@@ -559,14 +559,14 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4e. pg_tde in shared_preload_libraries
-  if echo "$spl" | grep -q "pg_tde"; then
+  if echo "$spl" | grep "pg_tde" >/dev/null; then
     pass "PostgreSQL shared_preload_libraries includes pg_tde"
   else
     fail "PostgreSQL shared_preload_libraries missing pg_tde"
   fi
 
   # 4f. pgaudit in shared_preload_libraries
-  if echo "$spl" | grep -q "pgaudit"; then
+  if echo "$spl" | grep "pgaudit" >/dev/null; then
     pass "PostgreSQL shared_preload_libraries includes pgaudit"
   else
     COMPOSE_FILE="/opt/chronicle/docker/docker-compose.traefik.yml"
@@ -663,7 +663,7 @@ if require_container "$PG_CONTAINER" "PostgreSQL checks"; then
   fi
 
   # 4m. pgaudit log settings
-  if echo "$pgaudit_log" | grep -q "ddl"; then
+  if echo "$pgaudit_log" | grep "ddl" >/dev/null; then
     pass "PostgreSQL pgaudit.log includes ddl"
   else
     COMPOSE_FILE="/opt/chronicle/docker/docker-compose.traefik.yml"
@@ -705,7 +705,7 @@ if require_container "$TRAEFIK_CONTAINER" "Traefik checks"; then
 
   # 5b. Traefik API/dashboard responding
   traefik_api=$(docker exec "$TRAEFIK_CONTAINER" wget -q -O - --timeout=5 http://localhost:8080/api/overview 2>/dev/null || echo "")
-  if echo "$traefik_api" | grep -q "http\|routers\|services"; then
+  if echo "$traefik_api" | grep "http\|routers\|services" >/dev/null; then
     pass "Traefik API responding with router/service info"
   else
     skip "Traefik API/dashboard not accessible (may be disabled)"
@@ -713,21 +713,21 @@ if require_container "$TRAEFIK_CONTAINER" "Traefik checks"; then
 
   # 5c. Access log volume mounted (uses prefetched data)
   traefik_mounts=$(_get mounts "$TRAEFIK_CONTAINER")
-  if echo "$traefik_mounts" | grep -q "traefik_access_logs\|traefik"; then
+  if echo "$traefik_mounts" | grep "traefik_access_logs\|traefik" >/dev/null; then
     pass "Traefik access log volume mounted"
   else
     fail "Traefik access log volume not mounted"
   fi
 
   # 5d. Dynamic config directory mounted
-  if echo "$traefik_mounts" | grep -q "dynamic"; then
+  if echo "$traefik_mounts" | grep "dynamic" >/dev/null; then
     pass "Traefik dynamic config directory mounted"
   else
     fail "Traefik dynamic config directory not mounted"
   fi
 
   # 5e. Docker socket mounted read-only (uses prefetched data)
-  if echo "$traefik_mounts" | grep -q "docker.sock"; then
+  if echo "$traefik_mounts" | grep "docker.sock" >/dev/null; then
     sock_rw=$(echo "$traefik_mounts" | python3 -c "
 import json, sys
 mounts = json.loads(sys.stdin.read())
@@ -747,7 +747,7 @@ for m in mounts:
 
   # 5f. No-new-privileges (uses prefetched data)
   traefik_sec=$(_get secopt "$TRAEFIK_CONTAINER")
-  if echo "$traefik_sec" | grep -q "no-new-privileges"; then
+  if echo "$traefik_sec" | grep "no-new-privileges" >/dev/null; then
     pass "Traefik has no-new-privileges security option"
   else
     fail "Traefik missing no-new-privileges security option"
@@ -852,7 +852,7 @@ if container_running "$BE_CONTAINER" &&
       probe_result=$(docker exec "$BE_CONTAINER" wget -q -O - --timeout=5 \
         --post-data="query=\"${probe_id}\"&limit=1" \
         http://victoria-logs:9428/select/logsql/query 2>/dev/null || echo "")
-      if printf '%s\n' "$probe_result" | grep -Fq "$probe_id"; then
+      if printf '%s\n' "$probe_result" | grep -F "$probe_id" >/dev/null; then
         probe_found=true
         break
       fi
@@ -944,28 +944,28 @@ except: print(0)
 
   # 6n. Grafana anonymous access disabled (uses prefetched data)
   grafana_env=$(_get env "$GRAFANA_CONTAINER")
-  if echo "$grafana_env" | grep -q "GF_AUTH_ANONYMOUS_ENABLED=false"; then
+  if echo "$grafana_env" | grep "GF_AUTH_ANONYMOUS_ENABLED=false" >/dev/null; then
     pass "Grafana anonymous access disabled"
   else
     fail "Grafana anonymous access may be enabled"
   fi
 
   # 6o. Grafana sign-up disabled
-  if echo "$grafana_env" | grep -q "GF_USERS_ALLOW_SIGN_UP=false"; then
+  if echo "$grafana_env" | grep "GF_USERS_ALLOW_SIGN_UP=false" >/dev/null; then
     pass "Grafana user sign-up disabled"
   else
     fail "Grafana user sign-up may be enabled"
   fi
 
   # 6p. Grafana external snapshots disabled
-  if echo "$grafana_env" | grep -q "GF_SNAPSHOTS_EXTERNAL_ENABLED=false"; then
+  if echo "$grafana_env" | grep "GF_SNAPSHOTS_EXTERNAL_ENABLED=false" >/dev/null; then
     pass "Grafana external snapshots disabled"
   else
     fail "Grafana external snapshots may be enabled"
   fi
 
   # 6q. Grafana gravatar disabled
-  if echo "$grafana_env" | grep -q "GF_SECURITY_DISABLE_GRAVATAR=true"; then
+  if echo "$grafana_env" | grep "GF_SECURITY_DISABLE_GRAVATAR=true" >/dev/null; then
     pass "Grafana gravatar disabled"
   else
     fail "Grafana gravatar may be enabled"
@@ -988,25 +988,25 @@ if require_container "$CROWDSEC_CONTAINER" "CrowdSec checks"; then
 
   # 7b. CrowdSec has collections loaded
   cs_collections=$(docker exec "$CROWDSEC_CONTAINER" cscli collections list -o raw 2>/dev/null || echo "")
-  if echo "$cs_collections" | grep -q "crowdsecurity/traefik"; then
+  if echo "$cs_collections" | grep "crowdsecurity/traefik" >/dev/null; then
     pass "CrowdSec collection 'crowdsecurity/traefik' loaded"
   else
     fail "CrowdSec collection 'crowdsecurity/traefik' not loaded"
   fi
 
-  if echo "$cs_collections" | grep -q "crowdsecurity/http-cve"; then
+  if echo "$cs_collections" | grep "crowdsecurity/http-cve" >/dev/null; then
     pass "CrowdSec collection 'crowdsecurity/http-cve' loaded"
   else
     fail "CrowdSec collection 'crowdsecurity/http-cve' not loaded"
   fi
 
-  if echo "$cs_collections" | grep -q "appsec-virtual-patching"; then
+  if echo "$cs_collections" | grep "appsec-virtual-patching" >/dev/null; then
     pass "CrowdSec collection 'appsec-virtual-patching' loaded"
   else
     fail "CrowdSec collection 'appsec-virtual-patching' not loaded"
   fi
 
-  if echo "$cs_collections" | grep -q "appsec-generic-rules"; then
+  if echo "$cs_collections" | grep "appsec-generic-rules" >/dev/null; then
     pass "CrowdSec collection 'appsec-generic-rules' loaded"
   else
     fail "CrowdSec collection 'appsec-generic-rules' not loaded"
@@ -1031,7 +1031,7 @@ fi
 # --- Fail2ban ---
 if require_container "$FAIL2BAN_CONTAINER" "Fail2ban checks"; then
   # 7e. Fail2ban running
-  if docker exec "$FAIL2BAN_CONTAINER" fail2ban-client ping 2>/dev/null | grep -q "pong"; then
+  if docker exec "$FAIL2BAN_CONTAINER" fail2ban-client ping 2>/dev/null | grep "pong" >/dev/null; then
     pass "Fail2ban server responding (pong)"
   else
     fail "Fail2ban server not responding"
@@ -1047,7 +1047,7 @@ if require_container "$FAIL2BAN_CONTAINER" "Fail2ban checks"; then
   fi
 
   # 7g. Fail2ban specific jails
-  if echo "$jail_list" | grep -qi "traefik\|chronicle"; then
+  if echo "$jail_list" | grep -i "traefik\|chronicle" >/dev/null; then
     pass "Fail2ban has chronicle/traefik-related jails"
   else
     skip "Fail2ban does not have chronicle-specific jails (may use default jails)"
@@ -1055,7 +1055,7 @@ if require_container "$FAIL2BAN_CONTAINER" "Fail2ban checks"; then
 
   # 7h. Fail2ban network capabilities (uses prefetched data)
   f2b_caps=$(_get capadd "$FAIL2BAN_CONTAINER")
-  if echo "$f2b_caps" | grep -q "NET_ADMIN"; then
+  if echo "$f2b_caps" | grep "NET_ADMIN" >/dev/null; then
     pass "Fail2ban has NET_ADMIN capability (required for iptables)"
   else
     fail "Fail2ban missing NET_ADMIN capability"
@@ -1066,7 +1066,7 @@ fi
 if require_container "$FALCO_CONTAINER" "Falco checks"; then
   # 7i. Falco running and producing output
   falco_logs=$(docker logs "$FALCO_CONTAINER" --tail 20 2>&1 || echo "")
-  if echo "$falco_logs" | grep -qi "falco\|rule\|engine"; then
+  if echo "$falco_logs" | grep -i "falco\|rule\|engine" >/dev/null; then
     pass "Falco producing log output"
   else
     fail "Falco not producing expected log output"
@@ -1074,9 +1074,9 @@ if require_container "$FALCO_CONTAINER" "Falco checks"; then
 
   # 7j. Falco rules loaded (check more log lines and look for rule/priority/output indicators)
   falco_logs_deep=$(docker logs "$FALCO_CONTAINER" --tail 100 2>&1 || echo "")
-  if echo "$falco_logs_deep" | grep -qiE 'rules|loaded|Loading rules|rule.*enabled'; then
+  if echo "$falco_logs_deep" | grep -iE 'rules|loaded|Loading rules|rule.*enabled' >/dev/null; then
     pass "Falco rules appear loaded"
-  elif echo "$falco_logs_deep" | grep -qiE '"rule"|"priority"|"output"'; then
+  elif echo "$falco_logs_deep" | grep -iE '"rule"|"priority"|"output"' >/dev/null; then
     pass "Falco rules active (producing rule-triggered output)"
   else
     skip "Falco rules loading status unclear from recent logs"
@@ -1084,7 +1084,7 @@ if require_container "$FALCO_CONTAINER" "Falco checks"; then
 
   # 7k. Falco custom chronicle rules mounted (uses prefetched data)
   falco_mounts=$(_get mounts "$FALCO_CONTAINER")
-  if echo "$falco_mounts" | grep -q "chronicle-rules"; then
+  if echo "$falco_mounts" | grep "chronicle-rules" >/dev/null; then
     pass "Falco custom chronicle-rules.yaml mounted"
   else
     fail "Falco custom chronicle-rules.yaml not mounted"
@@ -1095,7 +1095,7 @@ fi
 if require_container "$VAULT_CONTAINER" "Vault checks"; then
   # 7l. Vault status
   vault_status=$(docker exec "$VAULT_CONTAINER" vault status -format=json 2>/dev/null || echo "{}")
-  if echo "$vault_status" | grep -q "initialized"; then
+  if echo "$vault_status" | grep "initialized" >/dev/null; then
     pass "Vault status endpoint responding"
   else
     fail "Vault status endpoint not responding"
@@ -1136,7 +1136,7 @@ except: print('unknown')
   # 7o. Vault keeps no added capability (uses prefetched data). The compose service runs
   # `vault server -dev`, whose built-in config sets disable_mlock = true, so IPC_LOCK is unused.
   vault_caps=$(_get capadd "$VAULT_CONTAINER")
-  if echo "$vault_caps" | grep -q "IPC_LOCK"; then
+  if echo "$vault_caps" | grep "IPC_LOCK" >/dev/null; then
     fail "Vault retains an unused IPC_LOCK capability"
   else
     pass "Vault runs without added capabilities"
@@ -1150,7 +1150,7 @@ section "8. Network Isolation"
 
 # 8a. Backend is not directly exposed on host ports (uses prefetched data)
 be_ports=$(_get ports "$BE_CONTAINER")
-if echo "$be_ports" | grep -q '"HostPort"'; then
+if echo "$be_ports" | grep '"HostPort"' >/dev/null; then
   fail "Backend has host port bindings (should be Traefik-only)"
 else
   pass "Backend has no direct host port bindings (Traefik-only access)"
@@ -1159,7 +1159,7 @@ fi
 # 8b. PostgreSQL is not directly exposed on host ports (uses prefetched data)
 if [ "$(_get running "$PG_CONTAINER")" = "true" ]; then
   pg_ports=$(_get ports "$PG_CONTAINER")
-  if echo "$pg_ports" | grep -q '"HostPort"'; then
+  if echo "$pg_ports" | grep '"HostPort"' >/dev/null; then
     fail "PostgreSQL has host port bindings (should be internal-only)"
   else
     pass "PostgreSQL has no direct host port bindings (internal-only)"
@@ -1170,7 +1170,7 @@ fi
 for mon_container in "$VM_CONTAINER" "$VLOGS_CONTAINER" "$FLUENT_BIT_CONTAINER" "$GRAFANA_CONTAINER"; do
   if [ "$(_get running "$mon_container")" = "true" ]; then
     mon_ports=$(_get ports "$mon_container")
-    if echo "$mon_ports" | grep -q '"HostPort"'; then
+    if echo "$mon_ports" | grep '"HostPort"' >/dev/null; then
       fail "$mon_container has host port bindings (should be internal-only)"
     else
       pass "$mon_container has no direct host port bindings"
@@ -1181,12 +1181,12 @@ done
 # 8d. Traefik is on expected ports (unprivileged 8080 published as host 80, 443) (uses prefetched data)
 if [ "$(_get running "$TRAEFIK_CONTAINER")" = "true" ]; then
   traefik_ports=$(_get ports "$TRAEFIK_CONTAINER")
-  if echo "$traefik_ports" | grep -q '"8080/tcp"'; then
+  if echo "$traefik_ports" | grep '"8080/tcp"' >/dev/null; then
     pass "Traefik listening on port 8080"
   else
     fail "Traefik not listening on port 8080"
   fi
-  if echo "$traefik_ports" | grep -q '"443/tcp"'; then
+  if echo "$traefik_ports" | grep '"443/tcp"' >/dev/null; then
     pass "Traefik listening on port 443"
   else
     skip "Traefik not listening on port 443 (may be HTTP-only deployment)"

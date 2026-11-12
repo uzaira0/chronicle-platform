@@ -131,13 +131,13 @@ check_prometheus_not_exposed() {
   fi
 
   if grep -Eq '^(# HELP|# TYPE)[[:space:]]|^jvm_|^http_server_requests_' "$body_file" ||
-    printf '%s\n' "$content_type" | grep -Eiq 'text/plain|openmetrics|prometheus'; then
+    printf '%s\n' "$content_type" | grep -Ei 'text/plain|openmetrics|prometheus' >/dev/null; then
     rm -f "$body_file"
     fail "prometheus route not exposed" "${path} returned metrics-looking content"
     return
   fi
 
-  if [[ "$status" == "200" ]] && printf '%s\n' "$content_type" | grep -Eiq 'text/html'; then
+  if [[ "$status" == "200" ]] && printf '%s\n' "$content_type" | grep -Ei 'text/html' >/dev/null; then
     rm -f "$body_file"
     pass "prometheus route not exposed" "${path} -> frontend fallback HTML"
     return
@@ -158,7 +158,7 @@ check_header() {
     header_args+=(--insecure)
   fi
   headers="$(curl "${header_args[@]}" "$url" 2>/dev/null || true)"
-  if printf '%s\n' "$headers" | grep -Eiq "$pattern"; then
+  if printf '%s\n' "$headers" | grep -Ei "$pattern" >/dev/null; then
     pass "$label" "${path} header matched ${pattern}"
   else
     fail "$label" "${path} header missing ${pattern}"

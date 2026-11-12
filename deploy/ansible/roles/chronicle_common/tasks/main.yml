@@ -245,9 +245,9 @@
 
     current="$(authselect current || true)"
     for feature in {{ chronicle_authselect_features | join(' ') }}; do
-      if ! printf '%s\n' "$current" | grep -Fqx "Enabled features: $feature" \
-         && ! printf '%s\n' "$current" | grep -Fqx -- "- $feature" \
-         && ! printf '%s\n' "$current" | grep -Fqx -- "$feature"; then
+      if ! printf '%s\n' "$current" | grep -Fx "Enabled features: $feature" >/dev/null \
+         && ! printf '%s\n' "$current" | grep -Fx -- "- $feature" >/dev/null \
+         && ! printf '%s\n' "$current" | grep -Fx -- "$feature" >/dev/null; then
         authselect enable-feature "$feature"
         changed=1
       fi
@@ -500,7 +500,7 @@
 - name: Enable Chronicle swap file
   ansible.builtin.shell: |
     set -o pipefail
-    if ! swapon --noheadings --show=NAME | grep -Fxq "{{ chronicle_swap_file_path }}"; then
+    if ! swapon --noheadings --show=NAME | grep -Fx "{{ chronicle_swap_file_path }}" >/dev/null; then
       swapon "{{ chronicle_swap_file_path }}"
       echo enabled
     fi

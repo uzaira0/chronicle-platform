@@ -184,7 +184,7 @@ collect() {
       "SELECT COALESCE(MAX(CASE WHEN version ~ '^[0-9]+$' THEN version::integer END),0) FROM flyway_schema_history WHERE success" 2>/dev/null || true)"
     if [[ $tde_expected -eq 1 ]] && psql -X -qAt -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
       -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-      "SELECT CASE WHEN current_setting('default_table_access_method')='tde_heap' AND (SELECT key_name FROM pg_tde_key_info()) IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am a ON a.oid=c.relam WHERE n.nspname='public' AND c.relkind='r' AND a.amname<>'tde_heap') THEN 1 ELSE 0 END" 2>/dev/null | grep -qx 1; then
+      "SELECT CASE WHEN current_setting('default_table_access_method')='tde_heap' AND (SELECT key_name FROM pg_tde_key_info()) IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am a ON a.oid=c.relam WHERE n.nspname='public' AND c.relkind='r' AND a.amname<>'tde_heap') THEN 1 ELSE 0 END" 2>/dev/null | grep -x 1 >/dev/null; then
       tde_healthy=1
     fi
   fi
@@ -197,7 +197,7 @@ collect() {
     [[ "$(curl --connect-to "$INTERNAL_CONNECT" --cacert "$internal_ca" -sS --max-time 8 -o /dev/null -w '%{http_code}' "$INTERNAL_HEALTH_URL" 2>/dev/null)" == 204 ]] && web_up=1 || true
     if [[ -n "$logs_probe_category" ]] && curl -fsS --max-time 8 "$LOGS_HEALTH_URL" >/dev/null 2>&1 &&
         curl -fsS --max-time 8 "${LOGS_HEALTH_URL%/health}/select/logsql/query?query=failure_category%3A${logs_probe_category}" |
-        grep -Fq "$logs_probe_category"; then
+        grep -F "$logs_probe_category" >/dev/null; then
       logs_up=1
     fi
     local logs_token

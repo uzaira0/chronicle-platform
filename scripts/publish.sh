@@ -109,7 +109,7 @@ gate_tree() {
   if [[ -n "$BANNED_TERMS" ]]; then
     local banned="" f
     while IFS= read -r f; do
-      if rg -i "$BANNED_TERMS" "$f" | rg -qv "${BANNED_ALLOW:-^\$}"; then banned+="${f#$export/}"$'\n'; fi
+      if rg -i "$BANNED_TERMS" "$f" | rg -v "${BANNED_ALLOW:-^\$}" >/dev/null; then banned+="${f#$export/}"$'\n'; fi
     done < <(rg -il --no-messages "$BANNED_TERMS" "$export" || true)
     banned="$(grep -vxFf "$allow" <<<"$banned" | grep -v '^$' || true)"
     [[ -z "$banned" ]] || fail "$label: banned terms outside .publishallow in: $(tr '\n' ' ' <<<"$banned")"
@@ -186,7 +186,7 @@ cmd_status() {
     tip="$(public_tip "$label")"
     local n; n="$(git -C "$wt" rev-list --count HEAD 2>/dev/null || echo 0)"; [[ -n "$tip" ]] && n="$(git -C "$wt" rev-list --count "$tip..HEAD" 2>/dev/null || echo 0)"
     echo "$label: $n curated commit(s), $(git -C "$wt" status --porcelain | wc -l) path(s) uncommitted"
-    git -C "$wt" log --format='    %h %s' ${tip:+"$tip..HEAD"} 2>/dev/null | head -50
+    git -C "$wt" log --max-count=50 --format='    %h %s' ${tip:+"$tip..HEAD"} 2>/dev/null
   done
 }
 

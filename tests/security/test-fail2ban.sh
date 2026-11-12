@@ -55,7 +55,7 @@ BANNED_IP=""
 # ---------------------------------------------------------------------------
 header "Pre-check: Fail2ban Container"
 
-if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
+if ! docker ps --format '{{.Names}}' | grep "^${CONTAINER}$" >/dev/null; then
     skip "Container '${CONTAINER}' is not running — skipping all tests"
     echo ""
     echo -e "${BOLD}Summary:${RESET} ${GREEN}${PASS} passed${RESET}, ${RED}${FAIL} failed${RESET}, ${YELLOW}${SKIP} skipped${RESET}, ${YELLOW}${WARN} warnings${RESET}"
@@ -75,7 +75,7 @@ header "Test 1: Fail2ban Service Status"
 
 SERVICE_OUTPUT=$(f2b fail2ban-client status 2>&1) || true
 
-if echo "${SERVICE_OUTPUT}" | grep -qi "number of jail"; then
+if echo "${SERVICE_OUTPUT}" | grep -i "number of jail" >/dev/null; then
     pass "Fail2ban service is running"
 
     JAIL_COUNT=$(echo "${SERVICE_OUTPUT}" | grep -i "number of jail" | grep -oP '\d+' || echo "0")
@@ -108,7 +108,7 @@ for i in "${!JAILS[@]}"; do
 
     JAIL_OUTPUT=$(f2b fail2ban-client status "${JAIL}" 2>&1) || true
 
-    if echo "${JAIL_OUTPUT}" | grep -qi "filter"; then
+    if echo "${JAIL_OUTPUT}" | grep -i "filter" >/dev/null; then
         pass "Jail '${JAIL}' exists and is enabled (${DESC})"
 
         CURRENTLY_BANNED=$(echo "${JAIL_OUTPUT}" | grep -i "currently banned" | grep -oP '\d+' || echo "0")
@@ -222,9 +222,9 @@ else
 
     for JAIL in "${JAILS[@]}"; do
         UNBAN_OUT=$(f2b fail2ban-client set "${JAIL}" unbanip "${BANNED_IP}" 2>&1) || true
-        if echo "${UNBAN_OUT}" | grep -qi "not banned\|is not banned"; then
+        if echo "${UNBAN_OUT}" | grep -i "not banned\|is not banned" >/dev/null; then
             info "${JAIL}: IP was not banned in this jail (OK)"
-        elif echo "${UNBAN_OUT}" | grep -qi "error\|no such"; then
+        elif echo "${UNBAN_OUT}" | grep -i "error\|no such" >/dev/null; then
             info "${JAIL}: ${UNBAN_OUT}"
         fi
     done
@@ -234,7 +234,7 @@ else
     STILL_BANNED=false
     for JAIL in "${JAILS[@]}"; do
         CHECK=$(f2b fail2ban-client status "${JAIL}" 2>&1) || true
-        if echo "${CHECK}" | grep -q "${BANNED_IP}"; then
+        if echo "${CHECK}" | grep "${BANNED_IP}" >/dev/null; then
             STILL_BANNED=true
         fi
     done
@@ -262,7 +262,7 @@ header "Test 6: Log Monitoring"
 
 ACCESS_LOG_CHECK=$(f2b ls /var/log/traefik/access.log 2>&1) || true
 
-if echo "${ACCESS_LOG_CHECK}" | grep -q "access.log"; then
+if echo "${ACCESS_LOG_CHECK}" | grep "access.log" >/dev/null; then
     pass "Traefik access log is mounted at /var/log/traefik/access.log"
 
     # Check the log has recent content
@@ -279,7 +279,7 @@ fi
 
 # Check that Fail2ban filter files reference the correct log
 FILTER_CHECK=$(f2b ls /etc/fail2ban/filter.d/ 2>&1) || true
-if echo "${FILTER_CHECK}" | grep -qi "chronicle"; then
+if echo "${FILTER_CHECK}" | grep -i "chronicle" >/dev/null; then
     pass "Chronicle-specific filter definitions found in /etc/fail2ban/filter.d/"
 else
     warn "No Chronicle-specific filter files found in /etc/fail2ban/filter.d/"

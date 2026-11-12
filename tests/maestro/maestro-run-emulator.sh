@@ -72,7 +72,7 @@ wait_for_android_services() {
         awk '$NF == "system_server" { print $2 }' || true
     )"
     if [[ -n "$current_pid" ]] &&
-       adb shell service check package 2>/dev/null | grep -q 'found' &&
+       adb shell service check package 2>/dev/null | grep 'found' >/dev/null &&
        adb shell pm path android >/dev/null 2>&1; then
       if [[ "$current_pid" == "$previous_pid" ]]; then
         stable_polls=$((stable_polls + 1))
@@ -96,7 +96,7 @@ wait_for_android_services() {
 configure_reverse_proxy() {
   adb reverse --remove tcp:8443 >/dev/null 2>&1 || true
   adb reverse tcp:8443 tcp:8443
-  adb reverse --list | grep -Eq 'tcp:8443[[:space:]]+tcp:8443' || {
+  adb reverse --list | grep -E 'tcp:8443[[:space:]]+tcp:8443' >/dev/null || {
     echo "ERROR: HTTPS reverse port was not installed" >&2
     return 1
   }
@@ -284,7 +284,7 @@ elif (( maestro_rc != 0 )) &&
      grep -Fq 'tests="1" failures="1"' maestro-results.xml &&
      ! adb shell ps 2>/dev/null | tr -d '\r' |
        awk -v package="$APP_PACKAGE" '$NF == package { found = 1 } END { exit !found }' &&
-     ! adb shell dumpsys window windows 2>/dev/null | grep -Fq "$APP_PACKAGE"; then
+     ! adb shell dumpsys window windows 2>/dev/null | grep -F "$APP_PACKAGE" >/dev/null; then
   # Maestro can intermittently lose its driver before launch and emit only
   # "Unknown error". Retry is safe only when Android proves Chronicle never
   # acquired either a process or a window, so no enrollment state was created.

@@ -24,7 +24,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'
 EOSQL
 
 # Validate POSTGRES_USER contains only safe identifier characters (alphanumeric + underscore)
-if ! echo "$POSTGRES_USER" | grep -qE '^[a-zA-Z_][a-zA-Z0-9_]*$'; then
+if ! echo "$POSTGRES_USER" | grep -E '^[a-zA-Z_][a-zA-Z0-9_]*$' >/dev/null; then
     echo "ERROR: POSTGRES_USER contains unsafe characters: $POSTGRES_USER" >&2
     exit 1
 fi

@@ -140,7 +140,7 @@ confirm() {
 }
 
 # Read current value of an env var from the .env file
-env_val() { grep -E "^${1}=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
+env_val() { grep -E "^${1}=" "$ENV_FILE" | sed -n 1p | cut -d= -f2-; }
 
 # Replace a value in .env atomically without putting it in process arguments.
 env_set() {
@@ -496,7 +496,7 @@ restart_services() {
   for svc in "${order[@]}"; do
     if [[ -n "${RESTART_NEEDED[$svc]:-}" ]]; then
       log "Recreating $svc with the selected environment and mounted secrets..."
-      if ! dc config --services | grep -Fxq "$svc"; then
+      if ! dc config --services | grep -Fx "$svc" >/dev/null; then
         [[ "$svc" == chronicle-postgres-exporter || "$svc" == postgres-replica ]] && continue
         return 1
       fi

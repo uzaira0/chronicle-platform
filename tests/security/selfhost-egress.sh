@@ -40,7 +40,7 @@ fail() { printf '  FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 
 container() { # SERVICE -> running container id, or empty
   docker ps -q --filter "label=com.docker.compose.project=${project}" \
-    --filter "label=com.docker.compose.service=$1" --filter status=running | head -n 1
+    --filter "label=com.docker.compose.service=$1" --filter status=running | sed -n 1p
 }
 
 printf 'Platform\n'
@@ -199,7 +199,7 @@ fi
 printf '\nCredentials\n'
 if grep -qx docker-socket-proxy <<<"$services"; then
   guard="$(docker ps -aq --filter "label=com.docker.compose.project=${project}" \
-    --filter label=com.docker.compose.service=config-guard | head -n 1)"
+    --filter label=com.docker.compose.service=config-guard | sed -n 1p)"
   if [[ -n "$guard" ]]; then
     inspect="$(fetch cadvisor "http://docker-socket-proxy:2375/containers/${guard}/json")"
     if [[ "$inspect" == *'"Env":[]'* && "$inspect" != *PASSWORD=* && "$inspect" != *SECRET=* ]]; then

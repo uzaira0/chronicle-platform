@@ -751,12 +751,11 @@
     fail_msg: "PAM password quality/history/lockout policy does not match Chronicle baseline."
   when: chronicle_manage_pam_hardening | bool
 
+# -quit: one such file fails the check below, so find stops at the first instead of walking
+# both trees to their end.
 - name: Validate user initialization file permissions
-  ansible.builtin.shell: |
-    set -o pipefail
-    find /root /home -xdev -type f -name '.*' -perm /037 -print 2>/dev/null | head -20
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    argv: [find, /root, /home, -xdev, -type, f, -name, ".*", -perm, /037, -print, -quit]
   register: chronicle_user_init_permission_drift
   changed_when: false
   when: chronicle_manage_user_init_file_permissions | bool
@@ -765,7 +764,7 @@
   ansible.builtin.assert:
     that:
       - chronicle_user_init_permission_drift.stdout == ""
-    fail_msg: "User initialization files are more permissive than 0740: {{ chronicle_user_init_permission_drift.stdout }}"
+    fail_msg: "A user initialization file is more permissive than 0740 (the first one found): {{ chronicle_user_init_permission_drift.stdout }}"
   when: chronicle_manage_user_init_file_permissions | bool
 
 - name: Read auditd retention config

@@ -131,7 +131,7 @@ start_collector() { # the shipped service's user namespace, memory limit and rea
   docker run -d --name "${outage}-fluent-bit" --network "$outage" --user "$(id -u):$(id -g)" --memory 128m \
     --read-only --tmpfs /tmp --tmpfs /run -p 127.0.0.1::24224 \
     -v "${outage_dir}/etc:/fluent-bit/etc:ro" -v "${outage_dir}/state:/fluent-bit/state" "$IMAGE" >/dev/null
-  forward_port=$(docker port "${outage}-fluent-bit" 24224/tcp | head -1 | cut -d: -f2)
+  forward_port=$(docker port "${outage}-fluent-bit" 24224/tcp | sed -n 1p | cut -d: -f2)
   for _ in {1..40}; do
     docker logs "${outage}-fluent-bit" >"${outage_dir}/collector.log" 2>&1
     grep -q 'listening on' "${outage_dir}/collector.log" && return 0

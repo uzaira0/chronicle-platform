@@ -87,7 +87,7 @@ hub_latest_major() { # repo tag-regex-after-major pinned-tag: the next major's n
 maven_latest() { # metadata-url
   curl -fsS --max-time 20 "$1" 2>/dev/null | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed 's/<[^>]*>//g' | sort -V | tail -1
 }
-num() { grep -oE '[0-9]+(\.[0-9]+)*' <<<"$1" | head -1; }
+num() { grep -oE '[0-9]+(\.[0-9]+)*' <<<"$1" | sed -n 1p; }
 major() { cut -d. -f1 <<<"$(num "$1")"; }
 minor() { cut -d. -f2 <<<"$(num "$1").0"; }
 
@@ -107,7 +107,7 @@ row() { # name pinned latest
 }
 
 # --- manifest pins -----------------------------------------------------------
-row jdk            "$(pin jdk.build_runtime)"       "$(github_api repos/adoptium/temurin25-binaries/releases/latest | jq -r '.tag_name // empty' 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+row jdk            "$(pin jdk.build_runtime)"       "$(github_api repos/adoptium/temurin25-binaries/releases/latest | jq -r '.tag_name // empty' 2>/dev/null | grep -oE '[0-9]+' | sed -n 1p)"
 row gradle         "$(pin gradle.wrapper)"          "$(gh_latest gradle/gradle)"
 row gradle-android "$(pin gradle.android_wrapper)"  "$(gh_latest gradle/gradle)"
 row kotlin         "$(pin kotlin)"                  "$(gh_latest JetBrains/kotlin)"
@@ -125,10 +125,10 @@ row cadvisor         "$(img cadvisor)"         "$(gh_latest google/cadvisor)"
 row keycloak         "$(img keycloak)"         "$(gh_latest keycloak/keycloak)"
 
 # --- JVM framework pins documented in the manifest ---------------------------
-gv() { grep -oE "^ext\.$1_version='[^']+'" "$ROOT_DIR/gradles/chronicle.gradle" | head -1 | sed "s/.*='//; s/'//"; }
+gv() { grep -oE "^ext\.$1_version='[^']+'" "$ROOT_DIR/gradles/chronicle.gradle" | sed -n 1p | sed "s/.*='//; s/'//"; }
 row spring-framework "$(gv spring_framework)"  "$(maven_latest https://repo1.maven.org/maven2/org/springframework/spring-core/maven-metadata.xml)"
 row hazelcast        "$(gv hazelcast)"         "$(maven_latest https://repo1.maven.org/maven2/com/hazelcast/hazelcast/maven-metadata.xml)"
-row android-agp      "$(grep -oE 'com.android.tools.build:gradle:[0-9.]+' "$ROOT_DIR/chronicle/build.gradle" | head -1 | sed 's/.*://')" "$(maven_latest https://dl.google.com/dl/android/maven2/com/android/tools/build/gradle/maven-metadata.xml)"
+row android-agp      "$(grep -oE 'com.android.tools.build:gradle:[0-9.]+' "$ROOT_DIR/chronicle/build.gradle" | sed -n 1p | sed 's/.*://')" "$(maven_latest https://dl.google.com/dl/android/maven2/com/android/tools/build/gradle/maven-metadata.xml)"
 
 # --- direct chronicle-web dependencies: unmaintained packages ---------------------
 # Its table and findings go to stderr, so --json output stays machine-readable.

@@ -148,7 +148,7 @@ if [[ -z "$PARTICIPANT_ID" && -f /tmp/chronicle-tablet-upload-test-ids.txt ]]; t
 fi
 
 if [[ -z "$SERIAL" ]]; then
-  SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
+  SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" && !found {print $1; found = 1}')"
 fi
 
 if [[ -z "$SERIAL" ]]; then
@@ -212,7 +212,7 @@ usage_buffer_activity_class_count() {
 
 package_installed() {
   local package_name="$1"
-  adb_shell pm list packages "$package_name" | grep -qx "package:$package_name"
+  adb_shell pm list packages "$package_name" | grep -x "package:$package_name" >/dev/null
 }
 
 launch_package_if_present() {

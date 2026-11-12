@@ -190,7 +190,7 @@ validate_archive_member_paths() {
             log_err "${label} archive contains an unsafe member path: ${member}"
             return 1
         fi
-        if printf '%s' "$member" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+        if printf '%s' "$member" | LC_ALL=C grep '[[:cntrl:]]' >/dev/null; then
             log_err "${label} archive contains a control character in a member path"
             return 1
         fi

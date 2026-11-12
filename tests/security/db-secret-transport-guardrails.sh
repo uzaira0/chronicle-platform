@@ -410,7 +410,7 @@ else
 fi
 /bin/rm -f -- "$flyway_input"
 if [[ -d "$flyway_case/secret-parent" ]] &&
-   find "$flyway_case/secret-parent" -type f -print -quit | grep -q .; then
+   find "$flyway_case/secret-parent" -type f -print -quit | grep . >/dev/null; then
   fail 'flyway-migrate retained a secret temporary file after exit'
 fi
 assert_no_secret_material "$flyway_case" 'flyway-migrate'
@@ -440,7 +440,7 @@ else
 fi
 /bin/rm -f -- "$flyway_failure_input"
 if [[ -d "$flyway_failure_case/secret-parent" ]] &&
-   find "$flyway_failure_case/secret-parent" -type f -print -quit | grep -q .; then
+   find "$flyway_failure_case/secret-parent" -type f -print -quit | grep . >/dev/null; then
   fail 'flyway-migrate retained a secret temporary file after client failure'
 fi
 assert_no_secret_material "$flyway_failure_case" 'flyway-migrate failure path'
@@ -516,7 +516,7 @@ run_flyway_signal_case() {
 
   /bin/rm -f -- "$signal_input"
   if [[ -d "$signal_case/secret-parent" ]] &&
-     find "$signal_case/secret-parent" -type f -print -quit | grep -q .; then
+     find "$signal_case/secret-parent" -type f -print -quit | grep . >/dev/null; then
     fail "flyway-migrate retained a secret temporary file after ${signal_name}"
   fi
   assert_no_secret_material "$signal_case" "flyway-migrate ${signal_name} path"

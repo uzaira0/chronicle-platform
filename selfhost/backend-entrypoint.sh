@@ -119,8 +119,8 @@ validate_https_root_origin() {
       return 1
       ;;
   esac
-  if ! printf '%s\n' "$value" | grep -Eq \
-    '^https://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$'; then
+  if ! printf '%s\n' "$value" | grep -E \
+    '^https://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:[0-9]{1,5})?$' >/dev/null; then
     printf 'FATAL: CHRONICLE_PUBLIC_BASE_URL must be an exact HTTPS root origin\n' >&2
     return 1
   fi

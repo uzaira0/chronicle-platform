@@ -45,7 +45,7 @@ header() {
 # ---------------------------------------------------------------------------
 header "Pre-check: Falco Container"
 
-if ! docker ps --format '{{.Names}}' | grep -q '^chronicle-falco$'; then
+if ! docker ps --format '{{.Names}}' | grep '^chronicle-falco$' >/dev/null; then
     skip "chronicle-falco container is not running — skipping all tests"
     echo ""
     echo "========================================="
@@ -62,7 +62,7 @@ pass "chronicle-falco container is running"
 header "Test 1: Falco Health"
 
 if version_output=$(docker exec chronicle-falco falco --version 2>&1); then
-    pass "Falco is responsive: $(echo "$version_output" | head -1)"
+    pass "Falco is responsive: $(echo "$version_output" | sed -n 1p)"
 else
     fail "Falco did not return version info"
     info "Output: $version_output"
@@ -74,7 +74,7 @@ fi
 header "Test 2: Rules Loaded"
 
 # Check falco.yaml for chronicle-rules.yaml reference
-if docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep -q 'chronicle-rules'; then
+if docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep 'chronicle-rules' >/dev/null; then
     pass "falco.yaml references chronicle-rules.yaml"
 else
     warn "chronicle-rules.yaml not found in falco.yaml rules_file list"
@@ -97,7 +97,7 @@ fi
 header "Test 3: Shell Exec Detection"
 
 if [ "$LIVE" = true ]; then
-    if ! docker ps --format '{{.Names}}' | grep -q '^chronicle-backend$'; then
+    if ! docker ps --format '{{.Names}}' | grep '^chronicle-backend$' >/dev/null; then
         skip "chronicle-backend container is not running — cannot test shell detection"
     else
         info "Executing shell in chronicle-backend to trigger Falco alert..."
@@ -131,16 +131,16 @@ fi
 header "Test 4: Package Install Detection"
 
 if [ "$LIVE" = true ]; then
-    if ! docker ps --format '{{.Names}}' | grep -q '^chronicle-backend$'; then
+    if ! docker ps --format '{{.Names}}' | grep '^chronicle-backend$' >/dev/null; then
         skip "chronicle-backend container is not running — cannot test package manager detection"
     else
         info "Attempting apt-get update in chronicle-backend..."
         apt_output=$(docker exec chronicle-backend apt-get update 2>&1 || true)
 
-        if echo "$apt_output" | grep -qi "permission denied\|not allowed\|root"; then
+        if echo "$apt_output" | grep -i "permission denied\|not allowed\|root" >/dev/null; then
             pass "apt-get blocked by non-root user — security win"
         else
-            info "apt-get ran (may or may not have succeeded): $(echo "$apt_output" | head -1)"
+            info "apt-get ran (may or may not have succeeded): $(echo "$apt_output" | sed -n 1p)"
         fi
 
         info "Waiting 3 seconds for Falco to process event..."
@@ -164,7 +164,7 @@ fi
 header "Test 5: Falco JSON Output"
 
 # Check json_output in config
-if docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep -q 'json_output:\s*true'; then
+if docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep 'json_output:\s*true' >/dev/null; then
     pass "json_output is enabled in falco.yaml"
 else
     yaml_json_line=$(docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep 'json_output' || true)
@@ -188,17 +188,18 @@ fi
 header "Test 6: Alert Destination"
 
 # Check that Falco produces stdout output (for Docker logging pipeline)
-log_head=$(docker logs chronicle-falco 2>&1 | head -10 || true)
-if [ -n "$log_head" ]; then
+# --tail: docker reads the end of the log, not a long-running Falco's log from its start.
+log_tail=$(docker logs --tail 10 chronicle-falco 2>&1 || true)
+if [ -n "$log_tail" ]; then
     pass "Falco is producing stdout output (available via docker logs)"
-    info "First log line: $(echo "$log_head" | head -1)"
+    info "Latest log line: $(echo "$log_tail" | sed -n '$p')"
 else
     warn "No stdout output from Falco — alerts may not reach Docker logging/Loki pipeline"
 fi
 
 # Check for configured output channels in falco.yaml
 stdout_enabled=$(docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep -A1 'stdout_output' | grep 'enabled' || true)
-if echo "$stdout_enabled" | grep -q 'true'; then
+if echo "$stdout_enabled" | grep 'true' >/dev/null; then
     pass "stdout_output is enabled in falco.yaml"
 elif [ -n "$stdout_enabled" ]; then
     warn "stdout_output found but may not be enabled: $stdout_enabled"
@@ -207,7 +208,7 @@ else
 fi
 
 file_output=$(docker exec chronicle-falco cat /etc/falco/falco.yaml 2>/dev/null | grep -A2 'file_output' | grep 'enabled' || true)
-if echo "$file_output" | grep -q 'true'; then
+if echo "$file_output" | grep 'true' >/dev/null; then
     pass "file_output is enabled in falco.yaml"
 else
     info "file_output not explicitly enabled (events.json may be configured elsewhere)"

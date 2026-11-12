@@ -84,7 +84,7 @@ if [ ! -f "$KEY_FILE" ]; then
     exit 1
 fi
 
-if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true; then
+if ! docker inspect "$CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep true >/dev/null; then
     log_err "PostgreSQL container '$CONTAINER' is not running"
     exit 1
 fi

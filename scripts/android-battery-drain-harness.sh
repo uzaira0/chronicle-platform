@@ -69,7 +69,7 @@ fi
 [[ -n "$ADB_BIN" ]] || { echo "adb was not found. Set ADB=/path/to/adb." >&2; exit 1; }
 
 if [[ -z "$SERIAL" ]]; then
-  SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
+  SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" && !found {print $1; found = 1}')"
 fi
 [[ -n "$SERIAL" ]] || { echo "No adb device found. Pass --serial." >&2; exit 1; }
 
@@ -89,7 +89,7 @@ bool_field() {
 
 uid_for_package() {
   adb_shell dumpsys package "$PACKAGE" \
-    | awk -F= '/userId=/{print $2; exit}' \
+    | awk -F= '/userId=/ && !found {print $2; found = 1}' \
     | tr -d '\r'
 }
 
@@ -234,7 +234,7 @@ PY
 # App process uptime: elapsed wall time the Chronicle process has been alive.
 process_uptime="$(
   adb_shell dumpsys activity processes "$PACKAGE" 2>/dev/null \
-    | awk '/uptime:/ {print; exit}' | tr -d '\r'
+    | awk '/uptime:/ && !found {print; found = 1}' | tr -d '\r'
 )"
 {
   echo "process_uptime=${process_uptime:-unknown}"

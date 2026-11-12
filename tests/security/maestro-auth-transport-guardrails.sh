@@ -24,7 +24,7 @@ set -euo pipefail
 sentinel='headerPayloadSentinel.'
 sentinel+='payloadPayloadSentinel.'
 sentinel+='signaturePayloadSentinel'
-if env | grep -Fq "$sentinel"; then
+if env | grep -F "$sentinel" >/dev/null; then
   printf 'administrator token reached fake curl environment\n' >&2
   exit 90
 fi

@@ -153,7 +153,7 @@ for service in chronyd auditd firewalld; do
 done
 
 if command -v timedatectl >/dev/null 2>&1; then
-  if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -qx true; then
+  if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -x true >/dev/null; then
     pass "time sync" "NTP synchronized"
   else
     fail "time sync" "NTP is not synchronized"

@@ -81,7 +81,7 @@ install=''
 for pin in $pins $upgrades; do
   name=${pin%%=*}
   grep -qx "$pin" "$work/before" && continue
-  if apk search --exact "$name" | grep -qx "$name-${pin#*=}"; then
+  if apk search --exact "$name" | grep -x "$name-${pin#*=}" >/dev/null; then
     install="$install $pin"
   elif in_base "$name"; then
     echo "apk-install-aged: $pin is no longer in the $branch index; keeping the base image's" \
