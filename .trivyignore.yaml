@@ -224,9 +224,10 @@ vulnerabilities:
       newest RHEL build; Red Hat lists no fix). The flaw is an out-of-bounds read in parsers created with
       XML_ExternalEntityParserCreate. dnf cannot remove expat: dbus-broker (required by systemd) and
       python3-libs need it. In these images libexpat is linked only by xmlwf, dbus-broker-launch, libcomps
-      and the Python 3.9 pyexpat module; none of those programs is an entrypoint, and neither
-      chronicle_ops nor the backup, restore or init scripts import an XML parser (selfcheck.py and the
-      dump verifier run without loading pyexpat). PostgreSQL's XML functions use libxml2. No untrusted
+      and the Python 3.9 pyexpat module; none of those programs is an entrypoint. selfcheck.py and the
+      dump verifier run without loading pyexpat. restore.sh imports chronicle_ops.verify for one constant,
+      which loads plistlib and so pyexpat, but creates no parser there (sentence corrected 2026-11-12; the
+      import probe is described under CVE-2026-115506). PostgreSQL's XML functions use libxml2. No untrusted
       XML reaches libexpat. Drop when RHEL ships a fixed expat.
       Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
 
@@ -566,3 +567,349 @@ vulnerabilities:
       intermediate-certificate verification: gosu only switches user and execs postgres; it makes no TLS
       connection and verifies no certificate.
       Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
+# fluentbit and cAdvisor images, the Python 3.9 build the pinned fix no longer replaces, and expat. Short
+# expiries on purpose: 2026-11-19 is three days after UBI's current Python build passes the dependency wait;
+# the krb5 and expat entries end within 21 days of this review.
+  - id: CVE-2026-19445
+    purls:
+      - "pkg:rpm/redhat/python-unversioned-command@3.9.25-7.el9_8.3?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3-libs@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-19
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      Postgres and backup images (pinned Percona 18.6.1-4 base): Python 3.9.25-7.el9_8.3. The Dockerfiles pin
+      the fixed 3.9.25-7.el9_8.6, but that build has left the UBI 9 repositories, so
+      os-packages/dnf-upgrade-aged.sh keeps the base build (build log: "python3=3.9.25-7.el9_8.6 is no longer in
+      the repositories; keeping the base image's python3=3.9.25-7.el9_8.3"). UBI's current build,
+      3.9.25-16.el9_9, was published 2026-11-09T09:51:18Z (python-unversioned-command in appstream primary.xml)
+      and passes the seven-day wait of scripts/check-dependency-age.py on 2026-11-16; this entry ends three days
+      later. Then run scripts/os-package-pins.py --write, rebuild, and remove this entry. Until then: the flaw
+      is a use-after-free in a Python TLS server whose sni_callback switches SSLContext. Neither image runs a
+      Python TLS server. git grep finds no sni_callback under selfhost/; the only ssl users there are two urllib
+      clients (chronicle_ops/alerts.py, monitoring/grafana-user.py) that ./chronicle runs with the host's
+      Python. Import probe in both images, 2026-11-12: chronicle_ops.common, .dump, .images, .receipts,
+      .release, .startup and /selfcheck.py load no ssl module; restore.sh imports chronicle_ops.verify for one
+      constant, which loads ssl and opens no socket.
+  - id: CVE-2026-19553
+    purls:
+      - "pkg:rpm/redhat/python-unversioned-command@3.9.25-7.el9_8.3?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3-libs@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
+    expired_at: 2026-11-19
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      Same Python 3.9.25-7.el9_8.3 packages, same reason the pinned fixed build is not installed and same end
+      date as CVE-2026-19445 (UBI's 3.9.25-16.el9_9 passes the seven-day wait on 2026-11-16; then
+      scripts/os-package-pins.py --write and remove this entry). The flaw: SSLContext.wrap_bio() and the asyncio
+      TLS calls skip hostname verification when no server_hostname is passed. git grep finds no wrap_bio,
+      asyncio or start_tls under selfhost/, and no Python in these images opens a TLS connection: the two ssl
+      users (chronicle_ops/alerts.py, monitoring/grafana-user.py) are urllib clients that ./chronicle runs with
+      the host's Python.
+  - id: CVE-2026-107364
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-01
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (pinned Percona 18.6.1-4
+      base), Debian 13.7's four krb5 library packages in the fluentbit image (fluent/fluent-bit 5.1.3) and
+      krb5-libs 1.22.1 in ghcr.io/google/cadvisor v0.60.6 (monitoring overlay). No distribution lists a fixed
+      build. The advisory is a read overrun in the ASN.1 decoder when a KDC reads an unauthenticated request; no
+      image has krb5kdc or kadmind (file listing of the linux/amd64 images, 2026-11-12). The decoder is libkrb5
+      code that a GSS-API acceptor or initiator also runs on Kerberos messages, so those callers were checked
+      the same day. Acceptor: PostgreSQL in the postgres image. A peer on the internal Compose networks database
+      (backend, migrate, db-init, restore, db-backup) or database-probe (operational-probe), or the Docker host,
+      can send a GSSENCRequest before authentication; the server answers G and hands the peer's token to
+      gss_accept_sec_context (secure_open_gssapi, src/backend/libpq/be-secure-gssapi.c). Probe of the built
+      image with synthetic tokens: a Kerberos-mechanism token fails with "Key table entry not found", a SPNEGO
+      token with "SPNEGO cannot find mechanisms to negotiate", three IAKERB tokens (well-formed and malformed)
+      with "No credentials were supplied"; each connection closes, the server log has no terminated-process line
+      and the server keeps answering. Source (tag krb5-1.21.1-final): kg_accept_krb5 acquires the acceptor
+      credential (accept_sec_context.c:717-727) before g_verify_token_header (752) and decode_krb5_ap_req (813);
+      SPNEGO stops at get_negotiable_mechs (spnego_mech.c:1321); the mechglue refuses IAKERB without an acceptor
+      credential (g_accept_sec_context.c:253-256). The image has no keytab and selfhost/config/postgres-hba.conf
+      has only scram-sha-256 lines, so such a peer reaches PostgreSQL's packet framing, the GSS token header and
+      SPNEGO's NegTokenInit parser, and not libkrb5's ASN.1 decoder. Initiators: libpq drops GSS when
+      gss_acquire_cred finds no credential cache (src/interfaces/libpq/fe-connect.c:4819-4840 at REL_18_6); no
+      image has kinit, a keytab or a ticket cache; no Chronicle script passes curl --negotiate; the fluent-bit
+      binary imports no gss_ or krb5_ symbol, and its libcurl and libpq import only initiator functions.
+      cAdvisor: /usr/bin/cadvisor needs only libpfm and musl; only the ZFS tools load the Kerberos libraries
+      (through libtirpc), and the service (selfhost/overlays/monitoring.yml) runs cadvisor and a busybox wget
+      health check. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-119079
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-01
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      decode_sequence_of() in libkrb5's ASN.1 decoder (lib/krb5/asn.1/asn1_encode.c) grows its array one element
+      at a time; the advisory's case is a KDC reading an AS-REQ or TGS-REQ over TCP, and no image has a KDC. The
+      function is library code, so the other callers were checked. Same four images and same reachability as
+      CVE-2026-107364: PostgreSQL's GSS acceptor has no keytab and refuses a peer's Kerberos, SPNEGO or IAKERB
+      token before libkrb5 decodes a Kerberos message (probe of the built image and krb5-1.21.1 source,
+      2026-11-12); no initiator has a ticket; cadvisor loads no Kerberos library. Drop when the distributions
+      ship a fixed build.
+  - id: CVE-2026-71199
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-01
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      An authenticated Kerberos user can get past an authentication-indicator requirement with an unkeyed
+      checksum in the CAMMAC authorization-data container. That data is read by a KDC, or by an acceptor after
+      it has decrypted a service ticket with its keytab key. Same four images and same check as CVE-2026-107364:
+      no image has a KDC or a keytab, PostgreSQL's GSS acceptor fails at credential acquisition before it reads
+      a ticket, and no Chronicle service authenticates with Kerberos (selfhost/config/postgres-hba.conf has only
+      scram-sha-256 lines), so no authentication-indicator requirement exists to get past. Drop when the
+      distributions ship a fixed build.
+  - id: CVE-2026-40355
+    purls:
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-02
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      ghcr.io/google/cadvisor:v0.60.6 (Alpine 3.23.6, krb5-libs 1.22.1-r0; fixed in 1.22.3-r0). v0.60.6,
+      published 2026-09-18, is still the newest cAdvisor release and tag (GitHub API, 2026-11-12), so there is
+      no newer image to move to. The flaw is a NULL dereference in parse_nego_message when an application calls
+      gss_accept_sec_context on a system with a NegoEx mechanism registered in /etc/gss/mech. Checked 2026-11-12
+      on the linux/amd64 root filesystem: the image has no /etc/gss at all; /usr/bin/cadvisor, the program the
+      service runs (selfhost/overlays/monitoring.yml), needs only libpfm.so.4 and musl; krb5-libs is installed
+      only because libtirpc needs it for the ZFS tools (apk database: krb5-libs is required by libtirpc,
+      libtirpc by zfs-libs, zfs-libs by zfs). Drop when the vendor ships an image with krb5 1.22.3 or newer.
+  - id: CVE-2026-40356
+    purls:
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-02
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      Same image, package and check as CVE-2026-40355 (v0.60.6 still the newest cAdvisor release on 2026-11-12).
+      The flaw is an integer underflow and out-of-bounds read in parse_message, again only when an application
+      calls gss_accept_sec_context with a NegoEx mechanism registered in /etc/gss/mech: the image has no
+      /etc/gss, and /usr/bin/cadvisor loads no Kerberos library. Drop when the vendor ships an image with krb5
+      1.22.3 or newer.
+  - id: CVE-2026-115506
+    purls:
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      DT_NEEDED entries: libexpat.so.1 is needed only by /usr/bin/xmlwf, /usr/bin/dbus-broker-launch,
+      /usr/lib64/libcomps.so.0 and Python 3.9's pyexpat module, and dnf cannot remove it (rpm -q --whatrequires
+      'libexpat.so.1()(64bit)' in a build cut off before rpm's libraries are removed: dbus-broker, libcomps,
+      expat, python3-libs). No entrypoint or script under selfhost/ runs xmlwf, dbus-broker or dnf, and the
+      postgres binary does not load libexpat. Python, by import probe reading /proc/self/maps:
+      chronicle_ops.common, .dump, .images, .receipts, .release, .startup and /selfcheck.py load no pyexpat;
+      restore.sh imports chronicle_ops.verify for one constant, which loads plistlib and so maps libexpat, but
+      the module's only parser call (plistlib.loads, verify.py:327) is in the macOS branch of
+      verify_backup_storage and reads diskutil's output. No document from outside reaches libexpat. Drop when
+      RHEL ships a fixed expat.
+  - id: CVE-2026-112315
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-11-27
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (pinned Percona 18.6.1-4
+      base), Debian 13.7's four krb5 library packages in the fluentbit image (fluent/fluent-bit 5.1.3) and
+      krb5-libs 1.22.1 in ghcr.io/google/cadvisor v0.60.6 (monitoring overlay). No distribution lists a fixed
+      build. The flaw is a memory leak when kadmind fails to decode an RPCSEC_GSS message
+      (lib/rpc/authgss_prot.c, built into libgssrpc). Checked 2026-11-12 on the linux/amd64 images by listing
+      every file and every ELF file's DT_NEEDED entries: no image has krb5kdc, kadmind, kadmin or a keytab. The
+      fluentbit image has no libgssrpc. In the postgres, backup and cAdvisor images libgssrpc.so.4 is on disk as
+      part of krb5-libs, but no program loads it: the only files that need it are libkdb5, libkadm5 and the KDC
+      database plugin db2.so, and no program needs those. The Kerberos packages themselves cannot be removed:
+      postgres, libpq, libcurl and libsasl2 (postgres and backup), libcurl and libpq under fluent-bit, and
+      libtirpc under the ZFS tools (cAdvisor) need libgssapi_krb5.so.2. Drop when the distributions ship a fixed
+      build.
+  - id: CVE-2026-112319
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-11-27
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      kadmind's GSS-RPC layer puts no size limit on XDR-decoded data, so an authenticated kadmin client can
+      exhaust its memory or CPU. Same four images and same check as CVE-2026-112315: the code is in libgssrpc,
+      which no program in these images loads (the fluentbit image does not have it), and no image has kadmind or
+      kadmin. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112320
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-11-27
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      kadmind's GSS-RPC transport keeps the previous authentication context when a client switches from a GSS
+      flavor to a non-GSS flavor on one TCP connection (memory exhaustion). Same four images and same check as
+      CVE-2026-112315: the code is in libgssrpc, which no program in these images loads (the fluentbit image
+      does not have it), and no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112321
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-11-27
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      kadmind's AUTH_GSSAPI handler (lib/rpc/svc_auth_gssapi.c) does not free decoded arguments on some error
+      paths of AUTH_GSSAPI_INIT (memory exhaustion). Same four images and same check as CVE-2026-112315: the
+      code is in libgssrpc, which no program in these images loads (the fluentbit image does not have it), and
+      no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112322
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-11-27
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      clean_client() in lib/rpc/svc_auth_gssapi.c rescans the AUTH_GSSAPI client list from its head after each
+      removal (quadratic CPU in kadmind). Same four images and same check as CVE-2026-112315: the code is in
+      libgssrpc, which no program in these images loads (the fluentbit image does not have it), and no image has
+      kadmind or kadmin. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112323
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-11-27
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      Each failed AUTH_GSSAPI_INIT request leaves client state in kadmind for 15 minutes
+      (lib/rpc/svc_auth_gssapi.c; memory exhaustion). Same four images and same check as CVE-2026-112315: the
+      code is in libgssrpc, which no program in these images loads (the fluentbit image does not have it), and
+      no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112316
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-03
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      xdr_krb5_tl_data() in lib/kadm5/kadm_rpc_xdr.c (libkadm5) does not free partially decoded data when
+      kadmind fails to decode a request from an authenticated client. Same four images and same check as
+      CVE-2026-112315: no image has kadmind or kadmin; the postgres, backup and fluentbit images have no
+      libkadm5 library; the cAdvisor image has libkadm5clnt_mit and libkadm5srv_mit on disk, but no program
+      needs them (only the KDC database plugin db2.so needs libkadm5srv_mit, and no program loads that plugin).
+      Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112317
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-03
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      krb5_ktkdb_get_entry() in lib/kdb/keytab.c (libkdb5, the KDC database keytab) does not free decrypted key
+      material when a check after decryption fails, a memory leak in a KDC or kadmind. Same four images and same
+      check as CVE-2026-112315: no image has krb5kdc or kadmind; the fluentbit image has no libkdb5; in the
+      postgres, backup and cAdvisor images libkdb5.so.10 is on disk as part of krb5-libs, but no program needs
+      it. Drop when the distributions ship a fixed build.
+  - id: CVE-2026-112318
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-03
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      kadmind's policy RPC stubs (kadmin/server/server_stubs.c) dereference a NULL policy name sent by an
+      authenticated client. That file is part of the kadmind program, and none of the four images has kadmind
+      (file listing of the linux/amd64 images, 2026-11-12; same images as CVE-2026-112315). Drop when the
+      distributions ship a fixed build.
+  - id: CVE-2026-118380
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-03
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      An active network attacker can alter the arguments a client sends to an RPC service protected by krb5's
+      RPCSEC_GSS, or make the replies travel in plain text; the service is kadmind and the client is kadmin.
+      Same four images and same check as CVE-2026-112315: the code is in libgssrpc, which no program in these
+      images loads (the fluentbit image does not have it), and no image has kadmind or kadmin. Drop when the
+      distributions ship a fixed build.
+  - id: CVE-2026-71200
+    purls:
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
+      - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
+    expired_at: 2026-12-03
+    owner: uzaira0
+    rechecked: 2026-11-12
+    statement: >-
+      A KDC configured for PKINIT dereferences a NULL pointer on a crafted pre-authentication request. Same four
+      images and same check as CVE-2026-112315: no image has krb5kdc, and none has the pkinit.so plugin (the
+      preauth plugin directories hold spake.so, and in cAdvisor also otp.so and test.so). Drop when the
+      distributions ship a fixed build.
