@@ -19,7 +19,9 @@
 # sandbox's egress proxy (scripts/sandbox/egress-proxy.py) forwards only CONNECT to port 443, and
 # scripts/os-package-pins.py resolves through it (the caller provides /etc/ssl/certs/ca-certificates.crt).
 #
-# On a non-amd64 Ubuntu host the live ports mirror is the only source (snapshot.ubuntu.com has no ports).
+# snapshot.ubuntu.com serves every Ubuntu architecture under /ubuntu/SNAPSHOT/ (its InRelease lists arm64,
+# armhf, ppc64el, riscv64 and s390x beside amd64; there is no /ubuntu-ports/ path, which answers 401), so
+# a ports.ubuntu.com source on a non-amd64 host has the same snapshot as archive.ubuntu.com.
 # The live mirror keeps only the newest version of a package; the snapshot keeps every version. Both
 # are configured, so a pin installs from the live mirror while it is current and from the snapshot
 # once it is not, and the build still works while either service is down. Fails closed: a pin that
@@ -77,19 +79,13 @@ rewrite() {
     -e "s#https?://security\.debian\.org(/debian-security)?/?#$snapshot_url/debian-security/$snapshot/#g" \
     -e "s#https?://(deb|httpredir)\.debian\.org/debian/?#$snapshot_url/debian/$snapshot/#g" \
     -e "s#https?://(archive|security)\.ubuntu\.com/ubuntu/?#$snapshot_url/ubuntu/$snapshot/#g" \
+    -e "s#https?://ports\.ubuntu\.com/ubuntu-ports/?#$snapshot_url/ubuntu/$snapshot/#g" \
     -e "s#^(Types:.*)\$#\\1\\nCheck-Valid-Until: no#" \
     -e "s#^deb (http)#deb [check-valid-until=no] \\1#" "$1"
 }
 lists=/etc/apt/sources.list.d
 for source in /etc/apt/sources.list "$lists"/*.list "$lists"/*.sources; do
   [ -f "$source" ] || continue
-  # snapshot.ubuntu.com keeps no ubuntu-ports (every ports path answers 401), so a source build on a
-  # non-amd64 host installs the exact pins from the live ports mirror alone, under the same exact-version
-  # check below. Resolving has no such source: pins are resolved for the amd64 release images.
-  if [ "$mode" != resolve ] && grep -q 'ports\.ubuntu\.com' "$source"; then
-    echo "apt-install-aged: $source names ubuntu-ports, which has no snapshot; it installs the exact pins from the live mirror only" >&2
-    continue
-  fi
   case "$source" in *.sources) target="$lists/snapshot-$(basename "$source")" ;; *) target="$lists/snapshot-$(basename "$source" .list).list" ;; esac
   rewrite "$source" > "$target"
   [ "$mode" != resolve ] || mv "$source" "$source.live"

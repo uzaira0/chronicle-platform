@@ -502,27 +502,57 @@ class AptHelperTests(unittest.TestCase):
         self.assertTrue(all(uri.startswith('https://snapshot.debian.org/archive/') for uri in uris), uris)
         self.assertIn('Acquire::https::Proxy "http://egress-proxy:3128";', result.stdout)
 
-    def test_ubuntu_ports_install_exact_pins_from_the_live_mirror_and_never_resolve(self):
-        """snapshot.ubuntu.com keeps no ubuntu-ports (HTTP 401 for every ports path, 2026-11-06), so a
-        source build on an arm64 host (the backend builder, deps-sandbox.sh --jdk) installs the exact
-        pins from the live ports mirror, with the same exact-version check; resolving still refuses."""
+    def ubuntu_ports(self, script: str, network: str = 'none') -> subprocess.CompletedProcess:
+        """A shell line in the backend builder's Ubuntu base as linux/arm64, whose sources are ubuntu-ports."""
         base = re.search(r'^FROM (eclipse-temurin:\S+@sha256:[0-9a-f]{64}) AS builder$',
                          (ROOT / 'docker/Dockerfile.backend').read_text(), re.MULTILINE).group(1)
         helper = ROOT / 'selfhost/os-packages/apt-install-aged.sh'
+        return subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/arm64', '--network', network,
+                               '-v', f'{helper}:/h.sh:ro', base, 'sh', '-c', script],
+                              capture_output=True, text=True, timeout=900, check=False)
 
-        def run(*args):
-            return subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/arm64', '--network', 'none',
-                                   '-v', f'{helper}:/h.sh:ro', base, 'sh', '/h.sh', *args],
-                                  capture_output=True, text=True, timeout=600, check=False)
+    def test_ubuntu_ports_sources_get_the_snapshot_archive_beside_the_live_mirror(self):
+        """snapshot.ubuntu.com serves the ports architectures under /ubuntu/<timestamp>/: its InRelease
+        lists arm64, armhf, ppc64el, riscv64 and s390x beside amd64, and only the /ubuntu-ports/ path
+        answers 401 (measured 2026-11-11). So a source build on an arm64 host (the backend builder,
+        deps-sandbox.sh --jdk) has the same two sources as an amd64 one, and a pin the live ports mirror
+        has replaced installs from the snapshot. Leaving the snapshot out there failed the arm64 backend
+        build on 2026-11-11, once ports had replaced libperl5.40=5.40.1-7ubuntu0.3."""
+        sources = 'echo "exit=$?"; grep -h "^URIs:" /etc/apt/sources.list.d/*.sources'
+        snapshot = 'http://snapshot.ubuntu.com/ubuntu/20261023T000000Z/'
 
-        installing = run('ubuntu', '20261023T000000Z', '--add', 'git', '--pin', 'git=1:2.53.0-1ubuntu1.1')
-        self.assertEqual(1, installing.returncode, installing.stderr)
-        self.assertIn('installs the exact pins from the live mirror only', installing.stderr)
-        self.assertNotIn('has no snapshot equivalent', installing.stderr)
-        self.assertIn('git=1:2.53.0-1ubuntu1.1 is in neither the live mirror nor', installing.stderr)  # no network here
-        resolving = run('ubuntu', '20261023T000000Z', '--resolve', 'git')
-        self.assertEqual(1, resolving.returncode, resolving.stderr)
-        self.assertIn('has no snapshot equivalent', resolving.stderr)
+        installing = self.ubuntu_ports('sh /h.sh ubuntu 20261023T000000Z --add git --pin git=1:2.53.0-1ubuntu1.1; ' + sources)
+        self.assertEqual(0, installing.returncode, installing.stderr)
+        self.assertEqual({'http://ports.ubuntu.com/ubuntu-ports/', snapshot},
+                         set(re.findall(r'^URIs: (\S+)', installing.stdout, re.MULTILINE)), installing.stderr)
+        self.assertNotIn('has no snapshot', installing.stderr)
+        # No network here, so neither source has the pin and the exact-version check fails closed.
+        self.assertIn('exit=1', installing.stdout)
+        self.assertIn('git=1:2.53.0-1ubuntu1.1 is in neither the live mirror nor the 20261023T000000Z snapshot',
+                      installing.stderr)
+
+        resolving = self.ubuntu_ports('sh /h.sh ubuntu 20261023T000000Z --resolve git; ' + sources)
+        self.assertEqual(0, resolving.returncode, resolving.stderr)
+        # Resolving sets the live source aside, so nothing newer than the snapshot can be resolved.
+        self.assertEqual({snapshot}, set(re.findall(r'^URIs: (\S+)', resolving.stdout, re.MULTILINE)), resolving.stderr)
+        self.assertIn('exit=1', resolving.stdout)
+        self.assertIn('a snapshot source did not update; not resolving from a partial index', resolving.stderr)
+
+    def test_the_backend_builder_pins_are_the_arm64_snapshot_closure_too(self):
+        """With the network: the arm64 index of the Dockerfile's snapshot resolves the backend builder's
+        --add to exactly the pins the Dockerfile carries. The pins are resolved for the linux/amd64
+        release image; this is what lets the same Dockerfile build from source on an arm64 host."""
+        call = os_packages.helper_calls((ROOT / 'docker/Dockerfile.backend').read_text())[0]
+        self.assertEqual('apt-install-aged.sh', call.helper)
+        distro, snapshot = call.sections['positional']
+        resolving = self.ubuntu_ports(f'sh /h.sh {distro} {snapshot} --resolve ' + ' '.join(call.sections['add']),
+                                      network='bridge')
+        # An unreachable snapshot fails here (the helper refuses a partial index): not checked is not passed.
+        self.assertEqual(0, resolving.returncode, resolving.stderr)
+        for section in ('pin', 'upgrade'):
+            resolved = sorted(line.split(' ', 1)[1] for line in resolving.stdout.splitlines()
+                              if line.startswith(section + ' '))
+            self.assertEqual(sorted(call.sections[section]), resolved, section)
 
 
 if __name__ == '__main__':

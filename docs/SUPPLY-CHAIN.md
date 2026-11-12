@@ -222,9 +222,11 @@ helpers into each image tag. `Dockerfile.deps` uses the Debian Bun image rather 
 because Alpine's index keeps only the newest build: on 2026-11-06 the only libexpat in v3.24
 (2.10.0-r0, under python3 and git) was four days old, so no aged version existed to pin. The JDK
 images resolve against `ARG JDK_IMAGE`'s default, which `deps-sandbox.sh` requires to be
-`docker/Dockerfile.backend`'s builder. `snapshot.ubuntu.com` keeps no `ubuntu-ports` (HTTP 401), so on
-an arm64 host an Ubuntu build installs its exact pins from the live ports mirror alone, under the same
-exact-version check; resolving is for the amd64 release images only.
+`docker/Dockerfile.backend`'s builder. `snapshot.ubuntu.com` serves every architecture under
+`/ubuntu/<timestamp>/` (there is no `/ubuntu-ports/` path; it answers 401), so on an arm64 host an Ubuntu
+build has the same two sources as on amd64: the live ports mirror while a pin is current, the snapshot
+once ports has replaced it. The pins are resolved for the amd64 release images; a test resolves the
+backend builder's against the arm64 index of the same snapshot and requires the same closure.
 
 ### Why these mechanisms (measured 2026-11-06)
 
