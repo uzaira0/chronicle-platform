@@ -10,7 +10,8 @@
 #
 # Delivery: every finding is appended to the local alert log; HIGH/CRITICAL
 # findings also open (or comment on) a GitHub issue labeled `security-alert`
-# in the chronicle-platform repo — the same box→GitHub channel the deploy poller uses.
+# in the private repository ALERT_GH_REPO names (no default, see below) — the same
+# box→GitHub channel the deploy poller uses.
 # Alert bodies carry ONLY counts and thresholds (no log excerpts) per
 # docs/security/production-observability-privacy-contract.md.
 #
@@ -28,7 +29,8 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # ── config ────────────────────────────────────────────────────────────────
 WINDOW="${ALERT_WINDOW:-15m}"                 # docker-logs --since / LogsQL _time window
-# No default. This used to fall back to uzaira0/chronicle-platform, which became a PUBLIC repo --
+# No default. This used to fall back to uzaira0/methodic, which became a PUBLIC repo (renamed
+# uzaira0/chronicle-platform on 2026-11-10) --
 # every 15 minutes this filed an issue naming the host, the container, and the outage
 # window, world-readable. Alert bodies are operational detail by nature, so the
 # destination has to be a deliberate choice: set ALERT_GH_REPO to a PRIVATE repo, or

@@ -107,7 +107,10 @@ def load_checker():
 def promotion_catalog(version):
     """What `gh api --paginate --slurp repos/<public>/releases` returns at promotion: the real
     catalog recorded from the GitHub API on 2026-11-06 (github_releases_api.json, bodies emptied)
-    with the publisher's draft of `version` on top, in the API's own row shape."""
+    with the publisher's draft of `version` on top, in the API's own row shape. The recording
+    named the repository uzaira0/methodic; the rename of 2026-11-10 replaced that name in the
+    file's URLs, which is what the API serves since (on 2026-11-11 the same 14 rows, ids and
+    URLs under the old and the new name)."""
     import copy
     recorded = json.loads((Path(__file__).with_name('github_releases_api.json')).read_text())
     draft = copy.deepcopy(recorded[0])
