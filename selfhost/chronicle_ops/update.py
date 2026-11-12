@@ -331,6 +331,40 @@ def describe(release):
     return repr(release.get('tag_name', '?')) if isinstance(release, dict) else 'entry'
 
 
+# A catalog row built from the releases feed (feed_releases): GitHub lists every tag there.
+FEED_ROW = "from_feed"
+ASSET_PROBE_SECONDS = 60
+
+
+def asset_missing(url):
+    """Whether GitHub answers 404 for a release asset: one request, redirects followed, through
+    the operator's proxy like curl(), nothing kept. A refusal, another status or no answer is not
+    "missing"; only GitHub saying the asset does not exist is."""
+    try:
+        answer = run(["curl", "--silent", "--location", "--proto", "=http,https", "--proto-redir", "=http,https",
+                      "--max-filesize", str(MAX_METADATA_BYTES), "--output", os.devnull, "--write-out", "%{http_code}",
+                      "--connect-timeout", "30", "--max-time", str(ASSET_PROBE_SECONDS), url],
+                     capture=True, quiet=True, timeout=ASSET_PROBE_SECONDS + 30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return (answer.stdout or "").strip() == "404"
+
+
+def tag_without_release(release):
+    """Whether a feed row is a git tag with no release behind it. GitHub's releases feed lists
+    every tag, with or without a release (measured 2026-11-11: torvalds/linux has no release and
+    its feed lists ten tags), and such a tag has no assets: its checksum answers 404. The tag is
+    then skipped with a warning. API rows are releases and are never asked about."""
+    if release.get(FEED_ROW) is not True:
+        return False
+    checksum = release_assets(release, f"chronicle-selfhost-{release['tag_name'].removeprefix('v')}.tar.gz").checksum
+    if not asset_missing(checksum.url):
+        return False
+    warn(f"skipping tag {release['tag_name']!r}: the releases feed lists it, but it has no release "
+         f"({checksum.name} answered 404)")
+    return True
+
+
 def latest_stable_release(releases, require_assets=False):
     candidates = []
     for release in releases:
@@ -346,17 +380,28 @@ def latest_stable_release(releases, require_assets=False):
             warn(f"skipping published release {describe(release)}: {problem}")
         elif stable:
             candidates.append(release)
-    if not candidates:
-        raise ValueError("no published stable releases")
-    return max(candidates, key=lambda release: version_key(release["tag_name"]))
+    # Newest first; a feed row is offered once its release is known to exist (tag_without_release).
+    for release in sorted(candidates, key=lambda release: version_key(release["tag_name"]), reverse=True):
+        if not (require_assets and tag_without_release(release)):
+            return release
+    raise ValueError("no published stable releases")
 
 
 RELEASES_REPOSITORY = "uzaira0/chronicle-platform"
 API_RELEASES_URL = f"https://api.github.com/repos/{RELEASES_REPOSITORY}/releases?per_page={RELEASES_PAGE_SIZE}"
 # The releases feed and download URLs are served without the REST API's 60-requests-an-hour
-# limit for unauthenticated hosts; the feed lists published (never draft) releases.
+# limit for unauthenticated hosts. The feed lists git tags: a published release has one, a draft
+# has none until it is published, and a tag without a release is listed too (tag_without_release).
 FEED_RELEASES_URL = f"https://github.com/{RELEASES_REPOSITORY}/releases.atom"
-FEED_TAG = re.compile(r'href="https://github\.com/' + re.escape(RELEASES_REPOSITORY) + r'/releases/tag/([^"/?#]+)"')
+# The feed as GitHub serves it: the feed's own repository in its alternate link, then one <entry>
+# per release whose <link> to the release comes before its <content>. The owner and name are
+# whatever the feed says: GitHub redirects the feed of a renamed repository and every link in the
+# answer then carries the new name, so a pattern holding RELEASES_REPOSITORY found no release once
+# uzaira0/methodic was renamed (2026-11-10).
+FEED_CDATA = re.compile(r"<!\[CDATA\[.*?\]\]>", re.DOTALL)
+FEED_REPOSITORY = re.compile(r'<link\b[^>]*\bhref="https://github\.com/([^"/?#]+/[^"/?#]+)/releases"')
+FEED_ENTRY = re.compile(r"<entry\b[^>]*>(.*?)</entry>", re.DOTALL)
+FEED_TAG = re.compile(r'<link\b[^>]*\bhref="https://github\.com/[^"/?#]+/[^"/?#]+/releases/tag/([^"/?#]+)"')
 
 
 def catalog_releases(url):
@@ -377,16 +422,31 @@ def catalog_releases(url):
         url = urlunsplit(parts._replace(query=urlencode(query)))
 
 
+def feed_tags(feed):
+    """The tag of each release in the feed, in the feed's order: the link an <entry> carries before
+    its <content>, under the repository the feed names as its own. Release notes are written by
+    whoever publishes and sit in <content>, so nothing from there on and nothing in a CDATA section
+    is read: a link in the notes to another repository's tag is not a release of this one."""
+    feed = FEED_CDATA.sub("", feed)
+    repository = FEED_REPOSITORY.search(feed.partition("<entry")[0])
+    if not repository:
+        raise ValueError("release feed does not name its repository")
+    own = f'"https://github.com/{repository[1]}/releases/tag/'
+    links = (FEED_TAG.search(entry.partition("<content")[0]) for entry in FEED_ENTRY.findall(feed))
+    return list(dict.fromkeys(link[1] for link in links if link and own in link[0]))
+
+
 def feed_releases(url):
     """The same catalog rows the API returns, built from the releases feed: each release's three
-    assets sit at GitHub's fixed download path, and their signature is still verified."""
+    assets sit at GitHub's fixed download path, and their signature is still verified. The path is
+    asked for under RELEASES_REPOSITORY; after a rename GitHub redirects it like the feed itself."""
     feed = curl(url, max_bytes=MAX_CATALOG_BYTES).decode("utf-8", errors="replace")
     releases = []
-    for tag in dict.fromkeys(FEED_TAG.findall(feed)):
+    for tag in feed_tags(feed):
         archive = f"chronicle-selfhost-{tag.removeprefix('v')}.tar.gz"
-        releases.append(dict(tag_name=tag, draft=False, assets=[
+        releases.append({"tag_name": tag, "draft": False, FEED_ROW: True, "assets": [
             dict(name=name, browser_download_url=f"https://github.com/{RELEASES_REPOSITORY}/releases/download/{quote(tag)}/{quote(name)}")
-            for name in (archive, archive + ".sha256", archive + ".sha256.sig")]))
+            for name in (archive, archive + ".sha256", archive + ".sha256.sig")]})
     if not releases:
         raise ValueError("release feed lists no releases")
     return releases

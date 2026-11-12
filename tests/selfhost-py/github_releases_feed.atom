@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xml:lang="en-US">
+  <id>tag:github.com,2008:https://github.com/uzaira0/chronicle-platform/releases</id>
+  <link type="text/html" rel="alternate" href="https://github.com/uzaira0/chronicle-platform/releases"/>
+  <link type="application/atom+xml" rel="self" href="https://github.com/uzaira0/chronicle-platform/releases.atom"/>
+  <title>Release notes from chronicle-platform</title>
+  <updated>2026-11-04T02:41:33Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.11.2</id>
+    <updated>2026-11-04T04:05:17Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.11.2"/>
+    <title>2026.11.2: fix(selfhost): pull pinned image for first-up storage check</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.10.9</id>
+    <updated>2026-10-15T17:38:49Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.9"/>
+    <title>2026.10.9: build(selfhost): review unfixed upstream image findings</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.10.3</id>
+    <updated>2026-10-02T02:38:04Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.3"/>
+    <title>docs: changelog 2026.10.3, compatibility row</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.10.2</id>
+    <updated>2026-10-02T02:38:20Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.2"/>
+    <title>2026.10.2: build: accept shaded jackson-core advisories in hazelcast 5.5.0</title>
+    <content type="html">&lt;p&gt;&lt;strong&gt;Superseded by &lt;a href=&quot;https://github.com/uzaira0/methodic/releases/tag/2026.10.3&quot;&gt;2026.10.3&lt;/a&gt;. Do not install 2026.10.2:&lt;/strong&gt; its configuration check refuses &lt;code&gt;./chronicle up&lt;/code&gt; and updates. Server, dashboard and Android build 67 are the same in 2026.10.3.&lt;/p&gt;</content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.10.1</id>
+    <updated>2026-09-30T23:53:56Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.10.1"/>
+    <title>2026.10.1</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.9.30</id>
+    <updated>2026-09-30T22:04:32Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.30"/>
+    <title>2026.9.30</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.9.29</id>
+    <updated>2026-09-30T20:43:24Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.29"/>
+    <title>2026.9.29: build: jackson 2.22.3 verification checksums</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.9.28</id>
+    <updated>2026-09-28T19:44:07Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.28"/>
+    <title>docs: changelog 2026.9.28, compatibility row</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.9.27</id>
+    <updated>2026-09-28T01:24:29Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.27"/>
+    <title>2026.9.27</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1355605219/2026.9.25</id>
+    <updated>2026-09-25T22:30:48Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.9.25"/>
+    <title>2026.9.25: build: scoped trivy ignore for unreachable shaded jackson</title>
+    <content type="html"></content>
+    <author>
+      <name>uzaira0</name>
+    </author>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/124936575?s=60&amp;v=4"/>
+  </entry>
+</feed>

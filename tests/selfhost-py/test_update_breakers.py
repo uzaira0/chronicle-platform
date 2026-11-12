@@ -338,8 +338,103 @@ class PostureBaselineTests(unittest.TestCase):
         self.assertEqual(['./chronicle verify exited 2 without naming a failed check'], regressions(2, 'Traceback\n', ['a 7 b']))
         self.assertEqual([], regressions(0, '', []))
 
+def releases_feed(tags, repository=None):
+    """A releases feed in GitHub's form: the feed's own repository link, then one entry per tag
+    whose link precedes its (empty) release notes."""
+    repository = repository or updater.RELEASES_REPOSITORY
+    entries = ''.join(f'<entry><link rel="alternate" type="text/html" href="https://github.com/{repository}/releases/tag/{tag}"/>'
+                      f'<title>{tag}</title><content type="html"></content></entry>' for tag in tags)
+    return (f'<feed><link type="text/html" rel="alternate" href="https://github.com/{repository}/releases"/>'
+            f'{entries}</feed>').encode()
+
+
+class FeedTagWithoutReleaseTests(unittest.TestCase):
+    """GitHub's releases feed lists every git tag, with or without a release: on 2026-11-11
+    https://github.com/torvalds/linux/releases.atom listed ten tags while the repository's release
+    list (the API) was empty, and a download path under such a tag answered 404. A stable version
+    tag pushed without a release (a draft's tag, a tag made by hand) is then the newest row of the
+    feed, and selecting it failed the update on its first download. The checksum of a feed row is
+    asked for once before the row is selected; a 404 skips the tag with a warning and the next
+    eligible release is taken. Any other answer leaves the row offered: the download decides."""
+
+    def select(self, answers, tags=('2026.11.9', '2026.11.8', '2026.11.5'), version=None, rows=None):
+        """(selected tag or the error, checksum URLs asked for in order, warnings); answers maps
+        a tag to the status curl prints for its checksum, or to the exception the request raises."""
+        asked = []
+
+        def run(args, **_kwargs):
+            asked.append(args[-1])
+            answer = answers[args[-1].split('/releases/download/')[1].split('/')[0]]
+            if isinstance(answer, BaseException):
+                raise answer
+            return subprocess.CompletedProcess(args, 0, answer, '')
+        with patch('chronicle_ops.update.curl', return_value=releases_feed(tags)), \
+             patch('chronicle_ops.update.run', side_effect=run), \
+             patch('sys.stderr', new_callable=io.StringIO) as errors:
+            try:
+                releases = rows if rows is not None else updater.feed_releases(updater.FEED_RELEASES_URL)
+                chosen = updater.select_release(releases, version)['tag_name']
+            except ValueError as error:
+                chosen = error
+        return chosen, asked, errors.getvalue()
+
+    def checksum(self, tag):
+        return (f'https://github.com/{updater.RELEASES_REPOSITORY}/releases/download/{tag}/'
+                f'chronicle-selfhost-{tag}.tar.gz.sha256')
+
+    def test_a_tag_whose_checksum_answers_404_is_skipped_and_the_next_release_is_selected(self):
+        chosen, asked, warnings = self.select({'2026.11.9': '404', '2026.11.8': '200'})
+        self.assertEqual('2026.11.8', chosen)
+        self.assertEqual([self.checksum('2026.11.9'), self.checksum('2026.11.8')], asked)
+        self.assertIn("skipping tag '2026.11.9'", warnings)
+        self.assertIn('404', warnings)
+        self.assertNotIn('2026.11.8', warnings)
+
+    def test_only_a_404_skips_a_tag(self):
+        for answer in ('200', '403', '429', '503', '000', '', subprocess.CalledProcessError(7, 'curl'),
+                       subprocess.TimeoutExpired('curl', 90), FileNotFoundError(2, 'No such file or directory', 'curl')):
+            with self.subTest(answer=answer):
+                chosen, asked, warnings = self.select({'2026.11.9': answer})
+                self.assertEqual('2026.11.9', chosen)
+                self.assertEqual([self.checksum('2026.11.9')], asked)
+                self.assertEqual('', warnings)
+
+    def test_a_feed_of_tags_without_releases_offers_nothing(self):
+        chosen, asked, _ = self.select(dict.fromkeys(('2026.11.9', '2026.11.8', '2026.11.5'), '404'))
+        self.assertIsInstance(chosen, ValueError)
+        self.assertIn('no published stable releases', str(chosen))
+        self.assertEqual(3, len(asked))
+
+    def test_the_request_follows_redirects_honours_the_proxy_and_keeps_nothing(self):
+        with patch('chronicle_ops.update.run', return_value=subprocess.CompletedProcess([], 0, '404', '')) as run:
+            self.assertTrue(updater.asset_missing(self.checksum('2026.11.9')))
+        arguments = run.call_args.args[0]
+        self.assertEqual(('curl', self.checksum('2026.11.9')), (arguments[0], arguments[-1]))
+        self.assertIn('--location', arguments)
+        self.assertNotIn('--noproxy', arguments)
+        self.assertNotIn('--fail', arguments)  # a 404 must be read as a status, not as curl exit 22
+        self.assertEqual(os.devnull, arguments[arguments.index('--output') + 1])
+        self.assertEqual('%{http_code}', arguments[arguments.index('--write-out') + 1])
+        self.assertIsNotNone(run.call_args.kwargs.get('timeout'))
+
+    def test_api_rows_and_a_requested_version_are_not_asked_about(self):
+        def row(tag):
+            name = f'chronicle-selfhost-{tag}.tar.gz'
+            return dict(tag_name=tag, draft=False, prerelease=False, assets=[
+                dict(name=item, browser_download_url='https://example.org/' + item) for item in (name, name + '.sha256', name + '.sha256.sig')])
+        self.assertEqual(('2026.11.9', []), self.select({}, rows=[row('2026.11.8'), row('2026.11.9')])[:2])
+        self.assertEqual(('2026.11.9', []), self.select({}, version='2026.11.9')[:2])
+
+
 class DownloadPathTests(unittest.TestCase):
     """Discovery and download go through the operator's HTTPS proxy, retry, and fall back to a mirror."""
+
+    def setUp(self):
+        # These cases select from feed rows; whether a row's release exists is asked of GitHub
+        # (FeedTagWithoutReleaseTests), and here every one does.
+        exists = patch('chronicle_ops.update.asset_missing', return_value=False, create=True)
+        exists.start()
+        self.addCleanup(exists.stop)
 
     def test_release_downloads_honour_the_proxy_and_retry_with_backoff(self):
         attempts, sleeps = [], []
@@ -370,10 +465,7 @@ class DownloadPathTests(unittest.TestCase):
         self.assertTrue(all(int(call.args[0][call.args[0].index('--max-time') + 1]) <= 100 for call in run.call_args_list))
 
     def test_discovery_falls_back_from_the_api_to_the_release_feed(self):
-        feed = (b'<feed><entry><link rel="alternate" type="text/html" '
-                b'href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.11.5"/></entry>'
-                b'<entry><link rel="alternate" type="text/html" '
-                b'href="https://github.com/uzaira0/chronicle-platform/releases/tag/2026.11.6-rc.1"/></entry></feed>')
+        feed = releases_feed(['2026.11.5', '2026.11.8-rc.1'], 'uzaira0/chronicle-platform')
         asked = []
         def fetch(url, *_, **__):
             asked.append(url)
@@ -393,18 +485,87 @@ class DownloadPathTests(unittest.TestCase):
                          assets.signature.url)
         self.assertIn('trying the next release source', errors.getvalue())
 
+    def test_the_feed_lists_its_releases_whatever_name_the_repository_has(self):
+        """GitHub redirects a renamed repository's feed, and every link in the answer then carries
+        the new name. uzaira0/methodic became uzaira0/chronicle-platform on 2026-11-10, and an
+        updater that looked for its own repository name in the links found no release.
+        github_releases_feed.atom is what GitHub returned for the old name's feed URL on
+        2026-11-11 (release notes cut to their one line with a link, which is an escaped link to
+        a release under the old name and is not a feed entry)."""
+        recorded = Path(__file__).with_name('github_releases_feed.atom').read_bytes()
+        self.assertEqual(10, recorded.count(b'<entry>'))
+        tags = ['2026.11.2', '2026.10.9', '2026.10.3', '2026.10.2', '2026.10.1',
+                '2026.9.30', '2026.9.29', '2026.9.28', '2026.9.27', '2026.9.25']
+        # As recorded, as the links read before the rename, and as they would after another one.
+        for repository in ('uzaira0/chronicle-platform', 'uzaira0/methodic', 'another-owner/another-name'):
+            feed = recorded.replace(b'https://github.com/uzaira0/chronicle-platform/',
+                                    f'https://github.com/{repository}/'.encode())
+            with self.subTest(links=repository), patch('chronicle_ops.update.curl', return_value=feed):
+                releases = updater.feed_releases(updater.FEED_RELEASES_URL)
+                self.assertEqual(tags, [release['tag_name'] for release in releases])
+                chosen = updater.select_release(releases)
+                self.assertEqual('2026.11.2', chosen['tag_name'])
+                # Assets are asked for under this release's own repository name: GitHub redirects
+                # the download as it redirects the feed, and the signature decides, not the URL.
+                assets = updater.release_assets(chosen, 'chronicle-selfhost-2026.11.2.tar.gz')
+                self.assertEqual(f'https://github.com/{updater.RELEASES_REPOSITORY}/releases/download/2026.11.2/'
+                                 'chronicle-selfhost-2026.11.2.tar.gz', assets.archive.url)
+
+    def test_a_release_is_an_entrys_own_link_under_the_feeds_repository_and_nothing_in_its_notes(self):
+        """Release notes are written by whoever publishes and sit in an entry's <content>. The feed
+        pattern took a tag from any href="https://github.com/<any>/<any>/releases/tag/..." in the
+        document, so a quoted link in raw or CDATA notes to another repository's higher tag was
+        selected as this repository's newest release (9999.1.1 in the review's probe, which then
+        asked for an archive that does not exist). A release is the <link> an <entry> carries
+        before its <content>, under the repository the feed names as its own."""
+        recorded = Path(__file__).with_name('github_releases_feed.atom').read_text()
+        tags = ['2026.11.2', '2026.10.9', '2026.10.3', '2026.10.2', '2026.10.1',
+                '2026.9.30', '2026.9.29', '2026.9.28', '2026.9.27', '2026.9.25']
+        notes = '<content type="html"></content>'
+        self.assertIn(notes, recorded)
+        foreign = 'https://github.com/evil/other/releases/tag/9999.1.1'
+        element = '<link rel="alternate" type="text/html" href="{}"/>'
+        bodies = {
+            'a quoted link in raw notes': f'<content type="html"><a href="{foreign}">x</a></content>',
+            'a quoted link in CDATA notes': f'<content type="html"><![CDATA[<a href="{foreign}">x</a>]]></content>',
+            'a link element in raw notes': f'<content type="html">{element.format(foreign)}</content>',
+            'a link element in CDATA notes': f'<content type="html"><![CDATA[{element.format(foreign)}]]></content>',
+            'an entry opened inside CDATA notes':
+                f'<content type="html"><![CDATA[</content></entry><entry>{element.format(foreign)}<content>]]></content>',
+            'an entry opened inside raw notes':
+                f'<content type="html"></content></entry><entry>{element.format(foreign)}<content type="html"></content>',
+            "a link element in CDATA notes to this repository's own name":
+                '<content type="html"><![CDATA[' + element.format(
+                    'https://github.com/uzaira0/chronicle-platform/releases/tag/9999.1.1') + ']]></content>',
+        }
+        feeds = {name: recorded.replace(notes, body, 1) for name, body in bodies.items()}
+        # The review's probe: a whole entry, first in the feed, that links to another repository.
+        feeds['an entry that links to another repository'] = recorded.replace(
+            '<entry>', f'<entry>{element.format(foreign)}</entry>\n  <entry>', 1)
+        for name, feed in feeds.items():
+            with self.subTest(name), patch('chronicle_ops.update.curl', return_value=feed.encode()):
+                self.assertIn('9999.1.1', feed)
+                releases = updater.feed_releases(updater.FEED_RELEASES_URL)
+                self.assertEqual(tags, [release['tag_name'] for release in releases])
+                self.assertEqual('2026.11.2', updater.select_release(releases)['tag_name'])
+        headless = recorded.replace('<link type="text/html" rel="alternate" href="https://github.com/uzaira0/chronicle-platform/releases"/>', '')
+        self.assertNotEqual(recorded, headless)
+        with patch('chronicle_ops.update.curl', return_value=headless.encode()), \
+             self.assertRaisesRegex(ValueError, 'does not name its repository'):
+            updater.feed_releases(updater.FEED_RELEASES_URL)
+
     def test_discovery_skips_malformed_and_incomplete_releases(self):
         def complete(tag):
             name = f'chronicle-selfhost-{tag}.tar.gz'
             return dict(tag_name=tag, draft=False, prerelease=False, assets=[
                 dict(name=item, browser_download_url='https://example.org/' + item) for item in (name, name + '.sha256', name + '.sha256.sig')])
-        partial = complete('2026.11.7')
+        partial = complete('2026.11.9')
         partial['assets'] = partial['assets'][:2]  # signature not uploaded yet
-        catalog = [complete('2026.11.5'), dict(tag_name='2026.11.8'), dict(tag_name='latest', draft=False, prerelease=False),
+        catalog = [complete('2026.11.5'), dict(tag_name='2026.11.10'), dict(tag_name='latest', draft=False, prerelease=False),
                    partial, 'not a release']
         with patch('sys.stderr', new_callable=io.StringIO) as errors:
             self.assertEqual('2026.11.5', updater.select_release(catalog)['tag_name'])
-        for skipped in ('2026.11.8', 'latest', '2026.11.7'):
+        for skipped in ('2026.11.10', 'latest', '2026.11.9'):
             self.assertIn(skipped, errors.getvalue())
 
     def test_a_malformed_asset_row_skips_that_release_instead_of_stopping_discovery(self):
@@ -412,14 +573,14 @@ class DownloadPathTests(unittest.TestCase):
             name = f'chronicle-selfhost-{tag}.tar.gz'
             return dict(tag_name=tag, draft=False, prerelease=False, assets=[
                 dict(name=item, browser_download_url='https://example.org/' + item) for item in (name, name + '.sha256', name + '.sha256.sig')])
-        broken = complete('2026.11.9')
+        broken = complete('2026.11.11')
         broken['assets'] = [None, *broken['assets']]
-        odd = complete('2026.11.8')
+        odd = complete('2026.11.10')
         odd['assets'] = 'not a list'
         with patch('sys.stderr', new_callable=io.StringIO) as errors:
             self.assertEqual('2026.11.5', updater.select_release([complete('2026.11.5'), broken, odd])['tag_name'])
-        self.assertIn("skipping published release '2026.11.9': malformed release asset list", errors.getvalue())
-        self.assertIn("'2026.11.8'", errors.getvalue())
+        self.assertIn("skipping published release '2026.11.11': malformed release asset list", errors.getvalue())
+        self.assertIn("'2026.11.10'", errors.getvalue())
 
     def test_the_api_and_the_feed_offer_the_same_releases(self):
         """One eligibility rule: the stable tag (carried by the signed manifest), whichever source
@@ -428,15 +589,14 @@ class DownloadPathTests(unittest.TestCase):
             name = f'chronicle-selfhost-{tag}.tar.gz'
             return dict(tag_name=tag, draft=False, prerelease=flag, assets=[
                 dict(name=item, browser_download_url='https://example.org/' + item) for item in (name, name + '.sha256', name + '.sha256.sig')])
-        api = [row('2026.11.5', False), row('2026.11.6', True), row('2026.11.7-rc.1', False)]
-        feed = ''.join(f'<link href="https://github.com/{updater.RELEASES_REPOSITORY}/releases/tag/{tag}"/>'
-                       for tag in ('2026.11.5', '2026.11.6', '2026.11.7-rc.1')).encode()
+        api = [row('2026.11.5', False), row('2026.11.8', True), row('2026.11.9-rc.1', False)]
+        feed = releases_feed(['2026.11.5', '2026.11.8', '2026.11.9-rc.1'])
         with patch('chronicle_ops.update.curl', return_value=feed):
             from_feed = updater.feed_releases(updater.FEED_RELEASES_URL)
         self.assertEqual([release['tag_name'] for release in api if updater.offered(release)],
                          [release['tag_name'] for release in from_feed if updater.offered(release)])
         self.assertEqual(updater.select_release(api)['tag_name'], updater.select_release(from_feed)['tag_name'])
-        self.assertEqual('2026.11.6', updater.select_release(api)['tag_name'])
+        self.assertEqual('2026.11.8', updater.select_release(api)['tag_name'])
 
     def test_a_non_http_release_url_is_never_fetched_and_discovery_falls_back(self):
         asked = []

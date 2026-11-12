@@ -56,8 +56,11 @@ set in the environment of `./chronicle update`; nothing else in the bundle uses 
 download is retried after 1, 2, 4 and 8 seconds within its transfer deadline. Discovery tries
 `CHRONICLE_RELEASES_URL` (when set), then the GitHub API, then the GitHub releases feed, which is
 not subject to the API's hourly limit for unauthenticated hosts; whichever answers, the signature
-check is the same. A published release that is malformed or whose assets are still uploading is
-skipped with a warning, so it never blocks an update to the newest complete release. Every source
+check is the same. The feed is read whatever name the repository has: GitHub redirects a renamed
+repository's feed and downloads, and the links in the feed then carry the new name. A published release that is malformed or whose assets are still uploading is
+skipped with a warning, so it never blocks an update to the newest complete release. The feed also
+lists git tags that have no release; before a release found in the feed is selected its checksum is
+asked for once, and a tag whose checksum GitHub answers with 404 is skipped the same way. Every source
 offers the same releases: a published release whose tag is a stable version (no `-rc`-style
 suffix), which is the version its signed manifest must carry.
 
