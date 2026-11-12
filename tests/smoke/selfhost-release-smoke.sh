@@ -939,7 +939,19 @@ postgres_query() {
     'PGPASSWORD="${POSTGRES_PASSWORD:-$(cat "$POSTGRES_PASSWORD_FILE")}" psql -X -qAt -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT marker FROM release_smoke_sentinel WHERE id = 1;"'
 }
 keyring_path=/var/lib/postgresql/tde-keyring/chronicle-keyring.per
-docker compose stop backend db-backup postgres >/dev/null
+# Take the database offline the way restore does: every service but postgres
+# (chronicle_ops.common.application_services). Stopping only backend left web running against it;
+# web's health check failed for longer than its retries allow, and `up --wait` below then refused
+# the unhealthy web although the backend had recovered.
+configured_services="$(docker compose config --services)" && [[ -n "$configured_services" ]] ||
+  fail "could not list the configured services"
+offline_services=()
+while IFS= read -r service; do offline_services+=("$service"); done < <(
+  PYTHONPATH=. python3 -c \
+    'import sys; from chronicle_ops.common import application_services; print("\n".join(application_services(sys.argv[1].split())))' \
+    "$configured_services")
+[[ " ${offline_services[*]} " == *" web "* ]] || fail "the application services to stop do not include web: ${offline_services[*]}"
+docker compose stop "${offline_services[@]}" postgres >/dev/null
 docker compose run --rm --no-deps --entrypoint /bin/sh postgres -ceu "mv '$keyring_path' '$keyring_path.smoke-aside'" \
   || fail "could not move the keyring aside"
 docker compose start postgres >/dev/null 2>&1 || true
