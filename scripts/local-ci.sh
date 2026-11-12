@@ -1186,7 +1186,8 @@ job_dockerfile_lint() {
   local target
   while IFS= read -r target; do
     [[ "${target##*/}" == Dockerfile* ]] || continue
-    hadolint "$target" || return $?
+    # Named, because Hadolint looks for .hadolint.yaml in the working directory only.
+    hadolint --config "$ROOT_DIR/.hadolint.yaml" "$target" || return $?
   done < <(deployment_files)
 }
 

@@ -64,7 +64,9 @@ run_hadolint_scan() {
   local report="$2"
   local status=0
   command -v hadolint >/dev/null 2>&1 || return 127
-  hadolint --format sarif "$dockerfile" >"$report" || status=$?
+  # Named, because Hadolint looks for .hadolint.yaml in the working directory only: started from
+  # another directory it used its default threshold and failed on note-level results.
+  hadolint --config "$ROOT_DIR/.hadolint.yaml" --format sarif "$dockerfile" >"$report" || status=$?
   validate_sarif "$report" || return 2
   return "$status"
 }

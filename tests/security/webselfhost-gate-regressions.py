@@ -97,6 +97,32 @@ conftest() { scanner "$@"; }; checkov() { scanner "$@"; }
                 self.assertNotEqual(run().returncode,0,name)
                 p.write_text('clean')
 
+    def test_hadolint_gates_name_the_repository_configuration(self):
+        # Hadolint reads .hadolint.yaml from the working directory only. Started from any other directory, both
+        # gates ran it with its default threshold and reported the note-level DL3066 and SC2015 in
+        # selfhost/Dockerfile.caddy and selfhost/Dockerfile.grafana as findings.
+        gates = '\n'.join([function('tests/security/run-all-security.sh', 'run_hadolint_scan')] +
+                          [function('scripts/local-ci.sh', name) for name in ('deployment_files', 'job_dockerfile_lint')])
+        with tempfile.TemporaryDirectory() as d:
+            fixture, elsewhere = Path(d) / 'repository', Path(d) / 'elsewhere'
+            (fixture / 'selfhost').mkdir(parents=True)
+            elsewhere.mkdir()
+            (fixture / 'selfhost/Dockerfile.caddy').write_text('FROM scratch\n')
+            stub = '''set -euo pipefail
+ensure_hadolint() { :; }; validate_sarif() { :; }
+hadolint() { printf '%s\\n' "$*" >>"$CALLS"; }
+'''
+            calls = Path(d) / 'calls'
+            result = subprocess.run(
+                ['bash', '-c', stub + gates + '\nrun_hadolint_scan "$ROOT_DIR/selfhost/Dockerfile.caddy" "$CALLS.sarif"\njob_dockerfile_lint\n'],
+                env={**os.environ, 'ROOT_DIR': str(fixture), 'CALLS': str(calls)}, cwd=elsewhere, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            seen = calls.read_text().splitlines()
+            self.assertEqual(len(seen), 2, seen)
+            for call in seen:
+                self.assertIn(f'--config {fixture}/.hadolint.yaml ', call)
+                self.assertTrue(call.endswith(f'{fixture}/selfhost/Dockerfile.caddy'), call)
+
     def test_W63_local_requests_have_absolute_deadlines(self):
         source=(ROOT/'scripts/local-ci.sh').read_text()
         # Every actual curl call must bound the transfer as well as the connection.
