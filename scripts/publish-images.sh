@@ -364,6 +364,21 @@ if [[ -z "$dry_run" ]]; then
     echo 'error: GHCR_TOKEN is unset; export a dedicated token with only write:packages' >&2
     exit 1
   }
+  # A release is named for the day it is cut and published: YYYY.M.D, one bundle per calendar day
+  # (CHANGELOG.md). On 2026-11-12 the release prepared since 2026-11-06 was still called by that
+  # date. A cut under a calendar version of this year or a neighbouring one that is not today's date
+  # stops here, before anything is read, built or pushed. --dry-run and --promote take any name: a
+  # rehearsal runs nothing, and a promotion also records a release published on an earlier day.
+  # A version that is not such a date (a test's 9999.1.1) is not a release name.
+  if [[ "$release" =~ ^v?([0-9]{4})\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+    today=$(date +%Y.%-m.%-d)
+    if (( 10#${BASH_REMATCH[1]} >= ${today%%.*} - 1 && 10#${BASH_REMATCH[1]} <= ${today%%.*} + 1 )) &&
+       [[ "${release#v}" != "$today" ]]; then
+      printf 'error: a release is named for the day it is cut and published; today is %s, not %s.\n' "$today" "${release#v}" >&2
+      printf 'Rename it first: the CHANGELOG.md heading and each version cut-off in docs, comments and tests.\n' >&2
+      exit 1
+    fi
+  fi
   [[ -f "$release_signing_key" ]] || {
     echo 'error: release signing key is missing; set CHRONICLE_RELEASE_SIGNING_KEY or install the default release-signing-key' >&2
     exit 1

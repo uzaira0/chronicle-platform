@@ -980,5 +980,59 @@ class ExistingReleaseTagTests(PromotionFixture):
         self.assertIn(VERIFY_SOURCE_REACHED, result.stderr, result.stdout + result.stderr)
 
 
+class ReleaseNamedForTheDayOfTheCutTests(unittest.TestCase):
+    """A release is named for the day it is cut and published: YYYY.M.D, one bundle per calendar day
+    (CHANGELOG.md). On 2026-11-12 the release prepared since 2026-11-06 was still called by that
+    earlier date. A cut under a calendar version of this year or a neighbouring one that is not
+    today's date stops right after the token check, before anything is read, built or pushed.
+
+    Each cut here has a token that is none and a signing key path that does not exist, so a cut that
+    passes the name check stops at the next line of the script, the missing signing key."""
+
+    NO_KEY = 'release signing key is missing'
+
+    @staticmethod
+    def name(day):
+        return f'{day.year}.{day.month}.{day.day}'
+
+    def run_script(self, *arguments):
+        env = {**os.environ, 'GHCR_TOKEN': 'not-a-token', 'CHRONICLE_RELEASE_SIGNING_KEY': '/nonexistent/release-signing-key'}
+        return subprocess.run([modern_bash(), str(ROOT / 'scripts/publish-images.sh'), *arguments],
+                              capture_output=True, text=True, timeout=120, env=env)
+
+    def test_a_cut_under_another_days_date_is_refused(self):
+        today = datetime.date.today()
+        for label, day in (('yesterday', today - datetime.timedelta(days=1)), ('six days ago', today - datetime.timedelta(days=6)),
+                           ('tomorrow', today + datetime.timedelta(days=1))):
+            with self.subTest(label):
+                cut = self.run_script(self.name(day))
+                if datetime.date.today() != today:
+                    self.skipTest('the date changed while the test ran')
+                self.assertEqual(1, cut.returncode, cut.stdout + cut.stderr)
+                self.assertIn(f'today is {self.name(today)}, not {self.name(day)}', cut.stderr)
+                self.assertNotIn(self.NO_KEY, cut.stderr)
+
+    def test_a_cut_under_todays_date_passes_the_name_check(self):
+        today = datetime.date.today()
+        cut = self.run_script(self.name(today))
+        if datetime.date.today() != today:
+            self.skipTest('the date changed while the test ran')
+        self.assertEqual(1, cut.returncode, cut.stdout + cut.stderr)
+        self.assertIn(self.NO_KEY, cut.stderr)
+        self.assertNotIn('named for the day', cut.stderr)
+
+    def test_a_version_that_is_not_a_date_near_today_is_not_a_release_name(self):
+        cut = self.run_script(VERSION)
+        self.assertIn(self.NO_KEY, cut.stderr)
+        self.assertNotIn('named for the day', cut.stderr)
+
+    def test_a_rehearsal_takes_any_name(self):
+        """tests/security/selfhost-release-bundle.sh rehearses under the newest CHANGELOG heading on
+        every later day."""
+        plan = self.run_script(self.name(datetime.date.today() - datetime.timedelta(days=6)), '--dry-run')
+        self.assertEqual(0, plan.returncode, plan.stderr)
+        self.assertIn('gh release create ', plan.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()
