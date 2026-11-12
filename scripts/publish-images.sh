@@ -3,6 +3,11 @@
 # trivy, syft, gitleaks, rg, jq, initialized source submodules, a public root remote named public, and GHCR_TOKEN:
 # a dedicated token with only write:packages (never the operator's general gh token). Run from the
 # main session under CAP_MEM=12G cap: CAP_MEM=12G cap scripts/publish-images.sh <release>
+# <release> alone cuts a draft and records nothing; it refuses a tag that already has a release, draft
+# or public (remove a stale draft yourself: gh release delete <tag> --repo <repository>).
+# --promote <smoke-result.txt> publishes the draft,
+# then fetches its tag and records it in selfhost/published-migrations.json; commit that file.
+# --promote on a release that is already public publishes nothing: it verifies the bundle and records it.
 set -euo pipefail
 
 [[ $# -eq 1 || ( $# -eq 2 && ${2:-} == --dry-run ) ||
@@ -22,25 +27,137 @@ ghcr_token=${GHCR_TOKEN:-}
 unset GHCR_TOKEN
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 release_verify_key=${CHRONICLE_RELEASE_VERIFY_KEY:-$root/selfhost/release-signing.pub}
+
+# The published releases at or above the upgrade floor that selfhost/published-migrations.json has
+# no entry for, one tag per line. $1: `gh api --paginate --slurp repos/<repository>/releases`.
+unrecorded_publications() {
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c '
+import json, sys
+from chronicle_ops.migrations import unrecorded_publications
+print("\n".join(unrecorded_publications(sys.argv[1], [row for page in json.load(sys.stdin) for row in page])))
+' "$root" <<<"$1"
+}
+
+# The ledger stops a release from changing or dropping a migration that a published release shipped,
+# for the releases recorded in it. A release whose promotion published it and then failed to record
+# it is invisible to that check, so nothing is cut or published while one exists.
+# $1: the release list as above; $2: what this refusal left undone.
+require_recorded_publications() {
+  local unrecorded tag
+  unrecorded=$(unrecorded_publications "$1") || {
+    echo "error: GitHub's release list could not be compared with selfhost/published-migrations.json (the reason is above); $2" >&2
+    return 1
+  }
+  [[ -n "$unrecorded" ]] || return 0
+  {
+    while IFS= read -r tag; do
+      printf 'error: %s has published %s, and selfhost/published-migrations.json does not record it.\n' "$public_repo" "$tag"
+    done <<<"$unrecorded"
+    printf 'That file is what stops a release from changing or dropping a migration that a published release shipped,\n'
+    printf 'and it checks only the releases recorded in it; %s.\n' "$2"
+    printf 'If another checkout has recorded the release, bring that commit here. Otherwise record it with the command\n'
+    printf 'below: on a release that is already public it publishes nothing, downloads the bundle, verifies it against\n'
+    printf 'its smoke result and writes the entry. Then commit selfhost/published-migrations.json.\n'
+    while IFS= read -r tag; do
+      printf '  scripts/publish-images.sh %s --promote <smoke-result.txt>\n' "$tag"
+    done <<<"$unrecorded"
+  } >&2
+  return 1
+}
+
+# true while the release is a draft, false once GitHub has published it.
+release_is_draft() { gh release view "$release" --repo "$public_repo" --json isDraft -q .isDraft; }
+
+# Publish the draft whose verified bundle is $candidate_dir/$name. Returns once GitHub says the
+# release is public; exits when it was not published or GitHub does not say.
+publish_draft() {
+  local catalog discovery latest now
+  catalog=$(gh api --paginate --slurp "repos/$public_repo/releases")
+  # The ledger check before this compared the release with the recorded releases only.
+  require_recorded_publications "$catalog" 'nothing was published' || exit 1
+  # Installed servers discover updates with their own updater; 2026.11.2's refuses the whole catalog
+  # for one row it cannot parse. Run each supported release's discovery on the catalog as it will be,
+  # and the downloaded bundle's own updater on the catalog and on the releases feed GitHub serves now
+  # (a candidate bundle built before the repository was renamed could not list a release from it).
+  # Each installed release's own release-list address must also still answer with this repository:
+  # 2026.11.2 asks under uzaira0/methodic, which GitHub redirects only while nothing else takes that
+  # name (docs/GIT-WORKFLOW.md, "The public repository's former name").
+  discovery=0
+  PYTHONDONTWRITEBYTECODE=1 python3 "$root/scripts/check-release-discovery.py" "$release" --bundle "$candidate_dir/$name" <<<"$catalog" || discovery=$?
+  if ((discovery == 75)); then
+    # The checker asked GitHub without credentials and got no answer to judge: a rate-limit
+    # refusal, a failed connection, a server error. Its lines above name which.
+    echo 'error: the discovery check could not be completed; nothing was published, and the promotion can be run again' >&2
+    exit 1
+  elif ((discovery)); then
+    echo 'error: an installed release, or this bundle itself, would not discover this release; nothing was published' >&2
+    exit 1
+  fi
+  latest=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c '
+import json,sys
+from chronicle_ops.update import is_stable_release, latest_stable_release, version_key
+candidate = sys.argv[1]
+releases = [release for page in json.load(sys.stdin) for release in page]
+stable = [release for release in releases if not release.get("draft") and not release.get("prerelease")]
+print(str(is_stable_release(candidate) and (not stable or version_key(candidate) >= version_key(latest_stable_release(stable)["tag_name"]))).lower())
+' "$release" <<<"$catalog")
+  if ! gh release edit "$release" --repo "$public_repo" --draft=false --latest="$latest"; then
+    # gh can report a failure for an edit that GitHub applied: the connection is lost after the
+    # request was accepted. Ask GitHub what the release is now and go on from its answer alone.
+    now=$(release_is_draft) || now=unknown
+    case "$now" in
+      false)
+        printf 'gh release edit reported a failure, but %s is public on %s: GitHub applied the edit. Recording it.\n' "$release" "$public_repo" >&2 ;;
+      true)
+        echo "error: gh release edit failed and $release is still a draft on $public_repo; nothing was published, and the promotion can be run again" >&2
+        exit 1 ;;
+      *)
+        {
+          printf 'error: gh release edit failed, and GitHub did not say whether %s is public now (both answers are above).\n' "$release"
+          printf 'Run the same promotion again. It asks GitHub first: a release that is still a draft is published and\n'
+          printf 'recorded, and one that is already public is verified and recorded without being published again.\n'
+          printf '  scripts/publish-images.sh %s --promote %q\n' "$release" "$smoke_result"
+        } >&2
+        exit 1 ;;
+    esac
+  fi
+}
+
 if [[ "$dry_run" == --promote ]]; then
-  public_repo=$(git -C "$root" remote get-url public)
-  [[ $(gh release view "$release" --repo "$public_repo" --json isDraft -q .isDraft) == true ]] || {
-    echo 'error: promotion requires a draft release' >&2
+  smoke_result=$3
+  # Every gh release call names the repository as GitHub calls it now. The public remote can
+  # still carry a name from before a rename (uzaira0/methodic until 2026-11-10); GitHub redirects
+  # reads of it, and a write must not depend on that redirect.
+  public_remote=$(git -C "$root" remote get-url public)
+  public_repo=$(gh repo view "$public_remote" --json nameWithOwner -q .nameWithOwner)
+  # A draft is published and then recorded. A release that is already public is only recorded: an
+  # earlier promotion can have published it without writing its entry (GitHub applied the edit and
+  # gh lost the connection, or the tag fetch or the ledger write failed afterwards).
+  is_draft=$(release_is_draft) || {
+    echo "error: gh could not read release $release on $public_repo (its answer is above); a release that does not exist yet is cut first: scripts/publish-images.sh $release" >&2
+    exit 1
+  }
+  [[ "$is_draft" == true || "$is_draft" == false ]] || {
+    echo "error: gh did not say whether $release is a draft (it answered: $is_draft)" >&2
     exit 1
   }
   candidate_dir=$(mktemp -d)
   trap 'rm -rf -- "$candidate_dir"' EXIT
   name="chronicle-selfhost-${release#v}.tar.gz"
+  # The manifest of the bundle being promoted, kept outside the temporary directory: the ledger is
+  # written from it after publication, and the commands printed if that fails name it.
+  promoted_manifest="$root/build/releases/chronicle-selfhost-${release#v}.promoted-manifest.json"
   gh release download "$release" --repo "$public_repo" --dir "$candidate_dir" \
     --pattern "$name" --pattern "$name.sha256" --pattern "$name.sha256.sig"
-  python3 - "$root" "$candidate_dir/$name" "$3" "$release_verify_key" "$public_repo" "$release" <<'PY_PROMOTE'
+  python3 - "$root" "$candidate_dir/$name" "$smoke_result" "$release_verify_key" "$public_remote" "$release" "$promoted_manifest" <<'PY_PROMOTE'
 from pathlib import Path
+import json
 import os
 import runpy
 import sys
 import tarfile
 root, archive, result, verify_key = map(Path, sys.argv[1:5])
-public_repo, release = sys.argv[5:]
+public_remote, release, kept = sys.argv[5:]
 builder = runpy.run_path(str(root / 'scripts/build-selfhost-release.py'))
 checksum = Path(str(archive) + '.sha256')
 builder['verify_release_signature'](checksum, Path(str(checksum) + '.sig'), verify_key)
@@ -51,25 +168,56 @@ with tarfile.open(archive, 'r:gz') as source:
     manifest = builder['archive_manifest'](source)
 if manifest['release_version'] != release.removeprefix('v'):
     builder['fail']('candidate release version does not match the promotion tag')
-builder['require_public_release_tag'](public_repo, release, manifest.get('public_revision', ''))
+builder['require_public_release_tag'](public_remote, release, manifest.get('public_revision', ''))
+Path(kept).parent.mkdir(parents=True, exist_ok=True)
+Path(kept).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
 PY_PROMOTE
-  catalog_repo=$(gh repo view "$public_repo" --json nameWithOwner -q .nameWithOwner)
-  catalog=$(gh api --paginate --slurp "repos/$catalog_repo/releases")
-  # Installed servers discover updates with their own updater; 2026.11.2's refuses the whole catalog
-  # for one row it cannot parse. Run each supported release's discovery on the catalog as it will be.
-  PYTHONDONTWRITEBYTECODE=1 python3 "$root/scripts/check-release-discovery.py" "$release" <<<"$catalog" || {
-    echo 'error: an installed release would not discover this release; nothing was published' >&2
+  # A release the ledger cannot take (it changed or dropped a migration that a published release
+  # shipped) is refused while it is still a draft. After publication only the write itself can fail.
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -m chronicle_ops.migrations --check "$root" "$promoted_manifest" || {
+    if [[ "$is_draft" == true ]]; then
+      echo 'error: selfhost/published-migrations.json cannot record this release; nothing was published' >&2
+    else
+      echo "error: $release is public on $public_repo and selfhost/published-migrations.json cannot record it (the reason is above)" >&2
+    fi
     exit 1
   }
-  latest=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c '
-import json,sys
-from chronicle_ops.update import is_stable_release, latest_stable_release, version_key
-candidate = sys.argv[1]
-releases = [release for page in json.load(sys.stdin) for release in page]
-stable = [release for release in releases if not release.get("draft") and not release.get("prerelease")]
-print(str(is_stable_release(candidate) and (not stable or version_key(candidate) >= version_key(latest_stable_release(stable)["tag_name"]))).lower())
-' "$release" <<<"$catalog")
-  gh release edit "$release" --repo "$public_repo" --draft=false --latest="$latest"
+  if [[ "$is_draft" == true ]]; then
+    publish_draft
+    outcome="$release is published."
+  else
+    outcome="$release was already public on $public_repo."
+  fi
+  # The release is public from here, and only now is it recorded in selfhost/published-migrations.json,
+  # from the manifest of the bundle that was promoted. A draft is not a publication: it can be replaced
+  # or deleted, and GitHub creates its tag only when it publishes it. The release builder reads each
+  # recorded release's Dockerfile.postgres and docker-compose.yml from refs/tags/<version> in this
+  # repository (chronicle_ops/migrations.py), so that one tag is fetched before the entry is written.
+  ledger="$root/selfhost/published-migrations.json"
+  ledger_before=''
+  [[ ! -f "$ledger" ]] || ledger_before=$(cksum <"$ledger")
+  fetch_tag=(git -C "$root" fetch --no-tags public "refs/tags/$release:refs/tags/${release#v}")
+  record=(env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -m chronicle_ops.migrations "$root" "$promoted_manifest")
+  if ! { "${fetch_tag[@]}" && "${record[@]}"; }; then
+    fetch_line=$(printf '%q ' "${fetch_tag[@]}") record_line=$(printf '%q ' "${record[@]}")
+    {
+      printf 'error: %s is published on %s, but this checkout has not recorded it (the error is above).\n' "$release" "$public_repo"
+      printf 'The release is public and complete. What is missing is its entry in selfhost/published-migrations.json\n'
+      printf 'and its tag in this repository. Until the entry is committed no release is cut or published from here,\n'
+      printf 'because a release could change or drop a migration that %s shipped without a check failing.\n' "$release"
+      printf 'Correct what the error names. Then run the same promotion again (on a public release it publishes nothing:\n'
+      printf 'it verifies the bundle and records it), or run these two commands; then commit selfhost/published-migrations.json:\n'
+      printf '  %s\n' "${fetch_line% }" "${record_line% }"
+    } >&2
+    exit 1
+  fi
+  if [[ "$(cksum <"$ledger")" != "$ledger_before" ]]; then
+    printf '%s Commit selfhost/published-migrations.json, which now records it, before building another release.\n' "$outcome"
+  elif [[ "$is_draft" == true ]]; then  # a draft when this run started: this run published it
+    printf '%s selfhost/published-migrations.json already recorded it, so that file has nothing new to commit.\n' "$outcome"
+  else
+    printf '%s is public on %s and selfhost/published-migrations.json already records it; nothing was changed.\n' "$release" "$public_repo"
+  fi
   exit
 fi
 release_signing_key=${CHRONICLE_RELEASE_SIGNING_KEY:-$HOME/.config/chronicle/release-signing-key}
@@ -80,7 +228,7 @@ image_signing_key=${CHRONICLE_IMAGE_SIGNING_KEY:-$HOME/.config/chronicle/image-s
 image_verify_key="$root/selfhost/image-signing.pub"
 # capture assigns these variables by name, including symbolic values in dry runs.
 login='' revision='' epoch='' backend_digest='' frontend_digest='' caddy_digest='' backup_digest='' postgres_digest='' grafana_digest='' fluentbit_digest=''
-public_repo='' notes_dir='' public_revision='' sbom_output='' release_key_fingerprint='' dependency_base=''
+public_remote='' public_repo='' release_list='' notes_dir='' public_revision='' sbom_output='' release_key_fingerprint='' dependency_base=''
 inputs_tree='' inputs_tree_label='' trivy_reports='' attestations=''
 
 run() {
@@ -161,6 +309,52 @@ write_json(target, dict(sourceRevision=revision, status="passed", artifacts={
 PY_SCA_EVIDENCE
 )
 
+# `gh release create --draft` does not look for a release that already has the tag (gh 2.103.0 makes
+# that lookup only for a release that is not a draft, pkg/cmd/release/create/create.go), and a draft
+# holds no git tag that GitHub could refuse. A second cut of one version would leave two drafts under
+# the tag; `gh release view`, `download` and `edit` then act on the one draft GitHub returns for it
+# (pkg/cmd/release/shared/fetch.go), and no GitHub document says which. Promotion could verify one
+# bundle and publish another. So a cut needs a tag that no release has, draft or public.
+# $1: GitHub's release list. A stale draft is removed by the person running the cut, never here.
+require_unused_release_tag() {
+  python3 -c '
+import json, sys
+release, repository = sys.argv[1:]
+rows = [row for page in json.load(sys.stdin) for row in page if isinstance(row, dict)]
+same = [row for row in rows if str(row.get("tag_name", "")).removeprefix("v") == release.removeprefix("v")]
+drafts = [row for row in same if row.get("draft")]
+lines = []
+for row in same:
+    tag, url = row.get("tag_name"), row.get("html_url")
+    if not row.get("draft"):
+        lines += [f"error: {repository} has already published {tag} ({url}).",
+                  "A published release is never cut again or replaced: servers and selfhost/published-migrations.json",
+                  "hold it as it is. Cut the next version."]
+if drafts:
+    count = "a draft release" if len(drafts) == 1 else f"{len(drafts)} draft releases"
+    tag = drafts[0].get("tag_name")
+    urls = ", ".join(str(row.get("html_url")) for row in drafts)
+    last = "and publish another. If the draft is stale, remove it yourself and cut again; this script deletes no release"
+    lines += [f"error: {repository} already has {count} tagged {tag} ({urls}).",
+              "gh release create --draft would add another draft under the same tag, and gh release view, download and",
+              "edit would then act on whichever of them GitHub returns for the tag: a promotion could verify one bundle",
+              last + (":" if len(drafts) == 1 else " (run the command once for each draft):"),
+              *dict.fromkeys("  gh release delete " + str(row.get("tag_name")) + " --repo " + repository for row in drafts)]
+if lines:
+    print("\n".join([*lines, "Nothing was built or pushed."]), file=sys.stderr)
+    sys.exit(1)
+' "$release" "$public_repo" <<<"$1"
+}
+
+# A cut starts only on a tag no release has and when every published release is recorded.
+# $1: GitHub's release list.
+require_cut_allowed() {
+  local allowed=0
+  require_unused_release_tag "$1" || allowed=1
+  require_recorded_publications "$1" 'nothing was built or pushed' || allowed=1
+  return "$allowed"
+}
+
 run cd "$root"
 capture revision git rev-parse HEAD
 capture inputs_tree_label env PYTHONPATH="$root/selfhost" python3 -c 'from chronicle_ops.images import INPUTS_TREE_LABEL; print(INPUTS_TREE_LABEL)'
@@ -208,15 +402,22 @@ builder = runpy.run_path(sys.argv[2])
 builder["require_changelog"](Path(sys.argv[2]).resolve().parents[1] / "CHANGELOG.md", version)
 PY
 fi
+# What the public repository holds now, before anything is verified, downloaded, built or pushed.
+# These are the first requests of a cut: the token, the keys, the tools, the clean tree and the
+# changelog entry above are checked without asking GitHub anything. The repository is named as
+# GitHub calls it today (see the promotion path above).
+capture public_remote git remote get-url public
+capture public_repo gh repo view "$public_remote" --json nameWithOwner -q .nameWithOwner
+capture release_list gh api --paginate --slurp "repos/$public_repo/releases"
+run require_cut_allowed "$release_list"
 # Verify all filtered source trees, including submodules, before registry side effects.
 release_signer=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c \
   'from chronicle_ops.release import RELEASE_SIGNER; print(RELEASE_SIGNER)')
 capture public_revision bash "$root/scripts/publish.sh" verify-source
-capture public_repo git remote get-url public
 run python3 -c '
 import runpy, sys
 runpy.run_path(sys.argv[1])["require_public_release_tag"](*sys.argv[2:])
-' "$root/scripts/build-selfhost-release.py" "$public_repo" "$release" "$public_revision"
+' "$root/scripts/build-selfhost-release.py" "$public_remote" "$release" "$public_revision"
 # Every pin changed since the last published source must be past its wait (docs/SUPPLY-CHAIN.md):
 # 7 days routine, 14 major, 3 security, or an entry in dependency-exceptions.toml. Any OSV MAL- fails.
 stamp 'dependency age gate'
@@ -493,9 +694,9 @@ release_flags=(--draft --latest=false)
 [[ "$release" != *-* ]] || release_flags+=(--prerelease)
 run gh release create "$release" --repo "$public_repo" --target "$public_revision" \
   "$bundle" "$bundle.sha256" "$bundle.sha256.sig" "$sca_evidence" "${sbom_assets[@]}" --notes-file "$notes_dir/notes.md" "${release_flags[@]}"
-run env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -m chronicle_ops.migrations \
-  "$root" "${bundle%.tar.gz}/release-manifest.json"
-printf 'Commit selfhost/published-migrations.json before building another release.\n'
+# Nothing is recorded here: a draft is not a publication. --promote writes the ledger once the
+# release is public (see the promotion path above).
+printf '%s is a draft, not a publication. After the smoke drill, scripts/publish-images.sh %s --promote <smoke-result.txt> publishes it and records it in selfhost/published-migrations.json.\n' "$release" "$release"
 if [[ -n "$dry_run" ]]; then
   run rm -rf -- "$notes_dir"
 fi

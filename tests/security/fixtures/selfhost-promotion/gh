@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# One line per invocation, arguments separated by tabs, for tests that check what was asked of gh.
+[[ -z "${GH_CALLS:-}" ]] || (IFS=$'\t'; printf '%s\n' "$*" >>"$GH_CALLS")
+# The release is a draft until an edit that publishes it has been applied ($PROMOTED holds that
+# edit's arguments). GH_EDIT_FAILS makes `gh release edit` exit non-zero:
+#   refused  GitHub did not apply the edit; the release is still a draft
+#   applied  GitHub applied it and the connection was lost before gh had the answer
+#   unknown  as applied, and GitHub cannot be asked afterwards either ($ASSETS/gh-offline, which
+#            the test removes when "the network is back")
 case "$1 $2" in
   'release view')
-    [[ "$*" != *isDraft* ]] || printf 'true\n' ;;
+    if [[ -e "$ASSETS/gh-offline" ]]; then
+      echo 'gh: error connecting to api.github.com' >&2
+      exit 1
+    fi
+    if [[ "$*" == *isDraft* ]]; then
+      if [[ -e "$PROMOTED" ]]; then printf 'false\n'; else printf 'true\n'; fi
+    fi ;;
   'release download')
     tag=$3
     destination=''
@@ -14,6 +28,17 @@ case "$1 $2" in
     cp "$ASSETS/chronicle-selfhost-${tag#v}.tar.gz"* "$destination/" ;;
   'repo view') printf 'example/chronicle\n' ;;
   'api --paginate') printf '%s\n' "$RELEASE_CATALOG" ;;
-  'release edit') printf '%s\n' "$@" >"$PROMOTED" ;;
+  'release edit')
+    case "${GH_EDIT_FAILS:-}" in
+      '') printf '%s\n' "$@" >"$PROMOTED" ;;
+      refused)
+        echo 'HTTP 422: Validation Failed (https://api.github.com/repos/example/chronicle/releases/1)' >&2
+        exit 1 ;;
+      applied | unknown)
+        printf '%s\n' "$@" >"$PROMOTED"
+        [[ "$GH_EDIT_FAILS" != unknown ]] || : >"$ASSETS/gh-offline"
+        echo 'Patch "https://api.github.com/repos/example/chronicle/releases/1": unexpected EOF' >&2
+        exit 1 ;;
+    esac ;;
   *) exit 1 ;;
 esac

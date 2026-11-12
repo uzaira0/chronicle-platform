@@ -424,17 +424,24 @@ class LedgerMigrationTests(unittest.TestCase):
             manifest = root / 'manifest.json'
             version = release.UPGRADE_FROM_MINIMUM
             manifest.write_text(json.dumps({'release_version': version, release.MIGRATIONS_KEY: migration_hashes(root)}))
-            # publish-images.sh records the release through the module's command line after the signed release exists.
+            # publish-images.sh --promote goes through the module's command line: with --check while the
+            # release is still a draft (the same refusals, nothing written), then without it once the
+            # release is public.
             command = [sys.executable, '-s', '-m', 'chronicle_ops.migrations', str(root), str(manifest)]
+            check = [*command[:4], '--check', *command[4:]]
             environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONPATH=str(Path(__file__).resolve().parents[2] / 'selfhost'))
+            self.assertEqual(0, subprocess.run(check, env=environment, capture_output=True, timeout=30).returncode)
+            self.assertFalse((root / MIGRATION_LEDGER).exists())
             self.assertEqual(0, subprocess.run(command, env=environment, capture_output=True, timeout=30).returncode)
             self.assertEqual({version: migration_hashes(root)}, published_migrations(root))
             (migrations / 'V2__add_index.sql').write_text('SELECT 2;\n')
             manifest.write_text(json.dumps({'release_version': version, release.MIGRATIONS_KEY: migration_hashes(root)}))
-            replaced = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=30)
-            self.assertEqual(1, replaced.returncode)
-            self.assertIn('ValueError: publication ledger cannot replace a release inventory', replaced.stderr)
-            self.assertEqual({'V1__fresh_schema.sql'}, set(published_migrations(root)[version]))
+            for refused in (check, command):
+                replaced = subprocess.run(refused, env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(1, replaced.returncode)
+                # One line an operator can read, not a traceback.
+                self.assertEqual('error: ValueError: publication ledger cannot replace a release inventory\n', replaced.stderr)
+                self.assertEqual({'V1__fresh_schema.sql'}, set(published_migrations(root)[version]))
             (root / MIGRATION_LEDGER).write_text('[]')
             with self.assertRaisesRegex(ValueError, 'publication ledger must map release versions to migration hashes'):
                 published_migrations(root)

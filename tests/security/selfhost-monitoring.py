@@ -70,6 +70,17 @@ def test_release_drafts() -> None:
     assert "--draft" in command and "--latest=false" in command
     assert "--prerelease" not in command
     assert "gh release edit" not in output
+    # A draft is not a publication: cutting one starts nothing that writes the publication ledger.
+    assert "chronicle_ops.migrations" not in output, output
+    # The draft is created in the repository under its current name, which gh resolves from the
+    # public remote: that remote can still carry a name from before a rename, and a write must
+    # not depend on GitHub redirecting it.
+    assert "public_remote=$(git remote get-url public )" in output, output
+    resolved = next(line for line in output.splitlines() if line.startswith("public_repo=$("))
+    assert shlex.split(resolved[len("public_repo=$("):-1]) == [
+        "gh", "repo", "view", "${public_remote}", "--json", "nameWithOwner", "-q", ".nameWithOwner"], resolved
+    assert output.index(resolved) < output.index("gh release create ")
+    assert command[command.index("--repo") + 1] == "${public_repo}", command
 
 
 def test_prerelease_classification() -> None:
@@ -458,8 +469,15 @@ def test_candidate_smoke_matches_images_and_archive() -> None:
 
 def test_release_promotion_uses_installed_key() -> None:
     builder = runpy.run_path(str(ROOT / "scripts/build-selfhost-release.py"))
+    real_ledger = (ROOT / "selfhost/published-migrations.json").read_bytes()
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
+        # Promotion records the release in the checkout it runs from (selfhost/published-migrations.json),
+        # so it runs from a copy of the publisher: its scripts and the operator package, with an empty ledger.
+        publisher = root / "publisher"
+        for part in ("scripts", "selfhost/chronicle_ops"):
+            shutil.copytree(ROOT / part, publisher / part, ignore=shutil.ignore_patterns("__pycache__"))
+        ledger = publisher / "selfhost/published-migrations.json"
         old_key, new_key = root / "old-key", root / "new-key"
         for key in (old_key, new_key):
             subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
@@ -479,6 +497,10 @@ def test_release_promotion_uses_installed_key() -> None:
             builder["add_to_tar"](source, Path(str(new_key) + ".pub"), f"{bundle}/selfhost/release-signing.pub", 0)
             builder["add_to_tar"](source, overlay, f"{bundle}/selfhost/overlays/backups.yml", 0)
             builder["add_to_tar"](source, cli, f"{bundle}/selfhost/chronicle", 0)
+            # The updater the release ships: promotion runs it, from this archive, on the catalog
+            # and on GitHub's releases feed.
+            source.add(ROOT / "selfhost/chronicle_ops", f"{bundle}/selfhost/chronicle_ops",
+                       filter=lambda member: None if "__pycache__" in member.name else member)
         Path(str(archive) + ".sha256").write_text(f'{builder["sha256"](archive)}  {archive.name}\n')
 
         subprocess.run(["ssh-keygen", "-Y", "sign", "-n", builder["RELEASE_SIGNER"], "-f", str(old_key),
@@ -498,6 +520,19 @@ def test_release_promotion_uses_installed_key() -> None:
             executable = bin_dir / name
             executable.write_text(command)
             executable.chmod(0o755)
+        # The releases feed is the one thing promotion reads from GitHub itself, through the
+        # bundle's own curl call. Here that URL answers with the feed recorded after the repository
+        # was renamed, its 2026.x.y tags lowered to 1.x.y so that the fixture release is the newest;
+        # every other URL goes to the real curl (the loopback catalog).
+        feed, feed_requests = root / "releases.atom", root / "feed-requests"
+        recorded_feed = (ROOT / "tests/selfhost-py/github_releases_feed.atom").read_bytes().replace(b"2026.", b"1.")
+        assert b"/releases/tag/1.11.2" in recorded_feed
+        feed.write_bytes(recorded_feed)
+        (bin_dir / "curl").write_text(
+            '#!/bin/sh\nfor argument in "$@"; do\n  case "$argument" in\n    https://github.com/*/releases.atom)\n'
+            f'      printf "%s\\n" "$argument" >>{shlex.quote(str(feed_requests))}; exec cat {shlex.quote(str(feed))};;\n'
+            f'  esac\ndone\nexec {shlex.quote(shutil.which("curl"))} "$@"\n')
+        (bin_dir / "curl").chmod(0o755)
         def catalog_row(tag, draft):
             names = [f"chronicle-selfhost-{tag}.tar.gz" + suffix for suffix in ("", ".sha256", ".sha256.sig")]
             return dict(tag_name=tag, draft=draft, prerelease=False, assets=[
@@ -505,18 +540,36 @@ def test_release_promotion_uses_installed_key() -> None:
         # Promotion publishes the draft only when installed servers would discover it in the
         # resulting catalog (scripts/check-release-discovery.py, UPD-N2).
         draft = catalog_row(RELEASE_FIXTURE_VERSION, True)
-        env = dict(os.environ, ASSETS=str(root), RELEASE_CATALOG=json.dumps([[draft]]),
+        gh_calls = root / "gh-calls"
+        env = dict(os.environ, ASSETS=str(root), RELEASE_CATALOG=json.dumps([[draft]]), GH_CALLS=str(gh_calls),
                    PROMOTED=str(root / "promoted"), PATH=str(bin_dir) + os.pathsep + os.environ["PATH"])
         def promote():
-            return subprocess.run(["bash", str(ROOT / "scripts/publish-images.sh"), RELEASE_FIXTURE_VERSION, '--promote', str(result)],
+            return subprocess.run(["bash", str(publisher / "scripts/publish-images.sh"), RELEASE_FIXTURE_VERSION, '--promote', str(result)],
                                  env=env, capture_output=True, text=True, timeout=15)
         for key, accepted in ((new_key, False), (old_key, True)):
             env["CHRONICLE_RELEASE_VERIFY_KEY"] = str(key) + ".pub"
             promoted = promote()
-            assert (promoted.returncode == 0) == accepted, promoted.stderr
+            assert (promoted.returncode == 0) == accepted, promoted.stdout + promoted.stderr
+            # Only a release that was published is recorded, with the inventory of the bundle promoted.
+            assert ledger.exists() == accepted, promoted.stdout + promoted.stderr
+        recorded = ledger.read_bytes()
+        assert json.loads(recorded) == {RELEASE_FIXTURE_VERSION: {"V1__fixture.sql": "a" * 64}}, recorded
         arguments = (root / "promoted").read_text().splitlines()
         assert arguments[2] == RELEASE_FIXTURE_VERSION and '--latest=true' in arguments
-        from chronicle_ops.update import version_key
+        # Every release call names the repository as gh resolved it from the public remote
+        # ("example/chronicle" from the fixture gh), never the remote's own URL ("fixture-repository"
+        # from the fixture git): the remote here still carries the name from before the rename.
+        asked = [line.split("\t") for line in gh_calls.read_text().splitlines()]
+        assert asked[0][:3] == ["repo", "view", "fixture-repository"] and "nameWithOwner" in asked[0], asked[0]
+        release_calls = [call for call in asked if call[0] == "release"]
+        assert {call[1] for call in release_calls} == {"view", "download", "edit"}, release_calls
+        for call in release_calls:
+            assert call[call.index("--repo") + 1] == "example/chronicle", call
+        assert not [call for call in asked if "fixture-repository" in call and call[:2] != ["repo", "view"]], asked
+        from chronicle_ops.update import FEED_RELEASES_URL, version_key
+        # The accepted promotion read the feed once, at the URL the bundle's updater asks for.
+        asked = feed_requests.read_text().splitlines() if feed_requests.exists() else []
+        assert asked == [FEED_RELEASES_URL], f"promotion asked for the releases feed at {asked}, not once at {FEED_RELEASES_URL}"
         # With a newer release published, installed servers select that one, so this draft stays a draft.
         newer = str(version_key(RELEASE_FIXTURE_VERSION)[0] + 1) + '.0.0'
         env['RELEASE_CATALOG'] = json.dumps([[draft, catalog_row(newer, False)]])
@@ -524,6 +577,18 @@ def test_release_promotion_uses_installed_key() -> None:
         refused = promote()
         assert refused.returncode != 0 and "would not discover this release" in refused.stderr, refused.stderr
         assert not (root / "promoted").exists()
+        # A bundle that lists no release from the feed GitHub serves stays a draft: here the feed's
+        # links carry a host the bundle's updater does not read, as a candidate bundle built
+        # before the rename did not read the new repository name.
+        env['RELEASE_CATALOG'] = json.dumps([[draft]])
+        feed.write_bytes(recorded_feed.replace(b'href="https://github.com/', b'href="https://github.example/'))
+        unread = promote()
+        assert unread.returncode != 0 and "the bundle (releases feed): FAILS" in unread.stdout, unread.stdout + unread.stderr
+        assert "would not discover this release" in unread.stderr, unread.stderr
+        assert not (root / "promoted").exists()
+        # The refused promotions wrote nothing, and no promotion here touched this tree's own ledger.
+        assert ledger.read_bytes() == recorded
+        assert (ROOT / "selfhost/published-migrations.json").read_bytes() == real_ledger
         with patch.dict(os.environ, CHRONICLE_RELEASE_VERIFY_KEY=str(old_key) + ".pub"):
             output = publisher_dry_run(RELEASE_FIXTURE_VERSION)
         assert f"ssh-keygen -lf {old_key}.pub -E sha256" in output
