@@ -218,11 +218,11 @@
     ]
   },
   "selfhost/Dockerfile.backup::expat": {
-    "pin": "expat-2.5.0-6.el9_8.7",
-    "reason": "The pinned Percona base predates Red Hat's fixed expat RPM (CVE-2026-77214); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
-    "remove_when": "Remove when the pinned Percona base rpm query reports expat-2.5.0-6.el9_8.7 or newer without dnf upgrade.",
-    "reviewed_on": "2026-11-06",
-    "review_after": "2026-12-06",
+    "pin": "expat-2.5.0-9.el9_9.4",
+    "reason": "The pinned Percona base predates Red Hat's fixed expat RPM (CVE-2026-77214); the exact NEVRA selects the UBI build over the Oracle Linux rebuild. Moved on 2026-11-12 from 2.5.0-6.el9_8.7, which had left the UBI repository, to the build it serves now.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports expat-2.5.0-9.el9_9.4 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-12",
+    "review_after": "2026-12-12",
     "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
     "recorded_advisories": [
       "CVE-2026-77214"
@@ -276,11 +276,11 @@
     ]
   },
   "selfhost/Dockerfile.postgres::expat": {
-    "pin": "expat-2.5.0-6.el9_8.7",
-    "reason": "The pinned Percona base predates Red Hat's fixed expat RPM (CVE-2026-77214); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
-    "remove_when": "Remove when the pinned Percona base rpm query reports expat-2.5.0-6.el9_8.7 or newer without dnf upgrade.",
-    "reviewed_on": "2026-11-06",
-    "review_after": "2026-12-06",
+    "pin": "expat-2.5.0-9.el9_9.4",
+    "reason": "The pinned Percona base predates Red Hat's fixed expat RPM (CVE-2026-77214); the exact NEVRA selects the UBI build over the Oracle Linux rebuild. Moved on 2026-11-12 from 2.5.0-6.el9_8.7, which had left the UBI repository, to the build it serves now.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports expat-2.5.0-9.el9_9.4 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-12",
+    "review_after": "2026-12-12",
     "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
     "recorded_advisories": [
       "CVE-2026-77214"

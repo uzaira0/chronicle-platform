@@ -39,7 +39,8 @@ USER root
 # Alpine fixes published after the base digest was cut enter once older than the dependency wait
 # (os-packages/apk-install-aged.sh; scripts/os-package-pins.py refreshes the pins).
 RUN --mount=type=bind,source=os-packages/apk-install-aged.sh,target=/usr/local/sbin/apk-install-aged.sh \
-    sh /usr/local/sbin/apk-install-aged.sh v3.24
+    sh /usr/local/sbin/apk-install-aged.sh v3.24 \
+      --upgrade alpine-release=3.24.4-r0 apk-tools=3.0.9-r0 libapk=3.0.9-r0 tzdata=2026f-r0
 # Ship only the bundled datasource Chronicle provisions (prometheus 13.2.4, Go 1.27.3). The other twelve were
 # already disabled by GF_PLUGINS_DISABLE_PLUGINS (overlays/monitoring.yml); deleting them drops their Go findings
 # instead of waiving them.

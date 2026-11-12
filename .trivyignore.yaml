@@ -220,14 +220,16 @@ vulnerabilities:
       Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
   - id: CVE-2026-76641
     purls:
-      - "pkg:rpm/redhat/expat@2.5.0-6.el9_8.7?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.8"
     expired_at: 2026-12-11
     owner: uzaira0
     rechecked: 2026-11-06
     statement: >-
-      Postgres and backup images (pinned Percona 18.6.1-4 base, expat upgraded to 2.5.0-6.el9_8.7, the
-      newest RHEL build; Red Hat lists no fix). The flaw is an out-of-bounds read in parsers created with
-      XML_ExternalEntityParserCreate. dnf cannot remove expat: dbus-broker (required by systemd) and
+      Postgres and backup images (pinned Percona 18.6.1-4 base, expat upgraded to 2.5.0-9.el9_9.4, the
+      only build UBI 9 serves since 2.5.0-6.el9_8.7 left it; pin moved 2026-11-12, and Trivy reports this
+      advisory on the new build too, status affected; Red Hat lists no fix). The flaw is an out-of-bounds
+      read in parsers created with XML_ExternalEntityParserCreate.
+      dnf cannot remove expat: dbus-broker (required by systemd) and
       python3-libs need it. In these images libexpat is linked only by xmlwf, dbus-broker-launch, libcomps
       and the Python 3.9 pyexpat module; none of those programs is an entrypoint. selfcheck.py and the
       dump verifier run without loading pyexpat. restore.sh imports chronicle_ops.verify for one constant,
@@ -757,10 +759,16 @@ vulnerabilities:
       1.22.3 or newer.
   - id: CVE-2026-115506
     purls:
+      - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.8"
     expired_at: 2026-12-02
     owner: uzaira0
     rechecked: 2026-11-12
     statement: >-
+      Postgres and backup images (pinned Percona 18.6.1-4 base): expat 2.5.0-9.el9_9.4, the build UBI 9
+      carries since 2026-10-21 (the pin moved to it on 2026-11-12, when 2.5.0-6.el9_8.7 had left UBI); Red Hat
+      lists no fixed build and Trivy reports the new build as affected. The flaw is CPU exhaustion when
+      libexpat parses a document with a large DTD and nested entity expansions.
+      Checked 2026-11-12 on both linux/amd64 images by listing every ELF file's
       DT_NEEDED entries: libexpat.so.1 is needed only by /usr/bin/xmlwf, /usr/bin/dbus-broker-launch,
       /usr/lib64/libcomps.so.0 and Python 3.9's pyexpat module, and dnf cannot remove it (rpm -q --whatrequires
       'libexpat.so.1()(64bit)' in a build cut off before rpm's libraries are removed: dbus-broker, libcomps,

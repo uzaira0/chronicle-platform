@@ -12,7 +12,7 @@ USER 0
 RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
     sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
       --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
-        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-6.el9_8.7 \
+        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-9.el9_9.4 \
         ca-certificates=2026.2.92_v9.0.319-90.3.el9_8
 
 # Unused base packages with HIGH findings, and make and binutils (no build runs here): BIND client tools, kernel headers,

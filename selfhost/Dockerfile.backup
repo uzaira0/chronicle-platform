@@ -20,7 +20,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # glibc requirement does not depend on the builder's newer Debian release.
 # xz-utils only at an exact version older than the dependency wait (os-packages/apt-install-aged.sh).
 RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
-    sh /usr/local/sbin/apt-install-aged.sh debian 20261106T000000Z \
+    sh /usr/local/sbin/apt-install-aged.sh debian 20261112T000000Z \
       --add xz-utils \
       --pin xz-utils=5.4.1-1+deb12u2 \
     && mkdir -p /tmp/debianutils /out \
@@ -49,7 +49,7 @@ WORKDIR /
 RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
     sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
       --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
-        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-6.el9_8.7 \
+        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-9.el9_9.4 \
         ca-certificates=2026.2.92_v9.0.319-90.3.el9_8
 
 # Base packages the backup never runs, removed instead of waived: BIND client tools (CVE-2026-19630,
