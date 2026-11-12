@@ -99,6 +99,7 @@ SMOKE_PASSED=false
 REDIRECT_SERVER_PID=""
 TLS_PROXY_CONTAINER=""
 BENCHMARK_LISTENER_CONTAINER=""
+BENCHMARK_EDGE_NETWORK=""
 DISK_VOLUME_KEEPER=""
 DOCKER_EVENT_PIDS=""
 operator_crontab >"${RUN_DIR}/crontab-before" || fail "could not snapshot the operator crontab"
@@ -112,6 +113,7 @@ cleanup() {
   fi
   [[ -z "$TLS_PROXY_CONTAINER" ]] || docker rm -f "$TLS_PROXY_CONTAINER" >/dev/null 2>&1
   [[ -z "${BENCHMARK_LISTENER_CONTAINER:-}" ]] || docker rm -f "$BENCHMARK_LISTENER_CONTAINER" >/dev/null 2>&1
+  [[ -z "${BENCHMARK_EDGE_NETWORK:-}" ]] || docker network rm "$BENCHMARK_EDGE_NETWORK" >/dev/null 2>&1
   if [[ -n "$REDIRECT_SERVER_PID" ]]; then
     kill "$REDIRECT_SERVER_PID" 2>/dev/null || true
     wait "$REDIRECT_SERVER_PID" 2>/dev/null || true
@@ -1115,15 +1117,25 @@ with open(folder / 'benchmark-listener.env', 'x', opener=lambda path, flags: os.
 }
 ''')
 BENCHMARK_LISTENER
+# The backend/web network is internal (since b335e2d2, "containers cannot send data out"), and Docker
+# publishes no port for a container whose only network is internal ("no public port '8080/tcp'
+# published"). Create the listener on its own routed bridge, which carries the loopback-published
+# port, join it to the backend's network, then start it.
+BENCHMARK_EDGE_NETWORK="${PROJECT}-k6-edge"
+docker network create --label "chronicle.sat-r1.fixture=$PROJECT" "$BENCHMARK_EDGE_NETWORK" >/dev/null ||
+  fail 'could not create the benchmark listener network'
 # The release caddy binary carries cap_net_bind_service=ep; the kernel refuses to exec it
 # when that capability is outside the bounding set, so keep it as the web service does.
-BENCHMARK_LISTENER_CONTAINER="$(docker run -d --name "chronicle-sat-r1-k6-${PROJECT#chronicle-release-smoke-}" \
+BENCHMARK_LISTENER_CONTAINER="$(docker create --name "chronicle-sat-r1-k6-${PROJECT#chronicle-release-smoke-}" \
   --label "chronicle.sat-r1.fixture=$PROJECT" --read-only --user "$(id -u):$(id -g)" \
   --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges --memory 128m --pids-limit 64 \
-  --network "$(jq -er .network "$RUN_DIR/benchmark-listener.json")" --publish 127.0.0.1::8080 \
+  --network "$BENCHMARK_EDGE_NETWORK" --publish 127.0.0.1::8080 \
   --env-file "$RUN_DIR/benchmark-listener.env" \
   --mount "type=volume,source=$(jq -er .trust "$RUN_DIR/benchmark-listener.json"),target=/etc/caddy/backend-tls,readonly" \
   --mount "type=bind,source=$RUN_DIR/benchmark.Caddyfile,target=/etc/caddy/Caddyfile,readonly" "$CADDY_IMAGE")"
+docker network connect "$(jq -er .network "$RUN_DIR/benchmark-listener.json")" "$BENCHMARK_LISTENER_CONTAINER" ||
+  fail 'could not join the benchmark listener to the backend network'
+docker start "$BENCHMARK_LISTENER_CONTAINER" >/dev/null || fail 'the benchmark listener did not start'
 benchmark_endpoint="$(docker port "$BENCHMARK_LISTENER_CONTAINER" 8080/tcp)"
 [[ "$benchmark_endpoint" =~ ^127\.0\.0\.1:[0-9]+$ ]] || fail 'benchmark listener is not loopback-only'
 (
