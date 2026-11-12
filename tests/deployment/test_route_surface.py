@@ -83,6 +83,9 @@ def caddy_handlers(node, handler):
 def caddy_config(source, *environment):
     adapted = docker("run", "--rm", "--network", "none", "--memory=512m", "--memory-swap=512m",
         "-e", "DOMAIN=localhost", "-e", "DASHBOARD_ALLOWED_IPS=127.0.0.1/32",
+        # The split Caddyfiles accept the PROXY header only from this address (docker-compose.yml
+        # sets web-forward's); unset, Caddy refuses `allow /32`. No test client has this one.
+        "-e", "CHRONICLE_INGRESS_FORWARDER=192.0.2.130",
         *[entry for setting in environment for entry in ("-e", setting)],
         "-v", f"{source}:/etc/caddy/Caddyfile:ro",
         "-v", f"{ROOT / 'selfhost/caddy/snippets.caddy'}:/etc/caddy/snippets.caddy:ro",
