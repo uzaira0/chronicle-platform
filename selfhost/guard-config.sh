@@ -195,7 +195,7 @@ alert_webhook_is_allowed() {
   fi
   [[ -n "$host" && ( -z "$rest" || "$rest" =~ ^:[0-9]{1,5}$ ) ]] || return 1
   [[ "$scheme" == https ]] && return 0
-  [[ "${host,,}" =~ ^(localhost|.+\.localhost|\[::1\]|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})$ ]]
+  [[ "$(lowercase "$host")" =~ ^(localhost|.+\.localhost|\[::1\]|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})$ ]]
 }
 
 # A reviewed risk-register reference; setup reads the same rule when it decides POOL_LISTENER_TLS.

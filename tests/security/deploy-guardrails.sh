@@ -78,9 +78,11 @@ pass "application log archives are deleted by age; audit logs are not"
 
 # macOS ships bash 3.2 as /bin/bash, and ./chronicle setup runs guard-config.sh with it. Bash 4
 # case expansions (${x,,} / ${x^^}) are a "bad substitution" there, which made setup refuse
-# every production hostname.
-if grep -En '\$\{[A-Za-z_][A-Za-z0-9_]*(,,|\^\^)' "$ROOT_DIR/selfhost/guard-config.sh"; then
-  fail "selfhost/guard-config.sh uses bash-4-only case expansion; macOS /bin/bash 3.2 cannot run it"
+# every production hostname. The alert-webhook check kept one (`${host,,}`) on its plain-HTTP
+# branch, so bash 3.2 refused the default loopback webhook. The launcher and every script beside
+# it are searched; the scripts under selfhost/monitoring run in containers and are not.
+if grep -En '\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?(,,|\^\^)' "$ROOT_DIR/selfhost/chronicle" "$ROOT_DIR"/selfhost/*.sh; then
+  fail "a self-host launcher script uses bash-4-only case expansion; macOS /bin/bash 3.2 cannot run it"
 fi
 BASH32_IMAGE='bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091'
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -99,6 +101,22 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       fail "bash 3.2 cannot parse guard-config.sh"
   done
   pass "guard-config.sh host classifier gives the same answers under bash 3.2"
+  # The last character of each case is the wanted exit status; the URL itself contains colons.
+  for bash32_case in 'http://127.0.0.1:9/dashboard-only:0' 'http://LocalHost:9093/relay:0' \
+                     'https://alerts.research-host.org/hook:0' 'http://alerts.research-host.org/hook:1' \
+                     'http://127.evil.research-host.org/hook:1'; do
+    bash32_url="${bash32_case%:*}"; bash32_want="${bash32_case##*:}"
+    bash32_rc=0
+    docker run --rm --network none -v "$ROOT_DIR/selfhost/guard-config.sh:/guard-config.sh:ro" \
+      -v "$ROOT_DIR/selfhost/network-policy.sh:/network-policy.sh:ro" \
+      "$BASH32_IMAGE" bash /guard-config.sh --validate-alert-webhook "$bash32_url" \
+      >"$REPORT_DIR/bash32-guard.log" 2>&1 || bash32_rc=$?
+    [[ "$bash32_rc" == "$bash32_want" ]] ||
+      fail "bash 3.2 guard-config.sh --validate-alert-webhook ${bash32_url}: exit ${bash32_rc}, want ${bash32_want} ($(cat "$REPORT_DIR/bash32-guard.log"))"
+    ! grep -q 'bad substitution' "$REPORT_DIR/bash32-guard.log" ||
+      fail "bash 3.2 cannot run the alert-webhook check in guard-config.sh"
+  done
+  pass "guard-config.sh alert-webhook check gives the same answers under bash 3.2"
 else
   fail "docker is required to run guard-config.sh under bash 3.2"
 fi
