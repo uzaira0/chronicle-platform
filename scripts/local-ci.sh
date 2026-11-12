@@ -2135,22 +2135,29 @@ PY
 
 job_osv() {
   ensure_osv_scanner
-  local sarif_report
+  local sarif_report toolchain_report status=0 toolchain_status=0
   sarif_report="$(report_path "$ROOT_DIR/osv-results.sarif" "osv-results.sarif")"
+  toolchain_report="$(report_path "$ROOT_DIR/osv-android-toolchain.sarif" "osv-android-toolchain.sarif")"
+  # Both scans always run: a finding in the first one used to end the job, which hid whatever the
+  # second would have reported.
   osv-scanner scan source \
     --recursive \
     --config "$ROOT_DIR/osv-scanner.toml" \
     --experimental-exclude 'r:(^|/)gradle($|/)' \
     --format=sarif \
     --output-file="$sarif_report" \
-    "$ROOT_DIR"
+    "$ROOT_DIR" || status=$?
   # The recursive scan skips gradle/ hash catalogs; the Android build toolchain (AGP, lint,
   # bundletool) resolves only there, so scan that catalog as a lockfile of its own.
   osv-scanner scan source \
     --config "$ROOT_DIR/osv-scanner.toml" \
     --lockfile "$ROOT_DIR/chronicle/gradle/verification-metadata.xml" \
     --format=sarif \
-    --output-file="$(report_path "$ROOT_DIR/osv-android-toolchain.sarif" "osv-android-toolchain.sarif")"
+    --output-file="$toolchain_report" || toolchain_status=$?
+  [[ "$status" == 0 ]] || log "osv: the recursive scan exited $status ($sarif_report)"
+  [[ "$toolchain_status" == 0 ]] || log "osv: the Android toolchain catalog scan exited $toolchain_status ($toolchain_report)"
+  # osv-scanner exits 1 for findings and higher for its own errors; the higher status is returned.
+  return $((status > toolchain_status ? status : toolchain_status))
 }
 
 job_grype() {

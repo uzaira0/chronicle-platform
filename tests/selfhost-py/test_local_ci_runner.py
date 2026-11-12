@@ -509,6 +509,53 @@ sys.exit(json.loads(os.environ['BEARER_FIXTURE']).get('check', 0))
                     if settings.get('waived', 0) in (0, 1):
                         self.assertEqual({'runs': [{'results': []}]}, json.loads((reports / 'bearer-results.sarif').read_text()))
 
+    def test_osv_runs_both_scans_and_fails_when_either_does(self):
+        # osv-scanner exits 1 for findings and 127 or 128 for its own errors. A finding in the recursive
+        # scan used to end the job, so the Android toolchain catalog was never scanned (2026.11.12).
+        cases = (({}, 0, []),
+                 ({'recursive': 1}, 1, ['recursive']),
+                 ({'toolchain': 1}, 1, ['toolchain']),
+                 ({'recursive': 1, 'toolchain': 1}, 1, ['recursive', 'toolchain']),
+                 ({'recursive': 1, 'toolchain': 127}, 127, ['recursive', 'toolchain']),
+                 ({'recursive': 128}, 128, ['recursive']))
+        with tempfile.TemporaryDirectory() as folder:
+            fixture = Path(folder)
+            calls = fixture / 'calls'
+            (fixture / 'osv-scanner').write_text('#!' + sys.executable + '\n' + '''import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+phase = 'toolchain' if '--lockfile' in args else 'recursive'
+report = next(argument.split('=', 1)[1] for argument in args if argument.startswith('--output-file='))
+Path(report).write_text(json.dumps({'version': '2.1.0', 'runs': [{'properties': {'fixturePhase': phase}}]}))
+with open(os.environ['FIXTURE_CALLS'], 'a') as handle:
+    handle.write(json.dumps([phase, *args]) + '\\n')
+sys.exit(json.loads(os.environ['OSV_FIXTURE']).get(phase, 0))
+''')
+            (fixture / 'osv-scanner').chmod(0o755)
+            reports = fixture / 'reports'
+            config = ['--config', f'{ROOT}/osv-scanner.toml']
+            for settings, status, named in cases:
+                with self.subTest(settings=settings):
+                    calls.write_text('')
+                    result = run(['bash', str(ROOT / 'scripts/local-ci.sh'), 'osv'], capture=True, stderr=subprocess.PIPE,
+                                 timeout=10, env=dict(os.environ, CHRONICLE_LOCAL_BIN_DIR=str(fixture), FIXTURE_CALLS=str(calls),
+                                                      CHRONICLE_LOCAL_CI_REPORT_DIR=str(reports), CHRONICLE_LOCAL_CI_KEEP_GOING='0',
+                                                      OSV_FIXTURE=json.dumps(settings)))
+                    self.assertEqual(status, result.returncode, result.stdout + result.stderr)
+                    recorded = [json.loads(line) for line in calls.read_text().splitlines()]
+                    self.assertEqual(['recursive', 'toolchain'], [call[0] for call in recorded])
+                    recursive, toolchain = (call[1:] for call in recorded)
+                    self.assertEqual(['scan', 'source', '--recursive', *config], recursive[:5])
+                    self.assertEqual([f'--output-file={reports}/osv-results.sarif', str(ROOT)], recursive[-2:])
+                    self.assertEqual(['scan', 'source', *config, '--lockfile',
+                                      f'{ROOT}/chronicle/gradle/verification-metadata.xml'], toolchain[:6])
+                    self.assertEqual(f'--output-file={reports}/osv-android-toolchain.sarif', toolchain[-1])
+                    for name, phase in (('osv-results.sarif', 'recursive'), ('osv-android-toolchain.sarif', 'toolchain')):
+                        self.assertEqual(phase, json.loads((reports / name).read_text())['runs'][0]['properties']['fixturePhase'])
+                    for phase, text in (('recursive', 'osv: the recursive scan exited'),
+                                        ('toolchain', 'osv: the Android toolchain catalog scan exited')):
+                        self.assertEqual(phase in named, text in result.stdout + result.stderr, result.stdout + result.stderr)
+
     def test_repo_automation_reuses_architecture_within_each_process(self):
         with tempfile.TemporaryDirectory() as folder:
             fixture = Path(folder)
