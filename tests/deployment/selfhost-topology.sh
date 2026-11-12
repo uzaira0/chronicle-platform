@@ -86,7 +86,7 @@ if [[ ${TOPOLOGY_SOURCE_PRESERVING:-false} == true ]]; then
   TOPOLOGY_LB_UID=0
   export TOPOLOGY_TRANSPARENT_CLIENTS=$TOPOLOGY_PUBLIC_PREFIX.0/24
   transport_options=(--ipv4)
-  sed -i '/server chronicle /s/$/ source 0.0.0.0 usesrc clientip/' "$TOPOLOGY_FIXTURE/lb/lb.cfg"
+  perl -pi -e 's/\n\z/ source 0.0.0.0 usesrc clientip\n/ if /server chronicle /' "$TOPOLOGY_FIXTURE/lb/lb.cfg"
 fi
 POOL_BIND=$TOPOLOGY_POOL_PREFIX.1
 MANAGEMENT_BIND=$TOPOLOGY_VPN_PREFIX.1
@@ -197,11 +197,11 @@ for pid in "${browser_pids[@]}"; do wait "$pid"; done
 # Exercise Caddy's body deadline independently of the LB idle timer: bytes keep arriving.
 body_deadline_test_seconds=1
 original_read_deadline=$(sed -n 's/^[[:space:]]*read_body //p' "$STACK/caddy/snippets.caddy")
-sed -i "s/read_body ${original_read_deadline}/read_body ${body_deadline_test_seconds}s/" "$STACK/caddy/snippets.caddy"
+perl -pi -e "s/read_body ${original_read_deadline}/read_body ${body_deadline_test_seconds}s/" "$STACK/caddy/snippets.caddy"
 docker compose up -d --force-recreate --wait web
 clients exec -T phone-a python3 /repo/tests/deployment/selfhost-client.py "${transport_options[@]}" --public "$public" --management "$management" \
   --ca /fixture/client-ca.crt --records /fixture/phone-a.json --body-deadline-test-seconds "$body_deadline_test_seconds"
-sed -i "s/read_body ${body_deadline_test_seconds}s/read_body ${original_read_deadline}/" "$STACK/caddy/snippets.caddy"
+perl -pi -e "s/read_body ${body_deadline_test_seconds}s/read_body ${original_read_deadline}/" "$STACK/caddy/snippets.caddy"
 docker compose up -d --force-recreate --wait web
 TOPOLOGY_IDLE_TIMEOUT=1s clients up -d --force-recreate lb
 sleep 3

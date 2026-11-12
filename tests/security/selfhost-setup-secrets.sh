@@ -101,7 +101,7 @@ if [[ "${1:-}" == compose && "$*" == *' ls '* ]]; then
     count=$((count + 1)); printf '%s\n' "$count" >"$count_file"
     # The first probe guards ownership before the snapshot; race after that snapshot.
     if ((count == 2)); then
-      sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=rotated-while-setup-waited/' "${SELFHOST_SETUP_TEST_MUTATE_ENV}"
+      perl -pi -e 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=rotated-while-setup-waited/' "${SELFHOST_SETUP_TEST_MUTATE_ENV}"
     fi
   fi
   printf '[]\n'
@@ -344,8 +344,8 @@ settings.update({key:shlex.quote(val) for key,val in changed.items()})
 path.write_text('\n'.join(key+'='+val for key,val in settings.items())+'\n')
 PY_PRESERVE
 # A rerun keeps the deployment's own Compose project (and so its database volume).
-sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=pilot-study/' "${FIXTURE_SELFHOST}/.env"
-sed -i 's|^CHRONICLE_SUBNET=.*|CHRONICLE_SUBNET=10.253.99.0/24|' "${FIXTURE_SELFHOST}/.env"
+perl -pi -e 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=pilot-study/' "${FIXTURE_SELFHOST}/.env"
+perl -pi -e 's|^CHRONICLE_SUBNET=.*|CHRONICLE_SUBNET=10.253.99.0/24|' "${FIXTURE_SELFHOST}/.env"
 resetup_proxy "${RUN_DIR}/setup-project-output.txt" || fail "re-setup with a custom project failed"
 grep -Fqx 'COMPOSE_PROJECT_NAME=pilot-study' "${FIXTURE_SELFHOST}/.env" \
   || fail "re-setup replaced the existing custom COMPOSE_PROJECT_NAME"
@@ -368,7 +368,7 @@ echo 'PASS: production re-setup preserves database, ACL, SAN, SMTP, retention an
 
 # Up checks the rendered subnet before starting config-guard or any other container.
 image_keys="$(selfhost_python -c 'from chronicle_ops.images import SOURCE_IMAGES; print("|".join(image.variable for image in SOURCE_IMAGES))')"
-sed -i -E "s~^(${image_keys})=.*~\1=fixture/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~" \
+perl -pi -e "s~^(${image_keys})=.*~\$1=fixture/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~" \
   "${FIXTURE_SELFHOST}/.env"
 if env PATH="${COMMAND_DIR}:${PATH}" \
     SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \

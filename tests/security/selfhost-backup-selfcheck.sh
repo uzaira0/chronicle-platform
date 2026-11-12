@@ -233,19 +233,25 @@ if os.environ.get('PAUSE_REPLACE'):
         return _replace(source, target, *args, **kwargs)
     os.replace = replace
 PY
+# The real tools by the path this host has them at (/usr/bin on most Linux, /bin on macOS).
 for tool in ln mv; do
+  pause_variable="PAUSE_$(printf '%s' "$tool" | tr '[:lower:]' '[:upper:]')"
   cat >"${PAUSE_DIR}/${tool}" <<SH
 #!/usr/bin/env bash
-if [[ -n "\${PAUSE_${tool^^}:-}" && " \$* " == *"\${PAUSE_${tool^^}}"* ]]; then
+if [[ -n "\${${pause_variable}:-}" && " \$* " == *"\${${pause_variable}}"* ]]; then
   : >"\$PAUSE_REACHED"
   while [[ ! -e "\$PAUSE_RELEASE" ]]; do sleep 0.05; done
 fi
-exec /usr/bin/${tool} "\$@"
+exec $(command -v "$tool") "\$@"
 SH
 done
-cat >"${PAUSE_DIR}/date" <<'SH'
+# GNU date reads an epoch as `-d @N`, BSD date (macOS) as `-r N`.
+cat >"${PAUSE_DIR}/date" <<SH
 #!/bin/sh
-exec /usr/bin/date -u -d "@$FIXTURE_EPOCH" "$@"
+if $(command -v date) -u -d @0 +%s >/dev/null 2>&1; then
+  exec $(command -v date) -u -d "@\$FIXTURE_EPOCH" "\$@"
+fi
+exec $(command -v date) -u -r "\$FIXTURE_EPOCH" "\$@"
 SH
 chmod 0755 "${PAUSE_DIR}/ln" "${PAUSE_DIR}/mv" "${PAUSE_DIR}/date"
 
@@ -259,7 +265,8 @@ publication_env() { # case-name epoch
 paused_backup() { # starts backup.sh in its own process group; waits until it reaches the pause
   rm -f "$PAUSE_REACHED" "$PAUSE_RELEASE"
   PATH="${PAUSE_DIR}:$PATH" PYTHONPATH="${PAUSE_DIR}:$PYTHONPATH" \
-    setsid bash "${IMAGE_DIR}/backup.sh" >>"${BACKUP_DIR}/../paused.log" 2>&1 &
+    python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      bash "${IMAGE_DIR}/backup.sh" >>"${BACKUP_DIR}/../paused.log" 2>&1 &
   PAUSED_PID=$!
   for _ in $(seq 1 200); do [[ -e "$PAUSE_REACHED" ]] && return 0; sleep 0.05; done
   cat "${BACKUP_DIR}/../paused.log" >&2
@@ -269,7 +276,7 @@ paused_backup() { # starts backup.sh in its own process group; waits until it re
 kill_tree() {
   local child
   kill -STOP "$1" 2>/dev/null || return 0
-  for child in $(ps -o pid= --ppid "$1"); do kill_tree "$child"; done
+  for child in $(pgrep -P "$1"); do kill_tree "$child"; done
   kill -KILL "$1" 2>/dev/null || true
 }
 

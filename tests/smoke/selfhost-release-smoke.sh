@@ -872,7 +872,10 @@ if [[ "$MONITORING" == true ]]; then
 fi
 # A startup interrupted while it recreates services must not record the new certificates as applied.
 postgres_before="$(service_container postgres)"
-setsid ./chronicle up --no-reconcile >"$RUN_DIR/renewal-interrupted-up.log" 2>&1 &
+# Its own session and process group, so one signal reaches the command and its Compose child.
+# util-linux setsid is Linux-only; os.setsid then exec does the same on macOS.
+python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+  ./chronicle up --no-reconcile >"$RUN_DIR/renewal-interrupted-up.log" 2>&1 &
 interrupted_up=$!
 renewal_deadline=$((SECONDS + 300))
 until [[ "$(docker compose ps -aq postgres)" != "$postgres_before" ]]; do
@@ -882,7 +885,8 @@ done
 kill -TERM -- "-$interrupted_up"
 ! wait "$interrupted_up" || fail "the interrupted startup reported success"
 # The operator retries once the interrupted command and its Compose child have exited.
-until ! ps -o pid= --sid "$interrupted_up" >/dev/null; do
+# The group that was signalled; procps' session filter is Linux-only (BSD ps has none).
+until ! ps -A -o pgid= | awk -v group="$interrupted_up" '$1 == group {found = 1} END {exit !found}'; do
   ((SECONDS < renewal_deadline)) || fail "the interrupted startup left processes running"
   sleep 1
 done
@@ -954,7 +958,7 @@ docker compose up -d --wait --wait-timeout 300 >/dev/null
 verify_with_dashboard_password >/dev/null
 
 printf 'Proving the internal password guard rate-limits repeated failures.\n'
-sed -i 's/^RATE_LIMIT_GUARD_EVENTS=.*/RATE_LIMIT_GUARD_EVENTS=5/' .env
+perl -pi -e 's/^RATE_LIMIT_GUARD_EVENTS=.*/RATE_LIMIT_GUARD_EVENTS=5/' .env
 grep -q '^RATE_LIMIT_GUARD_EVENTS=5$' .env || printf 'RATE_LIMIT_GUARD_EVENTS=5\n' >>.env
 docker compose up -d --wait --wait-timeout 120 web >/dev/null
 guard_codes="$(for _ in 1 2 3 4 5 6 7 8; do

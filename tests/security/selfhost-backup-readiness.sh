@@ -146,19 +146,23 @@ PRUNE_HOOK="${ROOT_DIR}/selfhost/backup-prune-hook.sh"
 grep -Fq './backup-prune-hook.sh:/hooks/50-prune-pre-operation-dumps:ro' "${ROOT_DIR}/selfhost/overlays/backups.yml" ||
   fail "backups overlay does not mount the prune hook into /hooks"
 PRUNE_DIR="${RUN_DIR}/prune"
+# BSD touch (macOS) has no relative dates: GNU's -d '40 days ago' is an illegal time specification there.
+age_days() { # days file
+  python3 -c 'import os, sys, time; t = time.time() - 86400 * int(sys.argv[1]); os.utime(sys.argv[2], (t, t))' "$1" "$2"
+}
 /bin/mkdir -p "${PRUNE_DIR}/daily" "${PRUNE_DIR}/secret-rotation"
 for name in pre-adopt-20260101T000000Z-123.sql.gz pre-upgrade-1.0.0-to-1.1.0-a.sql.gz \
             pre-restore-20260101T000000Z.abc123.sql.gz \
             pre-restore-20260101T000000Z.abc123.continuity.sql.gz; do
-  : >"${PRUNE_DIR}/${name}"; touch -d '40 days ago' "${PRUNE_DIR}/${name}"
+  : >"${PRUNE_DIR}/${name}"; age_days 40 "${PRUNE_DIR}/${name}"
 done
 : >"${PRUNE_DIR}/pre-restore-20260920T000000Z.def456.sql.gz"
 : >"${PRUNE_DIR}/pre-adopt-20260920T000000Z-456.sql.gz"
 : >"${PRUNE_DIR}/secret-rotation/pre-tde-rotation-old.sql.gz"
-touch -d '40 days ago' "${PRUNE_DIR}/secret-rotation/pre-tde-rotation-old.sql.gz"
+age_days 40 "${PRUNE_DIR}/secret-rotation/pre-tde-rotation-old.sql.gz"
 : >"${PRUNE_DIR}/secret-rotation/pre-tde-rotation-recent.sql.gz"
-: >"${PRUNE_DIR}/daily/chronicle-20260101.sql.gz"; touch -d '40 days ago' "${PRUNE_DIR}/daily/chronicle-20260101.sql.gz"
-: >"${PRUNE_DIR}/unrelated.sql.gz"; touch -d '40 days ago' "${PRUNE_DIR}/unrelated.sql.gz"
+: >"${PRUNE_DIR}/daily/chronicle-20260101.sql.gz"; age_days 40 "${PRUNE_DIR}/daily/chronicle-20260101.sql.gz"
+: >"${PRUNE_DIR}/unrelated.sql.gz"; age_days 40 "${PRUNE_DIR}/unrelated.sql.gz"
 BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=30 "$PRUNE_HOOK" error >/dev/null
 [[ -e "${PRUNE_DIR}/pre-upgrade-1.0.0-to-1.1.0-a.sql.gz" ]] || fail "prune hook acted on a failed backup run"
 BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=30 "$PRUNE_HOOK" post-backup >"${RUN_DIR}/prune.log"
@@ -179,7 +183,7 @@ fi
 if BACKUP_DIR="$PRUNE_DIR" "$PRUNE_HOOK" post-backup >/dev/null 2>&1; then
   fail "prune hook chose its own retention when PRE_OP_BACKUP_KEEP_DAYS was unset"
 fi
-: >"${PRUNE_DIR}/pre-upgrade-old.sql.gz"; touch -d '400 days ago' "${PRUNE_DIR}/pre-upgrade-old.sql.gz"
+: >"${PRUNE_DIR}/pre-upgrade-old.sql.gz"; age_days 400 "${PRUNE_DIR}/pre-upgrade-old.sql.gz"
 BACKUP_DIR="$PRUNE_DIR" PRE_OP_BACKUP_KEEP_DAYS=all "$PRUNE_HOOK" post-backup >/dev/null ||
   fail "prune hook refused PRE_OP_BACKUP_KEEP_DAYS=all"
 [[ -e "${PRUNE_DIR}/pre-upgrade-old.sql.gz" ]] || fail "PRE_OP_BACKUP_KEEP_DAYS=all still pruned a safety dump"

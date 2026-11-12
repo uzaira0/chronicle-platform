@@ -30,7 +30,7 @@ cert_init() { # <TLS_MODE>
 pair_matches() { # <cert> <key>
   [[ "$(openssl x509 -in "$1" -noout -pubkey)" == "$(openssl pkey -in "$2" -pubout)" ]]
 }
-mode() { stat -c '%a' "$1"; }
+mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 
 # Fresh generation publishes a matching pair, leaves no temporaries, and keeps the files
 # owned by the owner of ./tls, group 0, key 0640.

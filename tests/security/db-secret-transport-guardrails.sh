@@ -464,8 +464,10 @@ run_flyway_signal_case() {
     export CHRONICLE_PG_NETWORK=fixture-network
     export CHRONICLE_FLYWAY_SECRET_PARENT="$signal_case/secret-parent"
     unset POSTGRES_PASSWORD PGPASSWORD FLYWAY_PASSWORD
-    # A suite launched under nohup inherits SIGHUP as ignored, which bash cannot trap.
-    exec /usr/bin/env --default-signal=HUP,INT,TERM "$ROOT_DIR/scripts/flyway-migrate.sh" validate
+    # A suite launched under nohup inherits SIGHUP as ignored, which bash cannot trap. perl resets the
+    # three dispositions and execs; the --default-signal option of GNU env does not exist in BSD env (macOS).
+    exec /usr/bin/perl -e '$SIG{$_} = "DEFAULT" for qw(HUP INT TERM); exec { $ARGV[0] } @ARGV or die "exec: $!\n"' \
+      "$ROOT_DIR/scripts/flyway-migrate.sh" validate
   ) >"$signal_case/output" 2>&1 &
   runner_pid=$!
 
