@@ -27,6 +27,12 @@ PUBLIC_ANDROID_PACKAGE_REGEX = re.compile(
     r"com\\\.bcm\\\.chronicle(?:\\\.debug)?",
     re.IGNORECASE,
 )
+# The rpm-md repository metadata format (repomd.xml, primary.xml) names its XML namespaces with
+# these URIs; a parser of UBI or Fedora repositories has to spell them. They identify the format,
+# not a host this project deploys to.
+RPM_METADATA_NAMESPACE = re.compile(
+    r"http://linux\.duke\.edu/metadata/(?:repo|common|rpm|filelists|other)(?![A-Za-z0-9_./-])"
+)
 UUID = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
     re.IGNORECASE,
@@ -89,6 +95,26 @@ def repository_files() -> list[str]:
             if not (path := item.decode("utf-8")).startswith(FROZEN_PREFIXES)]
 
 
+def line_findings(relative: str, line: str) -> list[str]:
+    """The categories one line of one tracked file falls under."""
+    # The Play application ID is a required public product identifier, not a
+    # deployment label. Remove only that exact token before checking the rest of
+    # the line so nearby institution-specific prose cannot hide behind it. Tests
+    # may express that same exact package as an escaped regular expression. The
+    # rpm-md namespace URIs are removed the same way, as whole tokens.
+    privacy_line = PUBLIC_ANDROID_PACKAGE.sub("<public-android-package>", line)
+    privacy_line = PUBLIC_ANDROID_PACKAGE_REGEX.sub(
+        "<public-android-package-regex>", privacy_line
+    )
+    privacy_line = RPM_METADATA_NAMESPACE.sub("<rpm-metadata-namespace>", privacy_line)
+    found = []
+    if relative.startswith(("scripts/", ".github/workflows/")) and UUID.search(line):
+        found.append("embedded-operational-uuid")
+    found += [category for category, pattern, applies in RULES
+              if applies(relative) and pattern.search(privacy_line)]
+    return found
+
+
 def main() -> int:
     findings: list[tuple[str, int, str]] = []
     for relative in repository_files():
@@ -104,19 +130,7 @@ def main() -> int:
             continue
 
         for line_number, line in enumerate(text.splitlines(), 1):
-            # The Play application ID is a required public product identifier, not a
-            # deployment label. Remove only that exact token before checking the rest of
-            # the line so nearby institution-specific prose cannot hide behind it. Tests
-            # may express that same exact package as an escaped regular expression.
-            privacy_line = PUBLIC_ANDROID_PACKAGE.sub("<public-android-package>", line)
-            privacy_line = PUBLIC_ANDROID_PACKAGE_REGEX.sub(
-                "<public-android-package-regex>", privacy_line
-            )
-            if relative.startswith(("scripts/", ".github/workflows/")) and UUID.search(line):
-                findings.append((relative, line_number, "embedded-operational-uuid"))
-            for category, pattern, applies in RULES:
-                if applies(relative) and pattern.search(privacy_line):
-                    findings.append((relative, line_number, category))
+            findings += [(relative, line_number, category) for category in line_findings(relative, line)]
 
     if findings:
         print("Public-tree privacy guardrails failed:", file=sys.stderr)
