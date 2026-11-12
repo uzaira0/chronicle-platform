@@ -157,6 +157,10 @@ dc() {
     printf 'export\n'
   fi
 }
+service_roles() {
+  if [[ "$*" == 'compose-services core' ]]; then printf '%s\n' postgres backend ca-export; return; fi
+  [[ "$*" == 'start-monitoring' ]] || return 93
+}
 APPLY_MODE=full
 SECRET_ROTATION_WAIT_TIMEOUT_SECONDS=30
 """
