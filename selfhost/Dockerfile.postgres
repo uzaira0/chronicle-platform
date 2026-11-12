@@ -17,11 +17,12 @@ RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/s
 
 # Unused base packages with HIGH findings, and make and binutils (no build runs here): BIND client tools, kernel headers,
 # emacs-filesystem, vim-filesystem,
-# the RPM build macros (go-srpm-macros and the macro packages that need it), and Patroni with its etcd client and
+# the RPM build macros (go-srpm-macros and the macro packages that need it; qt5-srpm-macros, one macro file that no
+# other package left here requires, CVE-2026-16762 and CVE-2026-103653), and Patroni with its etcd client and
 # the Python 3.12 stack only they used (pip wheel, urllib3, unpackaged dnspython CVE-2026-114605). Same list as
 # Dockerfile.backup.
 RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem vim-filesystem make binutils \
-        go-srpm-macros fonts-srpm-macros python-srpm-macros redhat-rpm-config \
+        go-srpm-macros fonts-srpm-macros python-srpm-macros redhat-rpm-config qt5-srpm-macros \
         percona-patroni python3.12-etcd python3.12 python3.12-libs python3.12-pip-wheel && \
     dnf clean all && \
     rm -rf /usr/lib/python3.12 /usr/lib64/python3.12 && \

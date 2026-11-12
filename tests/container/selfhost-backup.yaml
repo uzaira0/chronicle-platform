@@ -13,6 +13,10 @@ fileExistenceTests:
   - name: TDE backup guard
     path: /init-tde.sh
     shouldExist: true
+  # The one file of qt5-srpm-macros (CVE-2026-16762, CVE-2026-103653): the package is removed, not waived.
+  - name: Qt 5 RPM build macros are absent
+    path: /usr/lib/rpm/macros.d/macros.qt5-srpm
+    shouldExist: false
 commandTests:
   - name: PostgreSQL 18 dump tool
     command: pg_dump

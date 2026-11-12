@@ -60,10 +60,13 @@ RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesys
     dnf clean all
 
 # Also never run: vim-filesystem (CVE-2026-43961), the RPM build macros go-srpm-macros (CVE-2026-56860),
-# fonts-srpm-macros, python-srpm-macros and redhat-rpm-config, and the Python 3.12 stack that only Patroni and
-# its etcd client used (python3.12-pip-wheel CVE-2026-57585, python3.12-urllib3 CVE-2026-97687/97689, and
-# Patroni's unpackaged dnspython CVE-2026-114605). The backup's own scripts run Python 3.9 (python3).
+# fonts-srpm-macros, python-srpm-macros, redhat-rpm-config and qt5-srpm-macros (CVE-2026-16762, CVE-2026-103653:
+# one macro file, /usr/lib/rpm/macros.d/macros.qt5-srpm, that no other package left here requires),
+# and the Python 3.12 stack that only Patroni and its etcd client used (python3.12-pip-wheel CVE-2026-57585,
+# python3.12-urllib3 CVE-2026-97687/97689, and Patroni's unpackaged dnspython CVE-2026-114605). The backup's own
+# scripts run Python 3.9 (python3).
 RUN dnf -y remove vim-filesystem go-srpm-macros fonts-srpm-macros python-srpm-macros redhat-rpm-config \
+        qt5-srpm-macros \
         percona-patroni python3.12-etcd python3.12 python3.12-libs python3.12-pip-wheel && \
     dnf clean all && \
     rm -rf /usr/lib/python3.12 /usr/lib64/python3.12 && \
