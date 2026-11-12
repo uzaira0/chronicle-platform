@@ -115,22 +115,27 @@ vulnerabilities:
     purls:
       - "pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.23.6"
       - "pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-13
+    expired_at: 2026-11-24
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-12
     statement: >-
       Alpine zlib 1.3.2-r0 in the newest cadvisor (v0.60.6) and docker-socket-proxy (v0.5.0) images;
       Alpine's fix (1.3.2-r1) is in neither. The overflow is in
       gz_vacate(), reached only through gzprintf()/gzvprintf() writes. The service binaries (cadvisor,
-      haproxy) do not link libz and contain no gzprintf code; the only libz users
-      are apk (no gz* imports) and, in cadvisor, kmod/libkmod, which import only gzdopen, gzread, gzerror
-      and gzclose to read compressed kernel modules. Monitoring overlay only, on the internal network.
+      haproxy) do not link libz and carry no static zlib (neither zlib's deflate nor its inflate version
+      string is in the file). The files that need libz import no gz write function: apk and libapk import
+      inflate, deflate and uncompress; in cadvisor, kmod and libkmod import only gzdopen, gzread, gzerror
+      and gzclose to read compressed kernel modules, and libzfs and libzpool import only compress2 and
+      uncompress. Monitoring overlay only, on internal networks.
       Drop when the vendor images carry zlib 1.3.2-r1 or newer.
-      Rechecked 2026-11-06: cadvisor v0.60.6 and docker-socket-proxy v0.5.0 are still the newest releases.
-      Alpine's index (v3.23 and v3.24) has replaced 1.3.2-r1 with zlib 1.4-r0, built 2026-11-06 18:26 UTC,
-      so selfhost/os-packages/apk-install-aged.sh can install the fix only once 1.4-r0 has passed the
-      dependency wait (3 days for a security fix: 2026-11-09); this entry expires 2026-11-13 to force that
-      recheck.
+      Rechecked 2026-11-12: cadvisor v0.60.6 and docker-socket-proxy v0.5.0 are still the newest releases
+      (GitHub API), and Docker Hub's v0.5.0 tag still holds the pinned digest. NEEDED and import lists reread
+      from the linux/amd64 root filesystem of both pinned digests: no file imports gzprintf or gzvprintf
+      (libzfs and libzpool were missing from the earlier list of libz users). Alpine's fix is now zlib 1.4-r0,
+      built 2026-11-06 18:22 UTC (v3.24) and 18:26 UTC (v3.23). OS packages have no 3-day path
+      (docs/SUPPLY-CHAIN.md), so its wait ends 2026-11-13 18:26 UTC, not 2026-11-09 as the last recheck said.
+      Neither image is built in this repository, so installing 1.4-r0 means deriving both images through
+      selfhost/os-packages/apk-install-aged.sh; this short end date keeps that decision in view.
   - id: CVE-2026-76844
     purls:
       - "pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1?arch=amd64&distro=debian-13.7&epoch=1"
@@ -237,72 +242,112 @@ vulnerabilities:
     purls:
       - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=x86_64&distro=3.24.1"
       - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-20
+    expired_at: 2026-11-25
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-12
     statement: >-
       tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
       and digest rechecked 2026-10-06). OpenSSL is linked into HAProxy, but
       selfhost/overlays/monitoring.yml uses plain HTTP on port 2375, publishes no host port and
       attaches the proxy only to internal network docker-api with cAdvisor. No TLS or QUIC
       listener is configured, so the vulnerable QUIC-server allocation path is not used.
-      Rechecked 2026-11-06: docker-socket-proxy v0.5.0 is still the newest release.
+      Rechecked 2026-11-12: v0.5.0 (2026-07-27) is still the newest release (GitHub API) and Docker Hub's
+      v0.5.0 tag still holds the pinned digest. selfhost/monitoring/docker-api.cfg, the only configuration
+      this HAProxy reads, has one bind (:2375, no ssl, no quic4/quic6). The flaw is in OpenSSL's own QUIC
+      server (a Listener SSL object): in the linux/amd64 image haproxy does not import SSL_new_listener, and
+      HAProxy 3.4.2's sources never call it; its QUIC imports are the three SSL_set_quic_tls_* callbacks of
+      HAProxy's own QUIC stack, unused without a quic bind. Alpine v3.24 now has libssl3 and libcrypto3
+      3.5.9-r0 (built 2026-09-30, past the 7-day wait); the image is not built in this repository, so taking
+      them means deriving it through selfhost/os-packages/apk-install-aged.sh (open decision).
   - id: CVE-2026-103111
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-20
+    expired_at: 2026-11-26
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-12
     statement: >-
-      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
-      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
-      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
-      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
-      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
-      and sets POST=0.
-      Rechecked 2026-11-06: docker-socket-proxy v0.5.0 is still the newest release.
+      tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
+      HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
+      selfhost/monitoring/docker-api.cfg (selfhost/overlays/monitoring.yml replaces the image's entrypoint): two
+      fixed path_reg expressions, neither recursive. A client supplies request paths, never a pattern. The
+      service publishes no host port, joins only the internal network docker-api with cAdvisor, and the
+      configuration answers 403 to everything but GET on version, info and the container list, inspect and stats
+      paths. The flaw is an out-of-bounds write that needs an attacker-controlled regular expression together
+      with certain JIT calls; no client-chosen pattern reaches pcre2_compile here.
+      Rechecked 2026-11-12: v0.5.0 (2026-07-27) is still the newest release (GitHub API) and Docker Hub's v0.5.0
+      tag still holds the pinned digest; docker-api.cfg and the imports of haproxy in the linux/amd64 image
+      reread. The haproxy binary imports pcre2_compile, pcre2_jit_compile, pcre2_match and pcre2_jit_match, and
+      both patterns come from the mounted configuration. Alpine v3.24 now has pcre2 10.49-r0 (built 2026-10-01,
+      past the 7-day wait); the image is not built in this repository, so taking it means deriving it through
+      selfhost/os-packages/apk-install-aged.sh (open decision). The earlier wording (image-supplied expressions,
+      POST=0) described the image's own entrypoint, which the overlay does not run.
   - id: CVE-2026-86145
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-20
+    expired_at: 2026-11-26
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-12
     statement: >-
-      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
-      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
-      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
-      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
-      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
-      and sets POST=0.
-      Rechecked 2026-11-06: docker-socket-proxy v0.5.0 is still the newest release.
+      tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
+      HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
+      selfhost/monitoring/docker-api.cfg (selfhost/overlays/monitoring.yml replaces the image's entrypoint): two
+      fixed path_reg expressions, neither recursive. A client supplies request paths, never a pattern. The
+      service publishes no host port, joins only the internal network docker-api with cAdvisor, and the
+      configuration answers 403 to everything but GET on version, info and the container list, inspect and stats
+      paths. The flaw is in pcre2_dfa_match and needs an attacker-controlled or recursive pattern.
+      Rechecked 2026-11-12: v0.5.0 (2026-07-27) is still the newest release (GitHub API) and Docker Hub's v0.5.0
+      tag still holds the pinned digest; docker-api.cfg and the imports of haproxy in the linux/amd64 image
+      reread. The haproxy binary does not import pcre2_dfa_match, and HAProxy 3.4.2's sources never call it.
+      Alpine v3.24 now has pcre2 10.49-r0 (built 2026-10-01, past the 7-day wait); the image is not built in
+      this repository, so taking it means deriving it through selfhost/os-packages/apk-install-aged.sh (open
+      decision). The earlier wording (image-supplied expressions, POST=0) described the image's own entrypoint,
+      which the overlay does not run.
   - id: CVE-2026-89157
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-20
+    expired_at: 2026-11-26
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-12
     statement: >-
-      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
-      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
-      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
-      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
-      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
-      and sets POST=0.
-      Rechecked 2026-11-06: docker-socket-proxy v0.5.0 is still the newest release.
+      tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
+      HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
+      selfhost/monitoring/docker-api.cfg (selfhost/overlays/monitoring.yml replaces the image's entrypoint): two
+      fixed path_reg expressions, neither recursive. A client supplies request paths, never a pattern. The
+      service publishes no host port, joins only the internal network docker-api with cAdvisor, and the
+      configuration answers 403 to everything but GET on version, info and the container list, inspect and stats
+      paths. The flaw is in pcre2_pattern_convert on 32-bit platforms, given an attacker-supplied large pattern.
+      Rechecked 2026-11-12: v0.5.0 (2026-07-27) is still the newest release (GitHub API) and Docker Hub's v0.5.0
+      tag still holds the pinned digest; docker-api.cfg and the imports of haproxy in the linux/amd64 image
+      reread. The waived artifact is the 64-bit x86_64 variant, its haproxy does not import
+      pcre2_pattern_convert, and HAProxy 3.4.2's sources never call it. Alpine v3.24 now has pcre2 10.49-r0
+      (built 2026-10-01, past the 7-day wait); the image is not built in this repository, so taking it means
+      deriving it through selfhost/os-packages/apk-install-aged.sh (open decision). The earlier wording
+      (image-supplied expressions, POST=0) described the image's own entrypoint, which the overlay does not run.
   - id: CVE-2026-89161
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-20
+    expired_at: 2026-11-26
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-12
     statement: >-
-      tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
-      and digest rechecked 2026-10-06). HAProxy uses fixed image-supplied ACL regular
-      expressions, not client-supplied patterns; the affected PCRE2 compiler/JIT cannot receive
-      attacker-chosen regexes. selfhost/overlays/monitoring.yml publishes no proxy port, isolates
-      it on internal network docker-api with cAdvisor, permits only GET containers/info/version
-      and sets POST=0.
-      Rechecked 2026-11-06: docker-socket-proxy v0.5.0 is still the newest release.
+      tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
+      HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
+      selfhost/monitoring/docker-api.cfg (selfhost/overlays/monitoring.yml replaces the image's entrypoint): two
+      fixed path_reg expressions, neither recursive. A client supplies request paths, never a pattern. The
+      service publishes no host port, joins only the internal network docker-api with cAdvisor, and the
+      configuration answers 403 to everything but GET on version, info and the container list, inspect and stats
+      paths. The flaw is an incorrect free in pcre2_jit_match when the match data holds a previously copied
+      subject. HAProxy does call pcre2_jit_match, but it never asks PCRE2 to copy the subject: HAProxy 3.4.2
+      (src/regex.c, include/haproxy/regex.h; tarball checked against the image's HAPROXY_SHA256) passes only 0
+      or PCRE2_NOTBOL as match options, and PCRE2_COPY_MATCHED_SUBJECT, the option that stores a copy of the
+      subject in the match data, appears nowhere in its sources.
+      Rechecked 2026-11-12: v0.5.0 (2026-07-27) is still the newest release (GitHub API) and Docker Hub's v0.5.0
+      tag still holds the pinned digest; docker-api.cfg and the imports of haproxy in the linux/amd64 image
+      reread. This reason replaces the earlier one (no attacker-chosen patterns), which did not address this
+      advisory. Alpine v3.24 now has pcre2 10.49-r0 (built 2026-10-01, past the 7-day wait); the image is not
+      built in this repository, so taking it means deriving it through selfhost/os-packages/apk-install-aged.sh
+      (open decision). The earlier wording (image-supplied expressions, POST=0) described the image's own
+      entrypoint, which the overlay does not run.
   - id: CVE-2026-56854
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.54.0"
@@ -712,6 +757,7 @@ vulnerabilities:
       1.22.3 or newer.
   - id: CVE-2026-115506
     purls:
+    expired_at: 2026-12-02
     owner: uzaira0
     rechecked: 2026-11-12
     statement: >-
