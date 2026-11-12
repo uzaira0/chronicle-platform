@@ -669,12 +669,15 @@ else
 fi
 # 3. upgrade-receipts/ is created 0700 by upgrade.sh and adopt; the readability guard must
 #    skip it or every check/up after an upgrade fails, and the printed fix must not chmod it.
+#    The same holds for local-edits/, where an update saves edited bundled files 0600
+#    (chronicle_ops/release.py preserve_local_edits) before it can be refused or rolled back.
 if grep -q -- "-path ./upgrade-receipts" chronicle &&
+   grep -q -- "-path ./local-edits" chronicle &&
    grep -Fq 'unreadable=$(find . "${keep_private[@]}" -o' chronicle &&
    grep -Fq 'find . "${keep_private[@]}" -o -exec chmod' chronicle; then
-  ok "readability guard and its remediation leave upgrade-receipts/ private"
+  ok "readability guard and its remediation leave upgrade-receipts/ and local-edits/ private"
 else
-  fail "readability guard does not prune upgrade-receipts/ (check/up fail after every upgrade)"
+  fail "readability guard does not prune upgrade-receipts/ and local-edits/ (check/up fail after an upgrade)"
 fi
 # 4. config-guard writes configuration.prom into the root-owned textfile volume.
 if awk '/^  config-guard:/{f=1;next} f&&/^  [a-z]/{f=0} f' overlays/monitoring.yml | grep 'user: "0:0"' >/dev/null; then

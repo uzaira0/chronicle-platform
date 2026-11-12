@@ -368,8 +368,11 @@ preflight_environment() {
   # (backend as uid 100, config-guard as the postgres uid). An extraction under a private
   # umask leaves every directory 0700 and every file 0600, which fails inside the container
   # as a bare "Permission denied", so say it here with the fix. ./backups,
-  # ./operator-receipts, ./tls and .env are deliberately owner-only and are left alone.
-  local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./upgrade-receipts -o -path ./tls -o -name '.env*' -o -name .git -o -name '.chronicle-*' -o -name '.reconcile*' -o -name 'reconcile.*' -o -name __pycache__ ')' -prune )
+  # ./operator-receipts, ./upgrade-receipts, ./tls and .env are deliberately owner-only and are
+  # left alone, and so is ./local-edits: an update saves the operator's edited files there,
+  # owner-only, before it changes anything, and when it is then refused or rolled back this
+  # directory is still the installed one.
+  local -a keep_private=( '(' -path ./backups -o -path ./operator-receipts -o -path ./upgrade-receipts -o -path ./local-edits -o -path ./tls -o -name '.env*' -o -name .git -o -name '.chronicle-*' -o -name '.reconcile*' -o -name 'reconcile.*' -o -name __pycache__ ')' -prune )
   local unreadable permission_repair
   unreadable=$(find . "${keep_private[@]}" -o \
     '(' '(' -type d ! -perm -0005 ')' -o '(' -type f ! -perm -0004 ')' ')' -print 2>/dev/null | sort | sed -n 1,5p | tr '\n' ' ')

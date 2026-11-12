@@ -404,6 +404,40 @@ preflight_environment
                 self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
             self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
 
+    def test_permission_scan_and_repair_leave_the_local_edits_an_update_saved_private(self):
+        # An update saves each edited bundled file under <state>/local-edits before it changes
+        # anything (release.preserve_local_edits), owner-only, and the state directory is the
+        # installed directory unless CHRONICLE_STATE_DIR names another. When the update is then
+        # refused or rolled back that directory stays the active one. Up to 7358dc83 `./chronicle
+        # check` and `up` failed there on ./local-edits, and the repair they printed would have
+        # made the saved copies readable by every user (drill on Engine 29.8.2, 2026-11-11).
+        from chronicle_ops.release import LOCAL_EDITS_DIR
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); root.chmod(0o755)
+            private = [root / LOCAL_EDITS_DIR, root / LOCAL_EDITS_DIR / '2026.11.12', root / LOCAL_EDITS_DIR / '2026.11.12/selfhost']
+            for directory in private:
+                directory.mkdir(mode=0o700)
+            saved = [private[-1] / 'docker-compose.yml', private[-1] / 'docker-compose.yml.diff']
+            for file in saved:
+                file.write_text('services: {}\n'); file.chmod(0o600)
+            shipped = root / 'entrypoint.sh'; shipped.write_text('# fixture'); shipped.chmod(0o644)
+            script = source_launcher_in(root) + '''dc() { :; }; foreign_project() { :; }; ok() { :; }; warn() { :; }
+bad() { case "$1" in *"cannot read"*) printf "%s\\nrepair: %s\\n" "$1" "$permission_repair" ;; esac; }
+preflight_environment
+'''
+            result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual('', result.stdout)
+            # A shipped file that is unreadable is still found, and its repair leaves the saved edits alone.
+            shipped.chmod(0o600)
+            result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True, check=True, timeout=10)
+            message, repair = result.stdout.split('\nrepair: ')
+            self.assertEqual(['./entrypoint.sh'], message.split('does this): ')[1].split('. From this selfhost directory')[0].split())
+            subprocess.run(['bash', '-eu', '-c', repair], cwd=root, check=True, timeout=10)
+            self.assertEqual(shipped.stat().st_mode & 0o777, 0o644)
+            self.assertEqual([0o700] * 3, [directory.stat().st_mode & 0o777 for directory in private])
+            self.assertEqual([0o600] * 2, [file.stat().st_mode & 0o777 for file in saved])
+
     def test_uninstall_removes_only_its_schedule_and_keeps_reconciliation_paused(self):
         from chronicle_ops.reconcile import uninstall
         with tempfile.TemporaryDirectory() as folder:
