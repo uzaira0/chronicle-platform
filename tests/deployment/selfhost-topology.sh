@@ -109,7 +109,7 @@ clients up --no-start lb
 clients up -d phone-a phone-b forbidden
 cd "$STACK"
 TOPOLOGY_STACK="$STACK" TOPOLOGY_PROJECT_NAME="$PROJECT" POOL_BIND="$POOL_BIND" MANAGEMENT_BIND="$MANAGEMENT_BIND" PYTHONPATH="$STACK" python3 - <<'PY'
-import os, secrets
+import os, secrets, subprocess, sys
 from pathlib import Path
 from chronicle_ops.envfile import read_env, value, quote_env
 from chronicle_ops.credentials import SETUP_SECRETS
@@ -130,6 +130,12 @@ values.update(COMPOSE_PROJECT_NAME=os.environ['TOPOLOGY_PROJECT_NAME'], CHRONICL
     BACKUP_STORAGE_ENCRYPTION_WAIVER='isolated synthetic Docker fixture',
     # Retention is the operator's choice; the fixture keeps everything rather than choose a number.
     BACKUP_KEEP_DAYS='all', BACKUP_KEEP_WEEKS='all', BACKUP_KEEP_MONTHS='all', PRE_OP_BACKUP_KEEP_DAYS='all')
+# Setup writes the internal core network's prefix; choose it as setup does (./chronicle runs
+# network-subnet.py select-core with the edge subnet and project), clear of the networks already on
+# this host: the release smoke's own stack runs beside this one.
+values['CHRONICLE_CORE_PREFIX']=subprocess.run(
+    [sys.executable, 'network-subnet.py', 'select-core', values['CHRONICLE_SUBNET'], os.environ['TOPOLOGY_PROJECT_NAME']],
+    check=True, capture_output=True, text=True, timeout=60).stdout.strip()
 if os.environ.get('TOPOLOGY_SOURCE_PRESERVING') == 'true':
     sources=' '+os.environ['TOPOLOGY_PUBLIC_PREFIX']+'.0/24'
     for key in ('CADDY_TRUSTED_PROXIES','POOL_ALLOWED_IPS'): values[key]+=sources
