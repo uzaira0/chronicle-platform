@@ -513,8 +513,92 @@ sys.exit(int(os.environ['DOCS_FIXTURE_STATUS']) if ':rhizome:javadocJar' in sys.
                         if status:
                             self.assertEqual(commands[-1], commands[index + 1])
                         else:
-                            self.assertIn('container-structure-test test --image chronicle-selfhost-backup:test '
+                            tagged = next(line for line in commands if line.startswith('docker tag chronicle-selfhost-backup:test '))
+                            self.assertIn(f'container-structure-test test --save --image {tagged.split()[-1]} '
                                           f'--config {ROOT / "tests/container/selfhost-backup.yaml"}', commands)
+
+    def structure_test_fixture(self, fixture):
+        """A Docker that lists three containers for any ancestor filter: two made from the tag asked
+        for and one made from another tag of the same image (another checkout's run of the job).
+        container-structure-test exits STRUCTURE_TEST_STATUS for the image named in STRUCTURE_TEST_FAILS."""
+        calls = self.fake_toolchain(fixture, ('docker', 'container-structure-test', 'python3'))
+        docker = fixture / 'docker'
+        docker.write_text(docker.read_text() + '''
+if [[ "${1:-}" == ps ]]; then
+  for argument in "$@"; do
+    [[ "$argument" != ancestor=* ]] || tag="${argument#ancestor=}"
+  done
+  printf '%s\\n' "aaaa $tag" "bbbb chronicle-selfhost-backup:test" "cccc $tag"
+fi
+''')
+        tool = fixture / 'container-structure-test'
+        tool.write_text(tool.read_text() + '''
+tag="$(awk -v image="$STRUCTURE_TEST_FAILS" '$1 == "docker" && $2 == "tag" && $3 == image { tag = $4 } END { print tag }' "$FIXTURE_CALLS")"
+if [[ -n "$tag" && " $* " == *" --image $tag "* ]]; then exit "${STRUCTURE_TEST_STATUS:-0}"; fi
+''')
+        return calls
+
+    def test_structure_tests_remove_their_containers_with_the_anonymous_volumes(self):
+        """container-structure-test removes its containers and leaves their anonymous volumes: one run
+        of container-structure left 56 on chronicle-selfhost-backup:test (8 test containers, 7 VOLUME
+        paths; 2026-11-11). The job keeps the containers (--save) under a tag only that call has and
+        removes exactly those with their volumes, also when a structure test fails."""
+        with tempfile.TemporaryDirectory() as folder:
+            fixture = Path(folder)
+            calls = self.structure_test_fixture(fixture)
+            images =('chronicle-backend:test', 'chronicle-selfhost-frontend:test', 'chronicle-selfhost-caddy:test',
+                      'chronicle-selfhost-backup:test')
+            for failing, status in (('', 0), ('chronicle-selfhost-backup:test', 5), ('chronicle-backend:test', 5)):
+                with self.subTest(failing=failing):
+                    calls.write_text('')
+                    result = run(['bash', str(ROOT / 'scripts/local-ci.sh'), 'container-structure'],
+                                 env=dict(os.environ, CHRONICLE_LOCAL_BIN_DIR=str(fixture), FIXTURE_CALLS=str(calls),
+                                          FIXTURE_CADDY_ENV=str(fixture / 'caddy-env'),
+                                          CHRONICLE_LOCAL_CI_REPORT_DIR=str(fixture / 'reports'),
+                                          STRUCTURE_TEST_FAILS=failing, STRUCTURE_TEST_STATUS=str(status)),
+                                 capture=True, stderr=subprocess.PIPE, timeout=10)
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    commands = calls.read_text().splitlines()
+                    tested = images[:images.index(failing) + 1] if failing else images
+                    self.assertEqual([line.split()[2] for line in commands if line.startswith('docker tag ')], list(tested))
+                    for image in tested:
+                        start = next(index for index, line in enumerate(commands) if line.startswith(f'docker tag {image} '))
+                        tag = commands[start].split()[-1]
+                        self.assertRegex(tag, r'^chronicle-structure-test:[0-9]+-[0-9]+-[0-9]+$')
+                        config = 'backend' if image == 'chronicle-backend:test' else image.split(':')[0].removeprefix('chronicle-')
+                        self.assertEqual(commands[start + 1:start + 5], [
+                            f'container-structure-test test --save --image {tag} --config {ROOT / "tests/container"}/{config}.yaml',
+                            f'docker ps -a --no-trunc --filter ancestor={tag} --format {{{{.ID}}}} {{{{.Image}}}}',
+                            'docker rm --force --volumes aaaa cccc',
+                            f'docker image rm {tag}'])
+                    self.assertFalse([line for line in commands if 'bbbb' in line], commands)
+        self.assertEqual(1, (ROOT / 'scripts/local-ci.sh').read_text().count('container-structure-test test '),
+                         'every structure test goes through structure_test, which removes the containers and volumes')
+
+    def test_image_gate_structure_test_passes_its_platform_and_removes_the_same_way(self):
+        """image-gate tests the linux/amd64 release images through the same function."""
+        with tempfile.TemporaryDirectory() as folder:
+            fixture = Path(folder)
+            calls = self.structure_test_fixture(fixture)
+            for failing, status in (('', 0), ('chronicle-image-gate-backup:fixture', 5)):
+                with self.subTest(failing=failing):
+                    calls.write_text('')
+                    result = run(['bash', '-c', 'source "$1"; shift; structure_test "$@"', 'gate', str(ROOT / 'scripts/local-ci.sh'),
+                                  'chronicle-image-gate-backup:fixture', 'backup.yaml', '--platform', 'linux/amd64'],
+                                 env=dict(os.environ, CHRONICLE_LOCAL_BIN_DIR=str(fixture), FIXTURE_CALLS=str(calls),
+                                          STRUCTURE_TEST_FAILS=failing, STRUCTURE_TEST_STATUS=str(status)),
+                                 capture=True, stderr=subprocess.PIPE, timeout=10)
+                    self.assertEqual(status, result.returncode, result.stderr)
+                    commands = calls.read_text().splitlines()
+                    tag = commands[0].split()[-1]
+                    self.assertEqual(commands, [
+                        f'docker tag chronicle-image-gate-backup:fixture {tag}',
+                        f'container-structure-test test --save --platform linux/amd64 --image {tag} --config backup.yaml',
+                        f'docker ps -a --no-trunc --filter ancestor={tag} --format {{{{.ID}}}} {{{{.Image}}}}',
+                        'docker rm --force --volumes aaaa cccc',
+                        f'docker image rm {tag}'])
+        self.assertIn('structure_test "$tag" "$config" --platform linux/amd64 || image_failed=1',
+                      (ROOT / 'scripts/local-ci.sh').read_text())
 
     def test_timeout_runner_rejects_non_finite_and_missing_commands(self):
         with tempfile.TemporaryDirectory() as folder:

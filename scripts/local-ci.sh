@@ -1283,12 +1283,41 @@ job_route_surface_edge() {
   selfhost_python -m unittest discover -s "$ROOT_DIR/tests/deployment" -p test_route_surface.py -v
 }
 
+# container-structure-test removes the containers it runs but not their anonymous volumes (its Docker
+# driver calls RemoveContainer without RemoveVolumes), so every test of an image that declares VOLUME
+# paths left one volume per path: chronicle-selfhost-backup:test, 8 test containers x 7 paths, left 56
+# in one run of container-structure (Engine 29.8.2, 2026-11-11). --save keeps the containers instead.
+# They are made from a tag that only this call has, which tells them from every other container of
+# the same image (another checkout running this job builds the same :test tag), and
+# `docker rm --volumes` then takes the volumes with them.
+#   structure_test IMAGE CONFIG [container-structure-test OPTION...]
+structure_test() {
+  local image="$1" config="$2" run_tag containers status=0
+  shift 2
+  run_tag="chronicle-structure-test:$$-$RANDOM-$RANDOM"
+  docker tag "$image" "$run_tag" || return $?
+  container-structure-test test --save "$@" --image "$run_tag" --config "$config" || status=$?
+  # The ancestor filter matches the image id, so it also lists containers made from the image's other tags.
+  if containers="$(docker ps -a --no-trunc --filter "ancestor=$run_tag" --format '{{.ID}} {{.Image}}')"; then
+    containers="$(awk -v tag="$run_tag" '$2 == tag { print $1 }' <<<"$containers")"
+    if [[ -n "$containers" ]]; then
+      # shellcheck disable=SC2086 # one container id per word
+      docker rm --force --volumes $containers >/dev/null || status=$((status ? status : 1))
+    fi
+  else
+    printf '[local-ci] could not list the containers of %s; they and their volumes stay\n' "$run_tag" >&2
+    status=$((status ? status : 1))
+  fi
+  docker image rm "$run_tag" >/dev/null || status=$((status ? status : 1))
+  return "$status"
+}
+
 job_container_structure() {
   require_cmd docker
   require_cmd python3
   ensure_container_structure_test
   docker build -f "$ROOT_DIR/docker/Dockerfile.backend" -t chronicle-backend:test "$ROOT_DIR"
-  container-structure-test test --image chronicle-backend:test --config "$ROOT_DIR/tests/container/backend.yaml"
+  structure_test chronicle-backend:test "$ROOT_DIR/tests/container/backend.yaml"
   for component in frontend caddy backup; do
     local context="$ROOT_DIR" serving=()
     [[ "$component" != backup ]] || context="$ROOT_DIR/selfhost"
@@ -1299,7 +1328,7 @@ job_container_structure() {
         CADDY_BODY_TEST_LOG_DIR="$(report_path "$ROOT_DIR/tests/security/reports/caddy-body-limit" caddy-body-limit)" \
         python3 -s "$ROOT_DIR/tests/deployment/test_caddy_body_limit.py"
     fi
-    container-structure-test test --image "chronicle-selfhost-$component:test" --config "$ROOT_DIR/tests/container/selfhost-$component.yaml"
+    structure_test "chronicle-selfhost-$component:test" "$ROOT_DIR/tests/container/selfhost-$component.yaml"
   done
 }
 
@@ -1346,7 +1375,7 @@ next(image for image in SOURCE_IMAGES if image.component == sys.argv[3]).archive
     config="$ROOT_DIR/tests/container/selfhost-$component.yaml"
     [[ "$component" != backend ]] || config="$ROOT_DIR/tests/container/backend.yaml"
     if [[ -f "$config" ]]; then
-      container-structure-test test --platform linux/amd64 --image "$tag" --config "$config" || image_failed=1
+      structure_test "$tag" "$config" --platform linux/amd64 || image_failed=1
     fi
     bash "$ROOT_DIR/scripts/check-image-no-ssh-server.sh" "$tag" || image_failed=1
     bash "$ROOT_DIR/scripts/check-image-listeners.sh" "$tag" || image_failed=1
