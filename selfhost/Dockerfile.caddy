@@ -12,7 +12,10 @@
 # Unbound, the build fails: no such image exists in a registry.
 FROM chronicle-selfhost-frontend:release AS frontend
 
-FROM caddy:2.11.9-builder-alpine@sha256:7d56ec51429d46ff6495db1542cc20e0a4e1559e766b2f4fc48ae25eeca16167 AS builder
+# This digest of the builder tag carries Go 1.27.4 (GO-2026-6859, the net/http MaxBytesReader header race, is
+# fixed there). module/go.mod and forward/go.mod require 1.27.4, so with GOTOOLCHAIN=local an older builder
+# fails the build instead of fetching a toolchain.
+FROM caddy:2.11.9-builder-alpine@sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86 AS builder
 
 # Caddy 2.11.9 requires go-jose v4.1.6; module/go.mod raises golang.org/x/net to v0.62.0 (GO-2026-6860, GO-2026-6866,
 # x/net/html is linked) and klauspost/compress to v1.20.2 (GO-2026-6865). The build checks these as floors, so a

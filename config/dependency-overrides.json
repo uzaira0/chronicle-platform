@@ -309,7 +309,7 @@
   },
   "selfhost/Dockerfile.grafana::github.com/go-jose/go-jose/v4": {
     "pin": "v4.1.8",
-    "reason": "Grafana 13.2.5 server binary links go-jose v4.1.4; v4.1.6 fixes a HIGH advisory (trivy gate) and carries the RSA modulus bound (a0111f82). Image rebuilds the same tag with Grafana's release flags, Go 1.27.3 and this replace.",
+    "reason": "Grafana 13.2.5 server binary links go-jose v4.1.4; v4.1.6 fixes a HIGH advisory (trivy gate) and carries the RSA modulus bound (a0111f82). Image rebuilds the same tag with Grafana's release flags, Go 1.27.4 and this replace.",
     "remove_when": "Remove the server build stage when the pinned Grafana release image's binary reports go-jose v4.1.6 or newer in go version -m and passes the trivy gate unmodified.",
     "reviewed_on": "2026-11-06",
     "review_after": "2026-12-06",

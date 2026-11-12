@@ -14,10 +14,11 @@ RUN wget -q -O /plugin.zip https://grafana.com/api/plugins/victoriametrics-logs-
 # The 13.2.5 server binary links go-jose v4.1.4 (HIGH advisory fixed in 4.1.6; trivy gate in
 # scripts/publish-images.sh) and is built with Go 1.26.10. Rebuild the same tag with Grafana's release flags
 # (Makefile build-go: CGO off, -trimpath, -buildvcs=false, version ldflags; buildstamp from the release binary)
-# with Go 1.27.3, go-jose raised to 4.1.8 and golang.org/x/net raised to 0.62.0 (CVE-2026-78661, x/net/html
-# tokenizer denial of service; 13.2.5 links 0.60.0). 13.2.5 already requires kin-openapi 0.151.0 and brotli 1.2.7.
+# with Go 1.27.4 (GO-2026-6859, the net/http MaxBytesReader header race, is fixed there), go-jose raised to 4.1.8
+# and golang.org/x/net raised to 0.62.0 (CVE-2026-78661, x/net/html tokenizer denial of service; 13.2.5 links
+# 0.60.0). 13.2.5 already requires kin-openapi 0.151.0 and brotli 1.2.7.
 # Drop this stage once a Grafana release image links go-jose 4.1.6 and x/net 0.62.0 or newer.
-FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS server
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS server
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN git clone --quiet --depth 1 --branch v13.2.5 https://github.com/grafana/grafana /src && \
     test "$(git -C /src rev-parse HEAD)" = ce471d869a4810cd83c987dd3521c4b67689dbb6

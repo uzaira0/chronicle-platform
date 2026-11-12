@@ -1,6 +1,6 @@
 module caddy
 
-go 1.27.3
+go 1.27.4
 
 replace github.com/go-jose/go-jose/v3 => /go-jose-v3
 

@@ -3,7 +3,7 @@
 // then `go mod tidy`, inside the golang image Dockerfile.backup pins.
 module chronicle-selfhost/go-cron
 
-go 1.27.3
+go 1.27.4
 
 // go-cron's own go.mod says go 1.12, and `go install ...@v0.0.11` built it with go1.12's GODEBUG defaults
 // (DefaultGODEBUG in `go version -m`, e.g. netedns0=0, panicnil=1, tlssha1=1). Keep them, so the binary

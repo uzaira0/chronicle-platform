@@ -2,7 +2,7 @@
 # Commit: d00896ab15f6da29e0449390315a36c3bbda5082 (debian.Dockerfile, MIT).
 # Build with selfhost/ as context (scripts and the shared dump validator).
 # Keep upstream scripts, defaults, scheduler version and Debian hook semantics intact.
-FROM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS builder
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS builder
 
 # go-cron v0.0.11 and its dependencies are fixed by backup-image/go-cron/go.mod and go.sum (a module whose
 # only content is the `tool` requirement); -mod=readonly fails the build if they would change.

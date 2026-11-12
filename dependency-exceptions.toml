@@ -13,17 +13,17 @@
 # expires = 2026-12-01
 
 [[exception]]
-ecosystem = "go"
-name = "github.com/caddyserver/caddy/v2"
-version = "v2.11.9"
-reviewer = "plan splendid-strolling-mountain lane D"
-note = "Not a new intake: the 5702037 caddy image already built v2.11.9 through xcaddy; committing go.sum made it visible. go version -m identical."
+ecosystem = "oci"
+name = "docker.io/library/golang"
+version = "1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea"
+reviewer = "uzaira0 (owner; exception granted 2026-11-12 for Go 1.27.4 only)"
+note = "CVE-2026-97054 / GO-2026-6859: an HTTP/1 server that limits the request body with MaxBytesReader panics when the limit is hit while the handler writes response headers. Reachable on the public listener: chronicle_body_limit in selfhost/caddy/snippets.caddy puts request_body max_size in front of reverse_proxy, and Caddy v2.11.9 implements it with http.MaxBytesReader (modules/caddyhttp/requestbody/requestbody.go:73); the fix's own message names this reverse-proxy case. Grafana 13.2.5 calls MaxBytesReader at 19 sites. Read: golang/go 4c1752a0 (net/http/server.go: requestTooLarge no longer writes closeAfterReply and the header map from the goroutine that reads the body; requestBodyLimitHit is an atomic.Bool that chunkWriter.writeHeader and shouldReuseConnection read) and the titles of the other 25 commits between go1.27.3 and go1.27.4. Checked 2026-11-12: all 15659 files under /usr/local/go in this image are byte-identical to go1.27.4.linux-amd64.tar.gz from go.dev (sha256 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840). The 7-day wait ends 2026-11-17T18:34Z; remove this entry then."
 expires = 2026-11-20
 
 [[exception]]
-ecosystem = "go"
-name = "golang.org/x/crypto/x509roots/fallback"
-version = "v0.0.0-20261030153154-30a33513ff6d"
-reviewer = "plan splendid-strolling-mountain lane D"
-note = "Not a new intake: caddy v2.11.9's own requirement, already linked into the 5702037 caddy image via xcaddy; go version -m identical."
+ecosystem = "oci"
+name = "docker.io/library/caddy"
+version = "2.11.9-builder-alpine@sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86"
+reviewer = "uzaira0 (owner; exception granted 2026-11-12 for Go 1.27.4 only)"
+note = "Same advisory and review as docker.io/library/golang 1.27.4-bookworm above: this is the Caddy 2.11.9 builder rebuilt on Go 1.27.4, and xcaddy compiles the public edge with it. Checked 2026-11-12: all 15659 files under /usr/local/go in this image are byte-identical to go1.27.4.linux-amd64.tar.gz from go.dev (sha256 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840). The 7-day wait ends 2026-11-17T20:53Z; remove this entry then."
 expires = 2026-11-20

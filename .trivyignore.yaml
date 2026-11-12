@@ -521,7 +521,7 @@ vulnerabilities:
     statement: >-
       Go's crypto/x509 denylist of the compromised eMudhra intermediates (Go 1.26.10/1.27.3). The
       victoriametrics-logs-datasource 0.33.1 backend binaries are built with Go 1.27.2 (the Grafana
-      server in this image is rebuilt with Go 1.27.3). Monitoring overlay only (opt-in). The plugin's
+      server in this image is rebuilt with Go 1.27.4). Monitoring overlay only (opt-in). The plugin's
       only connection is plain HTTP to internal victorialogs:9428 (selfhost/monitoring/grafana-datasources.yml),
       so it verifies no certificate chain. Rechecked 2026-11-06: 0.33.1 is still the newest plugin release.
       Drop when a plugin release is built with Go 1.27.3 or newer.
