@@ -5,8 +5,8 @@ Authority Key Identifier. The 2026.11.6 release smoke failed on exactly that: it
 leaf was signed by `openssl x509 -req -extfile` with only subjectAltName, so the smoke's own client
 (tests/deployment/selfhost-client.py) refused it. tests/security/lib/fixture-pki.sh issues those fixtures now,
 and every other place that signs a certificate must set the identifier itself."""
-import ssl
 import socket
+import ssl
 import subprocess
 import tempfile
 import threading

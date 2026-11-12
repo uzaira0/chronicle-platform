@@ -22,7 +22,7 @@ def run_web_bun_audit(directory, audit_json='{}', audit_status=0):
     fixture = Path(directory)
     security = fixture / 'tests/security'
     (security / 'lib').mkdir(parents=True)
-    for relative in ('run-all-security.sh', 'security-runner-lib.sh', 'lib/selfhost-python.sh'):
+    for relative in ('run-all-security.sh', 'security-runner-lib.sh', 'lib/selfhost-python.sh', 'lib/k6-fixture-trust.sh'):
         shutil.copyfile(ROOT / 'tests/security' / relative, security / relative)
     guardrail = security / 'supply-chain-guardrails.sh'
     guardrail.write_text('#!/bin/bash\necho guardrails >>"$SCA_CALLS"\n')

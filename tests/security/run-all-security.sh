@@ -9,6 +9,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/security-runner-lib.sh"
 # shellcheck source=tests/security/lib/selfhost-python.sh
 source "$SCRIPT_DIR/lib/selfhost-python.sh"
+# shellcheck source=tests/security/lib/k6-fixture-trust.sh
+source "$SCRIPT_DIR/lib/k6-fixture-trust.sh"
 
 prepare_checkov_runtime() {
   if checkov --version >/dev/null 2>&1; then
@@ -691,9 +693,13 @@ run_security_layer_upload() {
       "file-upload-tests.txt" "" -- bash "$ROOT_DIR/tests/security/file-upload-tests.sh"
     run_security_step "upload.load-smoke" "Upload: load smoke test" "guardrail" \
       "load-smoke.txt" "" -- bash "$ROOT_DIR/tests/load/smoke-test.sh"
+    # Exported for this layer only; the race script reads STUDY_ID.
+    local STUDY_ID="${TEST_STUDY_ID:-}"
+    export STUDY_ID
     run_security_step "upload.races" "Upload: enrollment, nonce, deletion and settings races" "guardrail" \
-      "race-conditions.txt" "race-summary.json" -- env STUDY_ID="${TEST_STUDY_ID:-}" \
-      k6 run --summary-export "$REPORT_DIR/race-summary.json" "$ROOT_DIR/tests/security/k6-race-conditions.js"
+      "race-conditions.txt" "race-summary.json" -- k6_run_trusting_fixture_ca \
+      "BASE_URL MANAGEMENT_URL STUDY_ID TEST_RANDOM_DEVICE_ID AUTH_TOKEN MOBILE_SIGNING_SECRET UPLOAD_CONNECT_TO" -- \
+      --summary-export "$REPORT_DIR/race-summary.json" "$ROOT_DIR/tests/security/k6-race-conditions.js"
 }
 
 run_security_layer_crypto() {
