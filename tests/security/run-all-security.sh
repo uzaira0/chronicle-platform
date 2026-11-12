@@ -135,6 +135,12 @@ android_source_roots() {
   find "$ROOT_DIR/chronicle" -mindepth 3 -maxdepth 3 -type d -path '*/src/*' ! -iname '*test*' -print | sort
 }
 
+run_cue_k8s_guardrails() {
+  command -v cue >/dev/null 2>&1 || return 127
+  command -v kubectl >/dev/null 2>&1 || command -v kustomize >/dev/null 2>&1 || return 127
+  "$ROOT_DIR/tests/security/cue-k8s-guardrails.sh" "$REPORT_DIR/cue-k8s"
+}
+
 run_deployment_semgrep() {
   local report="$REPORT_DIR/deployment-semgrep.sarif" status=0
   command -v semgrep >/dev/null 2>&1 || return 127
@@ -587,6 +593,13 @@ run_security_layer_secrets() {
 run_security_layer_iac() {
     run_security_step "iac.gate-evidence" "IaC: gate jobs fail closed on scanner failures and stale evidence" "guardrail" \
       "gate-evidence.txt" "" -- python3 -s "$ROOT_DIR/tests/security/test_gate_evidence.py"
+    run_security_step "iac.suite-inventory" "IaC: every test and every tests/security script has a gate" "guardrail" \
+      "suite-inventory.txt" "" -- python3 -s "$ROOT_DIR/tests/security/check-suite-inventory.py"
+    run_security_step "iac.kubernetes" "IaC: Kubernetes manifest guardrails" "guardrail" \
+      "kubernetes-guardrails.log" "kubernetes" -- \
+      "$ROOT_DIR/tests/security/kubernetes-guardrails.sh" "$REPORT_DIR/kubernetes"
+    run_security_step "iac.cue-k8s" "IaC: CUE profiles against the rendered RHEL 9 overlay" "guardrail" \
+      "cue-k8s-guardrails.log" "cue-k8s" -- run_cue_k8s_guardrails
     run_security_step \
       "iac.checkov" "IaC: Checkov Dockerfile scan" "scanner" \
       "checkov.log" "checkov-output/results_sarif.sarif" -- run_checkov_scan
@@ -659,6 +672,8 @@ run_security_layer_deploy() {
     done
     run_security_step "deploy.semgrep" "Deploy: Bash/nginx/Docker/Compose Semgrep" "scanner" \
       "deployment-semgrep.log" "deployment-semgrep.sarif" -- run_deployment_semgrep
+    run_security_step "deploy.semgrep-fixtures" "Deploy: the deployment Semgrep rules reject unsafe fixtures" "guardrail" \
+      "deployment-semgrep-fixtures.txt" "" -- bash "$ROOT_DIR/tests/security/deployment-semgrep.sh"
     run_security_step "deploy.public-tree-privacy" "Deploy: public-tree privacy guardrails" "guardrail" \
       "public-tree-privacy-guardrails.txt" "" -- python3 "$ROOT_DIR/tests/security/public-tree-privacy-guardrails.py"
     run_security_step "deploy.runner-self-test" "Deploy: security runner capture-all self-test" "build" \
@@ -667,6 +682,11 @@ run_security_layer_deploy() {
       "deploy-guardrails.txt" "" -- "$ROOT_DIR/tests/security/deploy-guardrails.sh" "$REPORT_DIR"
     run_security_step "deploy.db-secret-transport" "Deploy: database client secret-transport contract" "guardrail" \
       "db-secret-transport.txt" "" -- "$ROOT_DIR/tests/security/db-secret-transport-guardrails.sh"
+    run_security_step "deploy.operator-secret-edge" "Deploy: operator secret files and edge proxy guardrails" "guardrail" \
+      "operator-secret-edge-guardrails.txt" "" -- "$ROOT_DIR/tests/security/operator-secret-edge-guardrails.sh"
+    run_security_step "deploy.observability" "Deploy: log forwarder redaction and observability guardrails" "guardrail" \
+      "observability-guardrails.log" "observability" -- \
+      "$ROOT_DIR/tests/security/observability-guardrails.sh" "$REPORT_DIR/observability"
     run_security_step "deploy.schema" "Deploy: schema/source-of-truth guardrails" "guardrail" \
       "schema-guardrails.txt" "" -- "$ROOT_DIR/tests/security/schema-guardrails.sh"
     run_deploy_guardrails
@@ -675,6 +695,8 @@ run_security_layer_deploy() {
 run_security_layer_auth() {
     run_security_step "auth.static" "Auth: JWT/session static guardrails" "guardrail" \
       "auth-static-guardrails.txt" "" -- auth_static_guardrails
+    run_security_step "auth.maestro-transport" "Auth: Maestro flows keep credentials out of arguments and logs" "guardrail" \
+      "maestro-auth-transport-guardrails.txt" "" -- "$ROOT_DIR/tests/security/maestro-auth-transport-guardrails.sh"
     run_security_step "auth.behavior" "Auth: mobile identity and request privacy behavior" "build" \
       "auth-behavior.log" "" -- run_auth_behavior_tests
     # Semgrep is deliberately independent so a static guardrail finding cannot

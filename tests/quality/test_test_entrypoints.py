@@ -109,6 +109,81 @@ class TestEntrypointsTest(unittest.TestCase):
             ci.write_text('job_web() { (cd "$ROOT_DIR" && bun test scripts); }\n')
             self.assertEqual({path}, CHECK.script_test_coverage(root, CHECK.layers.shell_nodes(ci, ("command",))))
 
+    def test_a_security_script_needs_a_runner_that_a_gate_reaches(self):
+        # 2026-11-11: operator-secret-edge-guardrails.sh had failed since 2026-10-19 and
+        # observability-guardrails.sh since 2026-10-22, and no job, hook or test ran either.
+        scratch = ROOT / "build/operator-test-runs"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as directory:
+            root = Path(directory)
+            security = root / "tests/security"
+            security.mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "scripts/local-ci.sh").write_text(
+                'job_security_layers() { bash "$ROOT_DIR/tests/security/run-all-security.sh" deploy; }\n')
+            runner = security / "run-all-security.sh"
+            layers = ('run_security_step "deploy.direct" -- "$ROOT_DIR/tests/security/direct-guardrails.sh"\n'
+                      'for suite in looped-one looped-two; do\n'
+                      '  run_security_step "deploy.$suite" -- bash "$ROOT_DIR/tests/security/$suite.sh"\n'
+                      'done\n'
+                      'for suite in "$ROOT_DIR"/tests/security/operator-*.sh; do bash "$suite"; done\n'
+                      '# "$ROOT_DIR/tests/security/commented-guardrails.sh"\n')
+            runner.write_text(layers)
+            for name in ("direct-guardrails.sh", "looped-one.sh", "looped-two.sh", "operator-first.sh", *CHECK.HOST_PROBES):
+                (security / name).write_text("")
+            check = CHECK.security_script_coverage
+            self.assertEqual(set(), check(root))
+
+            def orphan(name):
+                path = security / name
+                path.write_text("")
+                return path
+
+            commented = orphan("commented-guardrails.sh")
+            self.assertEqual({commented}, check(root))
+            commented.unlink()
+            # Documentation, a Makefile and a deployment playbook are not gates.
+            documented = orphan("documented-guardrails.sh")
+            (root / "docs").mkdir()
+            (root / "docs/audit.md").write_text("tests/security/documented-guardrails.sh\n")
+            (root / "Makefile").write_text("check:\n\ttests/security/documented-guardrails.sh\n")
+            (root / "deploy").mkdir()
+            (root / "deploy/tasks.yml").write_text("- command: tests/security/documented-guardrails.sh\n")
+            self.assertEqual({documented}, check(root))
+            documented.unlink()
+            # A test that starts the script owns it; a test that only reads its text does not.
+            probe = orphan("fixture-probe.sh")
+            test = root / "tests/quality/test_fixture_probe.py"
+            test.parent.mkdir()
+            test.write_text("text = (ROOT / 'tests/security/fixture-probe.sh').read_text()\n")
+            self.assertEqual({probe}, check(root))
+            test.write_text("import subprocess\nsubprocess.run(['bash', str(ROOT / 'tests/security/fixture-probe.sh')])\n")
+            self.assertEqual(set(), check(root))
+            # A script reached only through another script that has no runner is not reached.
+            chained = orphan("chained-guardrails.sh")
+            middle = orphan("middle-guardrails.sh")
+            middle.write_text('bash "$ROOT_DIR/tests/security/chained-guardrails.sh"\n')
+            self.assertEqual({chained, middle}, check(root))
+            runner.write_text(layers + 'bash "$ROOT_DIR/tests/security/middle-guardrails.sh"\n')
+            self.assertEqual(set(), check(root))
+            # A Python program that discovery does not pick up needs a runner as well.
+            program = orphan("fixture_checks.py")
+            unmatched = orphan("fixture_test.py")
+            self.assertEqual({program, unmatched}, check(root))
+            test.write_text("import subprocess\nimport fixture_checks\n"
+                            "subprocess.run(['bash', str(ROOT / 'tests/security/fixture-probe.sh')])\n"
+                            "subprocess.run(['python3', str(ROOT / 'tests/security/fixture_test.py')])\n")
+            self.assertEqual(set(), check(root))
+            # A host probe leaves the table when a gate starts it.
+            listed = security / sorted(CHECK.HOST_PROBES)[0]
+            runner.write_text(runner.read_text() + f'bash "$ROOT_DIR/tests/security/{listed.name}"\n')
+            self.assertEqual({listed}, check(root))
+
+    def test_every_security_script_in_this_repository_has_a_runner(self):
+        self.assertEqual(set(), {path.relative_to(ROOT).as_posix() for path in CHECK.security_script_coverage(ROOT)})
+        # ... and the table of host probes names no file that has been removed.
+        self.assertEqual([], [name for name in CHECK.HOST_PROBES if not (ROOT / "tests/security" / name).is_file()])
+
 
 if __name__ == "__main__":
     unittest.main()

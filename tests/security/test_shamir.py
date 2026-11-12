@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run with python3 -B tests/security/shamir_test.py; uses only synthetic keys."""
+"""The Shamir split and recovery in docker/shamir.py; uses only synthetic keys.
+
+Found by `unittest discover -s tests/security -p 'test_*.py'` (scripts/local-ci.sh job_engineering)."""
 
 import itertools
 from pathlib import Path

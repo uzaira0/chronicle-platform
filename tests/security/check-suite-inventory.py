@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require every browser, load, parser and script test to have an executable gate owner."""
+"""Require every browser, load, parser and script test, and every tests/security script, to have an executable gate owner."""
 
 import fnmatch
 import importlib
@@ -267,6 +267,91 @@ def script_test_coverage(root, nodes):
     return candidates - owned
 
 
+# Probes of a deployed host. Each needs the named services running on the machine it is started on,
+# so no job in scripts/local-ci.sh can own it; a person runs it on that host. Every other script
+# directly under tests/security needs a runner. An entry leaves this table when its probe gets a
+# job (security_script_coverage reports an entry that has a runner) or is removed
+# (tests/quality/test_test_entrypoints.py requires every entry's file).
+HOST_PROBES = {
+    'api-header-tests.sh': 'a deployed backend (BACKEND_URL) and its JWT signing key',
+    'backup-dr-test.sh': 'the Traefik deployment: chronicle-postgres and /opt/chronicle/docker/backup-chronicle.sh',
+    'database-security-tests.sh': 'the Traefik deployment: a running chronicle-postgres',
+    'ir-drill-checklist.sh': 'an installed self-host stack',
+    'test-fail2ban.sh': 'a host with the chronicle-fail2ban container',
+    'test-falco.sh': 'a host with the chronicle-falco container',
+    'test-vault.sh': 'the Traefik deployment: a running chronicle-vault',
+}
+RUNNER_ROOTS = ('scripts/local-ci.sh', 'lefthook.yml', 'tests/smoke/selfhost-release-smoke.sh')
+SCRIPT_PATH = re.compile(r'[A-Za-z0-9_./*$\{}"-]*[A-Za-z0-9_*-]\.(?:sh|py|ts)\b')
+LOOP = re.compile(r'\bfor\s+(\w+)\s+in\s+((?:[^;\n]|\\\n)*?)\s*(?:;|\n)\s*do\b')
+IMPORTED = re.compile(r'''import_module\(\s*['"]([\w.-]+)['"]|^\s*(?:import|from)\s+([\w.]+)''', re.M)
+
+
+def started_by(runner, root):
+    """What a runner can start: repository paths and bare file names, and imported module names.
+
+    Comment lines do not count. In a shell runner a `for ... in` list also counts: its words with
+    the directory and suffix the loop body adds ("$ROOT_DIR/tests/security/$suite.sh"), and its
+    path globs. A Python or TypeScript file counts as starting the scripts it names only when it
+    starts processes at all (subprocess, spawn); a test that only reads a script's text does not."""
+    text = '\n'.join(line for line in runner.read_text(errors='replace').splitlines()
+                     if not line.lstrip().startswith(('#', '//')))
+
+    def relative(word):
+        word = word.replace('"', '').replace("'", '')
+        for prefix in ('${ROOT_DIR}/', '$ROOT_DIR/', '${PROJECT_ROOT}/', '$PROJECT_ROOT/', str(root) + '/'):
+            word = word.replace(prefix, '')
+        return word.removeprefix('./')
+
+    modules = {(first or second).rsplit('.', 1)[-1] for first, second in IMPORTED.findall(text)}
+    if runner.suffix in ('.py', '.ts'):
+        starts = re.search(r'\bsubprocess\b|\bspawn(?:Sync)?\b|\bexecFileSync\b', text)
+        return ({relative(match[0]) for match in SCRIPT_PATH.finditer(text) if '*' not in match[0]} if starts else set()), modules
+    paths = {relative(match[0]) for match in SCRIPT_PATH.finditer(text) if '*' not in match[0]}
+    for variable, listed in LOOP.findall(text):
+        words = listed.replace('\\\n', ' ').split()
+        for directory, suffix in re.findall(r'([A-Za-z0-9_./$\{}"-]*/)\$\{?' + variable + r'\}?(\.(?:sh|py))', text):
+            paths.update(relative(directory) + word.strip('"\'') + suffix for word in words if '/' not in word and '$' not in word)
+        paths.update(relative(word) for word in words if '*' in word and '/' in word)
+    return paths, modules
+
+
+def security_script_coverage(root):
+    """Scripts directly under tests/security that nothing a gate runs can start.
+
+    A runner is scripts/local-ci.sh, lefthook.yml, the release smoke test or a test file (whose own
+    gate script_test_coverage requires); a script a runner can start (started_by) is a runner of
+    what it starts. A file named only by documentation, a Makefile or a deployment playbook has no
+    gate. A bare file name counts for every file of that name."""
+    directory = root / 'tests/security'
+    candidates = {path for pattern in ('*.sh', '*.py') for path in directory.glob(pattern)
+                  if not path.name.startswith('test_')}
+    pool = {path for top in ('scripts', 'tests', 'selfhost') for path in (root / top).rglob('*')
+            if path.suffix in ('.sh', '.py', '.ts') and path.is_file()
+            and not {'fixtures', 'node_modules', '__pycache__'} & set(path.relative_to(root).parts)}
+    runners = {root / name for name in RUNNER_ROOTS if (root / name).is_file()}
+    runners |= {path for path in pool if (path.suffix == '.py' and path.name.startswith('test'))
+                or path.name.endswith('.test.ts')}
+    pending = list(runners)
+    while pending:
+        runner = pending.pop()
+        paths, modules = started_by(runner, root)
+        names = {Path(word).name for word in paths if '*' not in word}
+        if runner.resolve() == Path(__file__).resolve():
+            names -= set(HOST_PROBES)  # this file lists them; it does not start them
+        globs = [word for word in paths if '*' in word]
+        for path in pool - runners:
+            name = path.relative_to(root).as_posix()
+            if (path.name in names
+                    or any(Path(glob).parent.as_posix() == Path(name).parent.as_posix()
+                           and fnmatch.fnmatchcase(path.name, Path(glob).name) for glob in globs)
+                    or (path.suffix == '.py' and (path.stem in modules or path.stem.replace('-', '_') in modules))):
+                runners.add(path)
+                pending.append(path)
+    unowned = {path for path in candidates - runners if path.name not in HOST_PROBES}
+    return unowned | {directory / name for name in HOST_PROBES if directory / name in runners}
+
+
 def coverage(root):
     nodes = script_invocations(root)
     commands = [node['text'].replace('\\\n', '') for node in nodes]
@@ -281,6 +366,7 @@ def coverage(root):
     missing.update(k6_coverage(root, commands, load_loop_suites(root, nodes)))
     missing.update(parser_corpora(root, commands))
     missing.update(script_test_coverage(root, nodes))
+    missing.update(security_script_coverage(root))
     return missing
 
 
@@ -291,4 +377,4 @@ if __name__ == '__main__':
             sys.exit('Suites without a gate: ' + ', '.join(str(path.relative_to(ROOT)) for path in sorted(missing)))
     except (ValueError, RuntimeError, OSError) as error:
         sys.exit(str(error))
-    print('Every browser, load, parser and script test is owned by a runnable gate')
+    print('Every browser, load, parser and script test and every tests/security script is owned by a runnable gate')

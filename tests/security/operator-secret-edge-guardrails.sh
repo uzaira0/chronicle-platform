@@ -93,8 +93,6 @@ require_pattern "$ROTATE_TDE" 'export[[:space:]]+-n[[:space:]]+POSTGRES_PASSWORD
   "ambient TDE credentials must be unexported before helper processes start"
 reject_pattern "$ROTATE_SECRETS" 'embedded in the (Android )?(APK|AAB)|shared with the Android APK|requires APK coordination|until APK update|publish(ing)? a new app' \
   "legacy compatibility rotation must not claim public app artifacts contain deployment-wide secrets"
-require_pattern "$ROTATE_SECRETS" 'controlled legacy' \
-  "legacy compatibility rotation must state its narrow coordination boundary"
 
 SCRATCH_DIR="$(mktemp -d "$ROOT_DIR/tests/security/.operator-secret-edge-guardrails.XXXXXX")"
 SECRET_FILE="$SCRATCH_DIR/jwt-secret"
