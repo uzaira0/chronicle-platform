@@ -50,6 +50,11 @@ if [[ "$*" == 'info --format {{.DockerRootDir}}' ]]; then
   printf '%s\n' /fixture/docker
   exit 0
 fi
+# Setup's architecture check (chronicle_ops/host_versions.py daemon_architecture).
+if [[ "$*" == 'info --format {{.Architecture}}' ]]; then
+  printf '%s\n' x86_64
+  exit 0
+fi
 if [[ "${1:-}" == network ]]; then
   [[ "${SELFHOST_SETUP_TEST_NETWORK_QUERY_FAIL:-0}" == 0 ]] || exit 98
   case "${2:-}" in
@@ -113,6 +118,14 @@ for argument in "$@"; do
     exit 91
   }
 done
+# Only the Caddy hash container reads standard input. Setup shares its own standard input, the
+# operator's answers, with every child, so a call this fixture does not know must fail here instead
+# of reading them: an unknown `docker info` query once consumed every answer, and setup then ran on
+# its defaults and stopped at the example hostname.
+[[ "${1:-}" == run && "${!#}" == hash-password ]] || {
+  echo "selfhost-setup-secrets fixture: unexpected docker call: $*" >&2
+  exit 90
+}
 printf '%s\n' "$@" >"${SELFHOST_SETUP_TEST_DOCKER_ARGS}"
 plaintext="$(cat)"
 [[ "$plaintext" == "${SELFHOST_SETUP_TEST_PASSWORD}" ]] || {
@@ -500,29 +513,45 @@ fi
 
 echo "self-host setup secret-custody test passed"
 
-# Optional delivery destination is collected silently and only HTTPS is accepted.
+# Optional delivery destination is collected silently and only HTTPS is accepted off this host.
+# Setup refuses any other destination at the prompt, before anything is written, and asks again;
+# a blank answer leaves the deployment without one. (The same rule at render time and its
+# "error: alert webhook must be an HTTPS URL" line are in tests/selfhost-py/test_setup_env.py.)
 webhook='https://alerts.example.test/fixture-private-destination'
-for scheme in https http; do
-  alert_selfhost="${RUN_DIR}/alerts-${scheme}/selfhost"
+for alert_case in https http http-then-blank; do
+  scheme="${alert_case%%-*}"
+  alert_selfhost="${RUN_DIR}/alerts-${alert_case}/selfhost"
   copy_selfhost_setup_fixture "$alert_selfhost"
-  alert_output="${RUN_DIR}/alerts-${scheme}.log"
+  alert_output="${RUN_DIR}/alerts-${alert_case}.log"
   alert_status=0
   write_selfhost_setup_answers "$PASSWORD" false false --monitoring \
     --alert-webhook "${webhook/https:/$scheme:}" |
+    awk -v blank_after="$([[ "$alert_case" != http-then-blank ]] || printf '%s' "${webhook/https:/http:}")" \
+      '{ print } blank_after != "" && $0 == blank_after { print "" }' |
     env PATH="${COMMAND_DIR}:${PATH}" SELFHOST_SETUP_TEST_PASSWORD="$PASSWORD" \
       SELFHOST_SETUP_TEST_GENERATED="$GENERATED" SELFHOST_SETUP_TEST_DOCKER_ARGS="$DOCKER_ARGS" \
       SELFHOST_SETUP_TEST_PYTHON_ARGS="$PYTHON_ARGS" SELFHOST_SETUP_TEST_REAL_PYTHON="$REAL_PYTHON" \
       bash "$alert_selfhost/chronicle" setup >"$alert_output" 2>&1 || alert_status=$?
   ! grep -Fq 'fixture-private-destination' "$alert_output" || fail 'setup printed the secret destination'
-  if [[ "$scheme" == https ]]; then
+  if [[ "$alert_case" == https ]]; then
     [[ "$alert_status" == 0 ]] || fail 'setup rejected the HTTPS alert destination'
     grep -Fqx "CHRONICLE_ALERT_WEBHOOK_URL=$webhook" "$alert_selfhost/.env" || fail 'setup did not save the HTTPS alert destination'
     grep -Fq 'Alert destination saved' "$alert_output" || fail 'setup did not request a delivery test'
-  else
+    continue
+  fi
+  grep -Fq 'The alert webhook must be HTTPS' "$alert_output" || fail 'setup did not say why the HTTP alert destination was refused'
+  grep -Fq 'It was not saved; enter it again, or leave it blank.' "$alert_output" ||
+    fail 'setup did not ask for the alert destination again'
+  if [[ "$alert_case" == http ]]; then
+    # No blank answer: the answers that follow are read as further attempts and refused, so setup
+    # ends without its backup-retention answers and publishes nothing.
     [[ "$alert_status" != 0 ]] || fail 'setup accepted an HTTP alert destination'
     [[ ! -e "$alert_selfhost/.env" ]] || fail 'invalid destination was published'
-    grep -Fq 'error: alert webhook must be an HTTPS URL' "$alert_output" || fail 'launcher lost the uniform CLI error'
-    grep -Fq 'could not render .env' "$alert_output" || fail 'launcher lost the setup failure context'
+  else
+    [[ "$alert_status" == 0 ]] || { cat "$alert_output" >&2; fail 'setup stopped after a refused alert destination was left blank'; }
+    grep -Fqx 'CHRONICLE_ALERT_WEBHOOK_URL=' "$alert_selfhost/.env" || fail 'a refused alert destination was saved'
+    grep -Fqx 'CHRONICLE_ALERT_EGRESS=closed' "$alert_selfhost/.env" || fail 'a refused alert destination opened Grafana egress'
+    ! grep -Fq 'Alert destination saved' "$alert_output" || fail 'setup reported a refused alert destination as saved'
   fi
 done
 echo 'PASS: optional HTTPS alert destination is private and validated before publication'

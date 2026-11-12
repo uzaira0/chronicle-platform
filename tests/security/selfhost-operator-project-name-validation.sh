@@ -29,8 +29,11 @@ run_setup() {
 
 invalid_dir="${RUN_DIR}/invalid-project"
 make_selfhost_setup_fixture "$invalid_dir"
+# CHRONICLE_ALERT_EGRESS is the derived key every command writes back when .env lacks it or holds a
+# stale value (chronicle_ops/egress.py sync_env_file). The prior .env carries it as setup writes it,
+# so the byte comparison below is about setup replacing the configuration and nothing else.
 printf '%s\n' 'COMPOSE_PROJECT_NAME=Previous_invalid_name' 'CHRONICLE_STATE_DIR=.' \
-  'MOBILE_SIGNING_ENABLED=false' 'MOBILE_SIGNING_REQUIRED=false' \
+  'MOBILE_SIGNING_ENABLED=false' 'MOBILE_SIGNING_REQUIRED=false' 'CHRONICLE_ALERT_EGRESS=closed' \
   >"${invalid_dir}/selfhost/.env"
 chmod 0600 "${invalid_dir}/selfhost/.env"
 cp "${invalid_dir}/selfhost/.env" "${RUN_DIR}/env-before-invalid-setup"

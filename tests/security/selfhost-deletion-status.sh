@@ -127,8 +127,14 @@ done
 container_script="${9:-}"
 [[ "$container_script" == *'data_deletion_operations'* \
   && "$container_script" == *'data_deletion_tombstones'* \
-  && "$container_script" == *'requested_at'* \
-  && "$container_script" == *'operation_predicate='* ]] || exit 89
+  && "$container_script" == *'requested_at'* ]] || exit 89
+# AF-P11: both identifiers reach the statement as psql variables, quoted by psql as literals inside
+# a heredoc the shell does not expand; a predicate assembled as shell text is the form that was removed.
+[[ "$container_script" == *'-v study_id="$study_id" -v operation_id="$operation_id"'* \
+  && "$container_script" == *"<<'SQL'"* \
+  && "$container_script" == *"(:'study_id')::uuid"* \
+  && "$container_script" == *"(NULLIF(:'operation_id', ''))::uuid"* \
+  && "$container_script" != *'operation_predicate'* ]] || exit 92
 [[ "$container_script" != *'participant_id'* \
   && "$container_script" != *'participant_ref'* \
   && "$container_script" != *'requested_by'* ]] || exit 90
