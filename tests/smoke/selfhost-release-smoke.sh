@@ -573,7 +573,8 @@ checks = {
     "/api/datasources/uid/chronicle-victoriametrics": ("uid", "chronicle-victoriametrics"),
 }
 # Every dashboard the bundle ships, not one sample: a dashboard Grafana cannot load stays missing.
-shipped = sorted((Path(os.environ["BUNDLE"]) / "selfhost/monitoring/grafana-dashboards").glob("*.json"))
+# BUNDLE is already the release's selfhost/ directory (tests/quality/test_smoke_bundle_paths.py).
+shipped = sorted((Path(os.environ["BUNDLE"]) / "monitoring/grafana-dashboards").glob("*.json"))
 if len(shipped) < 6:
     raise SystemExit(f"the bundle ships {len(shipped)} Grafana dashboards, expected at least 6")
 for dashboard in shipped:
