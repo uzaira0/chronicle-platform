@@ -1,0 +1,40 @@
+id: container-removal-leaves-anonymous-volumes-shell
+valid:
+- 'docker rm -fv "$SCHEDULER_CONTAINER" >/dev/null
+
+  '
+- 'docker rm -f -v "$container"
+
+  '
+- 'docker container rm --volumes "$container" >/dev/null
+
+  '
+- 'docker image rm "$image"
+
+  '
+- 'docker volume rm "$volume"
+
+  '
+- 'docker network rm "$outage" >/dev/null 2>&1 || true
+
+  '
+- 'docker exec "$container" rm -f /tmp/file
+
+  '
+- 'docker run --rm "$image" true
+
+  '
+invalid:
+- 'docker rm -f "$container" >/dev/null
+
+  '
+- 'docker rm "$container"
+
+  '
+- 'docker container rm "$container" >/dev/null
+
+  '
+- '[[ -z "$proxy" ]] || docker rm -f "$proxy" >/dev/null 2>&1 || true
+
+  '
+- "cleanup() {\n  docker rm -f \"$container\" \"${outage}-sink\" >/dev/null 2>&1 || true\n}\n"

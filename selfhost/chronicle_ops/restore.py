@@ -17,7 +17,7 @@ import time
 from .reconcile import RECOVERY_FILE, RESTORE_LOCK, ROTATION_MARKER, UPGRADE_LOCK, recovery_command
 
 from .dump import RESTORE_MUTATION_MARKER, DumpError, EXIT_RESTORE_TRANSACTION_ROLLED_BACK, validate_dump
-from .common import BLD, GRN, RED, RST, Interrupted, acquire_operation_lock, release_operation_lock, application_services, compose, compose_project, failure_cause, require, same_path, warn, OPERATION_LOCK_CREATE_ERROR
+from .common import BLD, FORCED_RECREATION, GRN, RED, RST, Interrupted, acquire_operation_lock, release_operation_lock, application_services, compose, compose_project, failure_cause, require, same_path, warn, OPERATION_LOCK_CREATE_ERROR
 from .receipts import OPERATOR_RECEIPTS_DIR, durable_replace, finish_operation, json_text, publish_journal, write_text, write_json
 from .envfile import read_env, value
 from .reconcile import STOP_MARKER
@@ -408,7 +408,7 @@ class Restore:
         if not startup:
             raise RestoreError("restore found no long-running services to start")
         try:
-            start_split(compose, startup, monitoring, self.timeout, ("--remove-orphans", "--force-recreate"))
+            start_split(compose, startup, monitoring, self.timeout, ("--remove-orphans", *FORCED_RECREATION))
         except (OSError, subprocess.SubprocessError):
             self.stop_failed_start("post-restore startup failed", "startup failure",
                                    "database restored, but Chronicle did not return healthy")

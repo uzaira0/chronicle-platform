@@ -61,7 +61,7 @@ for image in "$@"; do
     sleep 1
   done
   running="$(docker inspect -f '{{.State.Running}}' "$container")"
-  docker rm -f "$container" >/dev/null
+  docker rm -fv "$container" >/dev/null
   undeclared=() loopback=() exposed=()
   while read -r scope port; do
     [[ -n "$port" ]] || continue

@@ -57,9 +57,33 @@ EOF
 }
 
 dc() {
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -c \
-    'import sys; from chronicle_ops.common import before_compose; before_compose(sys.argv[1], sys.argv[2:])' "$PROJECT" "$@"
-  docker compose -p "$PROJECT" "$@"
+  local anonymous
+  anonymous="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -c \
+    'import sys; from chronicle_ops.common import before_compose; print(*before_compose(sys.argv[1], sys.argv[2:]))' "$PROJECT" "$@")"
+  if [[ -z "$anonymous" ]]; then
+    docker compose -p "$PROJECT" "$@"
+    return
+  fi
+  # This command can remove containers that mount anonymous volumes (one per VOLUME path of the
+  # PostgreSQL image that no named volume covers). Compose leaves those volumes, so they are
+  # removed after it (chronicle_ops/common.py after_compose). The subshell has its own signal
+  # handlers: an interrupt during Compose still stops Compose, and the removal runs before this
+  # script's traps do.
+  (
+    trap : HUP INT TERM
+    status=0
+    docker compose -p "$PROJECT" "$@" || status=$?
+    # From here a signal ends this at once (after_compose_status stops the Docker call it waits
+    # for), and the Docker calls together are limited to AFTER_COMPOSE_SECONDS.
+    trap - HUP INT TERM
+    after=0
+    # shellcheck disable=SC2086 # one volume name per word
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR" python3 -c \
+      'import sys; from chronicle_ops.common import after_compose_status; sys.exit(after_compose_status(sys.argv[1], sys.argv[2:]))' "$PROJECT" $anonymous || after=$?
+    if (( after > 128 )); then exit "$after"; fi
+    if (( after )); then warn "could not check for anonymous volumes left by removed containers"; fi
+    exit "$status"
+  )
 }
 
 # Core and monitoring service lists come from chronicle_ops/services.py, as for ./chronicle up.
@@ -392,7 +416,7 @@ apply_configuration() {
     done
     ((${#running_services[@]} > 0)) || fail "internal error: no running services selected for rotation"
     dc up -d --wait --wait-timeout "$SECRET_ROTATION_WAIT_TIMEOUT_SECONDS" \
-      --no-deps --force-recreate "${running_services[@]}" || return 1
+      --no-deps --force-recreate --renew-anon-volumes "${running_services[@]}" || return 1
     if [[ "$refresh_monitoring" == true ]] && ! wait_for_metrics_target; then
       printf 'ERROR: VictoriaMetrics did not report the chronicle-backend target up after credential refresh\n' >&2
       return 1

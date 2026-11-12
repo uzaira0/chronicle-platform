@@ -1,0 +1,24 @@
+id: container-removal-leaves-anonymous-volumes-shell
+language: Bash
+severity: error
+message: docker rm without -v leaves the container's anonymous volumes behind for good (five or six per container of the Postgres image, which declares six VOLUME paths). Use docker rm -v, -fv or --volumes; it removes anonymous volumes only, never a named one.
+note: |
+  Blind spots: direct `docker rm` and `docker container rm` commands only. A command held in a
+  string (trap text, eval, sh -c), a computed command name and a Makefile recipe are not parsed.
+  docker/** is outside the repository scan. -v does not remove the volumes Compose carried over to
+  a recreated container; a Compose project is removed with remove_compose_project
+  (compose-down-leaves-anonymous-volumes-shell).
+files:
+  - selfhost/**/*.sh
+  - selfhost/chronicle
+  - scripts/**/*.sh
+  - tests/**/*.sh
+rule:
+  all:
+    - kind: command
+    - has:
+        field: name
+        regex: '^docker$'
+    - regex: '^docker\s+(container\s+)?rm(\s|$)'
+    - not:
+        regex: '\s(-[A-Za-z]*v[A-Za-z]*|--volumes)(\s|$)'

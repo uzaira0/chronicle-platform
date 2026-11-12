@@ -246,7 +246,7 @@ class ReleaseTests(unittest.TestCase):
                      "OPTIONAL_SETTING": "poison", "DOCKER_HOST": "unix:///docker.sock"}
         with patch.dict(os.environ, inherited, clear=True), patch.object(Path, "is_file", return_value=True), \
              patch.object(Path, "is_symlink", return_value=False), \
-             patch("chronicle_ops.release.before_compose"), \
+             patch("chronicle_ops.release.before_compose", return_value=[]), \
              patch.object(Path, "read_text", return_value="# BACKEND_IMAGE=fixture\nvalue: ${OPTIONAL_SETTING:-}\n"), \
              patch("chronicle_ops.release.run", return_value=subprocess.CompletedProcess([], 0)) as run:
             compose_release(Path("/release"), "pilot", ["docker-compose.yml"], "up", "-d")

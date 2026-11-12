@@ -564,11 +564,13 @@ rows = json.loads((root / 'inventory.json').read_text())
 args = sys.argv[1:]
 with (root / 'calls').open('a') as output:
     output.write(json.dumps(args) + '\\n')
-if args[0] == 'ps':
+if args[0] == 'ps' and '-q' in args:
+    print('\\n'.join(row['Id'][:12] for row in rows))  # the anonymous-volume list; these rows mount none
+elif args[0] == 'ps':
     # Include stale results: removal must recheck state, label and never-started evidence.
     print('\\n'.join(row['Id'][:12] + ' ' + row['Name'][1:] for row in rows))
 elif args[0] == 'inspect':
-    print(json.dumps([row for row in rows if row['Id'].startswith(args[-1])]))
+    print(json.dumps([row for row in rows if any(row['Id'].startswith(arg) for arg in args[1:])]))
 ''')
             executable.chmod(0o700)
             environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
@@ -591,7 +593,7 @@ elif args[0] == 'inspect':
                     result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=20)
                     self.assertEqual(0, result.returncode, result.stderr)
                     calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
-                    self.assertEqual([['rm', rows[0]['Id']]], [args for args in calls if args[0] == 'rm'])
+                    self.assertEqual([['rm', '--volumes', rows[0]['Id']]], [args for args in calls if args[0] == 'rm'])
                     self.assertEqual('compose', calls[-1][0])
 
 

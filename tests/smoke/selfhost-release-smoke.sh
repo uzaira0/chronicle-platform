@@ -111,8 +111,8 @@ cleanup() {
     kill -KILL -- "-$interrupted_up" 2>/dev/null || true
     wait "$interrupted_up" 2>/dev/null || true
   fi
-  [[ -z "$TLS_PROXY_CONTAINER" ]] || docker rm -f "$TLS_PROXY_CONTAINER" >/dev/null 2>&1
-  [[ -z "${BENCHMARK_LISTENER_CONTAINER:-}" ]] || docker rm -f "$BENCHMARK_LISTENER_CONTAINER" >/dev/null 2>&1
+  [[ -z "$TLS_PROXY_CONTAINER" ]] || docker rm -fv "$TLS_PROXY_CONTAINER" >/dev/null 2>&1
+  [[ -z "${BENCHMARK_LISTENER_CONTAINER:-}" ]] || docker rm -fv "$BENCHMARK_LISTENER_CONTAINER" >/dev/null 2>&1
   [[ -z "${BENCHMARK_EDGE_NETWORK:-}" ]] || docker network rm "$BENCHMARK_EDGE_NETWORK" >/dev/null 2>&1
   if [[ -n "$REDIRECT_SERVER_PID" ]]; then
     kill "$REDIRECT_SERVER_PID" 2>/dev/null || true
@@ -134,8 +134,13 @@ cleanup() {
         docker network inspect $(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT") \
           >"${RUN_DIR}/final-networks.json" 2>&1
       fi
-      [[ -z "$DISK_VOLUME_KEEPER" ]] || docker rm -f "$DISK_VOLUME_KEEPER" >/dev/null 2>&1
-      docker compose -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1
+      # -v: the keeper runs the Postgres image, whose six VOLUME paths each got an anonymous volume.
+      [[ -z "$DISK_VOLUME_KEEPER" ]] || docker rm -fv "$DISK_VOLUME_KEEPER" >/dev/null 2>&1
+      # Sourced in this subshell only: the library exports PYTHONNOUSERSITE, which the operator
+      # commands under test must not inherit before the point where the smoke sources it itself.
+      # shellcheck source=tests/security/lib/selfhost-python.sh
+      source "$ROOT_DIR/tests/security/lib/selfhost-python.sh"
+      remove_compose_project "$PROJECT" >/dev/null 2>&1
     )
     /bin/rm -f -- "$BUNDLE/.env"
   fi

@@ -18,7 +18,7 @@ output="${RUN_ROOT}/latest.log"
 container="chronicle-sat-r1-log-sanitizer-$$"
 outage="chronicle-sat-r1-log-outage-$$"
 cleanup() {
-  docker rm -f "$container" "${outage}-sink" "${outage}-fluent-bit" >/dev/null 2>&1 || true
+  docker rm -fv "$container" "${outage}-sink" "${outage}-fluent-bit" >/dev/null 2>&1 || true
   docker network rm "$outage" >/dev/null 2>&1 || true
   [[ -z "${outage_dir:-}" ]] || rm -rf -- "$outage_dir"
 }
@@ -117,14 +117,17 @@ http.server.ThreadingHTTPServer(("0.0.0.0", 9428), Recorder).serve_forever()
 PY
 subnet="$(python3 "${ROOT_DIR}/selfhost/network-subnet.py" select 10.251.3.0/24 "$outage")"
 docker network create --subnet "$subnet" "$outage" >/dev/null
+# The helper image declares volumes, so every sink container gets anonymous ones of its own.
+sink_volumes=''
 start_sink() {
-  docker rm -f "${outage}-sink" >/dev/null 2>&1 || true
+  docker rm -fv "${outage}-sink" >/dev/null 2>&1 || true
   docker run -d --name "${outage}-sink" --network "$outage" --network-alias victorialogs --memory 128m \
     --user "$(id -u):$(id -g)" -v "${outage_dir}/sink.py:/sink.py:ro" -v "${outage_dir}/sink:/data" \
     --entrypoint python3 "$helper_image" /sink.py >/dev/null
+  sink_volumes+=" $(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "${outage}-sink")"
 }
 start_collector() { # the shipped service's user namespace, memory limit and read-only root
-  docker rm -f "${outage}-fluent-bit" >/dev/null 2>&1 || true
+  docker rm -fv "${outage}-fluent-bit" >/dev/null 2>&1 || true
   docker run -d --name "${outage}-fluent-bit" --network "$outage" --user "$(id -u):$(id -g)" --memory 128m \
     --read-only --tmpfs /tmp --tmpfs /run -p 127.0.0.1::24224 \
     -v "${outage_dir}/etc:/fluent-bit/etc:ro" -v "${outage_dir}/state:/fluent-bit/state" "$IMAGE" >/dev/null
@@ -209,4 +212,11 @@ stored=$(python3 -c 'import os, sys; print(sum(os.path.getsize(os.path.join(d, f
 start_sink
 docker restart -t 10 "${outage}-fluent-bit" >/dev/null
 wait_for bounded 101 60100
+# The run must leave no volume: each of the three sink containers had its own (18 were left per run).
+docker rm -fv "${outage}-sink" >/dev/null
+left=0
+for volume in $sink_volumes; do
+  ! docker volume inspect "$volume" >/dev/null 2>&1 || left=$((left + 1))
+done
+(( left == 0 )) || fail "${left} anonymous volumes of the sink containers were left behind"
 echo "self-host log collector outage test passed"

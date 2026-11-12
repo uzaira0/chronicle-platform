@@ -383,7 +383,7 @@ assert {"--rm", "--no-deps"} <= set(refresh["args"])
 assert refresh["credentialHash"] == hashlib.sha256(sys.argv[2].encode()).hexdigest(), "scraper used stale credentials"
 up = next(row for row in rows if row["args"][0] == "up")
 parser = argparse.ArgumentParser()
-for option in ("-d", "--wait", "--no-deps", "--force-recreate"):
+for option in ("-d", "--wait", "--no-deps", "--force-recreate", "--renew-anon-volumes"):
     parser.add_argument(option, action="store_true", required=True)
 parser.add_argument("--wait-timeout", type=int, required=True)
 parser.add_argument("services", nargs="+")
@@ -428,11 +428,11 @@ grep -Fqx "DASHBOARD_PASSWORD_HASH='$BCRYPT'" "${SELFHOST_DIR}/.env" \
 assert_custody "$OUTPUT" "$ARGS_LOG"
 grep -Fq 'dashboard-login-ok' "$ARGS_LOG" ||
   fail "dashboard rotation did not verify a backend dashboard session"
-grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate --renew-anon-volumes backend web' "$ARGS_LOG" ||
   fail "dashboard rotation did not recreate both backend and web"
 # Sessions minted under the old password end once the new hash is live: the backend refuses
 # tokens issued at or before the same cutoff restore writes (JwtBlocklist revoke-all).
-recreated_line="$(grep -n -m1 -F 'force-recreate backend web' "$ARGS_LOG" | cut -d: -f1)"
+recreated_line="$(grep -n -m1 -F 'force-recreate --renew-anon-volumes backend web' "$ARGS_LOG" | cut -d: -f1)"
 cutoff_line="$(grep -n -m1 -Fx 'session-cutoff' "$ARGS_LOG" | cut -d: -f1)" ||
   fail "dashboard rotation left sessions issued under the old password valid"
 (( cutoff_line > recreated_line )) || fail "dashboard session cutoff ran before the new password was live"
@@ -447,13 +447,13 @@ grep -Fqx "CHRONICLE_REVIEWER_ACCESS_ENABLED='true'" "${SELFHOST_DIR}/.env" \
   || fail "reviewer rotation did not enable the exact reviewer route"
 grep -Fqx "CHRONICLE_REVIEWER_ACCESS_SECRET='$GENERATED'" "${SELFHOST_DIR}/.env" \
   || fail "reviewer rotation did not publish the generated credential"
-grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend' "$ARGS_LOG" \
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate --renew-anon-volumes backend' "$ARGS_LOG" \
   || fail "reviewer rotation did not recreate only the backend"
 # The backend reads its credentials from files (secrets-init.sh); --no-deps skips that job, so
 # rotation must rewrite them before the recreate or the backend starts with the old secret.
 secrets_line="$(grep -n -m1 -F 'compose-run:run --rm --no-deps secrets-init' "$ARGS_LOG" | cut -d: -f1)" ||
   fail "reviewer rotation did not rewrite the credential files"
-recreate_line="$(grep -n -m1 -F -- '--force-recreate backend' "$ARGS_LOG" | cut -d: -f1)"
+recreate_line="$(grep -n -m1 -F -- '--force-recreate --renew-anon-volumes backend' "$ARGS_LOG" | cut -d: -f1)"
 (( secrets_line < recreate_line )) || fail "credential files were rewritten after the backend was recreated"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 
@@ -577,7 +577,7 @@ replace_env_value DASHBOARD_PASSWORD_HASH "$NEW_BCRYPT"
 run_rotation false --yes recover --forward
 grep -Fqx "DASHBOARD_PASSWORD_HASH='$NEW_BCRYPT'" "${SELFHOST_DIR}/.env" ||
   fail "dashboard forward recovery did not retain the published hash"
-grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate --renew-anon-volumes backend web' "$ARGS_LOG" ||
   fail "dashboard forward recovery did not recreate backend and web"
 grep -Fqx 'session-cutoff' "$ARGS_LOG" ||
   fail "dashboard forward recovery left sessions issued under the old password valid"
@@ -591,7 +591,7 @@ replace_env_value DASHBOARD_PASSWORD_HASH "$NEW_BCRYPT"
 run_rotation false --yes recover --rollback
 grep -Fqx "DASHBOARD_PASSWORD_HASH='$BCRYPT'" "${SELFHOST_DIR}/.env" ||
   fail "dashboard rollback recovery did not restore the saved hash"
-grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate backend web' "$ARGS_LOG" ||
+grep -Fq 'compose-up:up -d --wait --wait-timeout 300 --no-deps --force-recreate --renew-anon-volumes backend web' "$ARGS_LOG" ||
   fail "dashboard rollback recovery did not recreate backend and web"
 assert_custody "$OUTPUT" "$ARGS_LOG"
 

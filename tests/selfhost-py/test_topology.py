@@ -490,6 +490,8 @@ class TopologyTests(unittest.TestCase):
             'ffffffffffff': ('ffffffffffff_fixture-web-1', 'fixture', 'created', never),               # renamed meanwhile
         }
         def docker(args, **kwargs):
+            if args[:4] == ['docker', 'ps', '-a', '-q']:
+                return SimpleNamespace(returncode=0, stdout='', stderr='')  # the anonymous-volume list: none to remember
             if args[:3] == ['docker', 'ps', '-a']:
                 return SimpleNamespace(returncode=0, stdout=''.join(f'{key} {name}\n' for key, (name, *_) in containers.items()))
             if args[:2] == ['docker', 'inspect']:
@@ -503,8 +505,9 @@ class TopologyTests(unittest.TestCase):
                     'State': {'Status': status, 'StartedAt': started}}]))
             removed.append(args)
             return SimpleNamespace(returncode=0)
-        for args, expected in ((['--progress', 'plain', 'up', '-d'], [['docker', 'rm', 'aaaaaaaaaaaa' * 4]]),
-                               (['up', '-d', 'backend'], [['docker', 'rm', 'aaaaaaaaaaaa' * 4]]),
+        # --volumes: the placeholder's own anonymous volumes go with it (test_anonymous_volumes.py).
+        for args, expected in ((['--progress', 'plain', 'up', '-d'], [['docker', 'rm', '--volumes', 'aaaaaaaaaaaa' * 4]]),
+                               (['up', '-d', 'backend'], [['docker', 'rm', '--volumes', 'aaaaaaaaaaaa' * 4]]),
                                (['--progress', 'plain', 'ps'], [])):
             with self.subTest(args=args):
                 removed = []

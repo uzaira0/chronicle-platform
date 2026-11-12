@@ -1,0 +1,22 @@
+id: compose-down-leaves-anonymous-volumes-python
+valid:
+- "def remove_project(cls):\n    with anonymous_volumes_removed(cls.project):\n        cls.dc_fixture(cls.bootstrap, 'down', '--volumes', '--remove-orphans')\n"
+- "def down(run_dir, project, log=None):\n    with anonymous_volumes_removed(project):\n        return compose(bundle, project, 'down', '-v', '--remove-orphans', '-t', '5', log=log).returncode\n"
+- 'compose.assert_called_once_with(''down'', ''--remove-orphans'', check=True)
+
+  '
+- 'self.assertEqual((previous, (''down'', ''--remove-orphans'')), order[0])
+
+  '
+- 'targets[0][''health''] = ''down''
+
+  '
+- "if action == 'down':\n    sys.exit(down(*rest))\n"
+invalid:
+- 'cls.addClassCleanup(cls.dc_fixture, cls.bootstrap, ''down'', ''--volumes'', ''--remove-orphans'')
+
+  '
+- "def down(run_dir, project, log=None):\n    return compose(bundle, project, 'down', '-v', '--remove-orphans', '-t', '5', log=log).returncode\n"
+- 'subprocess.run(docker_compose(project, "down", "--volumes"), check=True)
+
+  '

@@ -1,0 +1,31 @@
+id: compose-down-leaves-anonymous-volumes-shell
+valid:
+- "remove_compose_project() {\n  docker compose -p \"$project\" down --volumes --remove-orphans || status=$?\n}\n"
+- 'remove_compose_project "$PROJECT" >/dev/null 2>&1
+
+  '
+- 'dc down --remove-orphans || die "Compose shutdown failed"
+
+  '
+- 'docker compose -p "$PROJECT" exec -T postgres rm -f /tmp/dump
+
+  '
+- 'docker compose -p "$PROJECT" up -d --wait
+
+  '
+- 'docker compose -p "$PROJECT" run --rm restore down
+
+  '
+invalid:
+- 'docker compose -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1
+
+  '
+- '(cd "$STACK" && docker compose -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1) || true
+
+  '
+- 'docker compose -p "$PROJECT" rm -sf web
+
+  '
+- 'docker-compose down
+
+  '

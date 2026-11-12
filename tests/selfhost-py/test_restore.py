@@ -222,7 +222,8 @@ class RestoreTests(unittest.TestCase):
                                          "CHRONICLE_RESTORE_TRUSTED_SHA256=" + self.digest(),
                                          "-e", "RESTORE_FILE=/backups/.reviewed-restore.fixture.sql.gz", "restore"])
         self.assertEqual(self.args()[6], ["dc", "up", "-d", "--wait", "--wait-timeout", "17",
-                                         "--remove-orphans", "--force-recreate", "postgres", "backend", "web", "db-init", "db-backup"])
+                                         "--remove-orphans", "--force-recreate", "--renew-anon-volumes", "postgres", "backend", "web", "db-init",
+                                         "db-backup"])
         self.assertEqual(self.args()[7], ["dc", "run", "--rm", "--no-deps", "ca-export"])
         self.assertEqual(self.recovery(), [])
         self.assertIn(("publish", self.lock, {"owner-pid": "123\n", "restore-file": "/backups/last/chronicle-latest.sql.gz\n",

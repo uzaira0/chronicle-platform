@@ -160,7 +160,7 @@ java_options="-Duser.home=$home"
 id="chronicle-deps-$$-$RANDOM"
 proxy=''
 cleanup() {
-  [[ -z "$proxy" ]] || docker rm -f "$proxy" >/dev/null 2>&1 || true
+  [[ -z "$proxy" ]] || docker rm -fv "$proxy" >/dev/null 2>&1 || true
   if [[ "$network" == registries ]]; then
     docker network rm "$id-internal" "$id-egress" >/dev/null 2>&1 || true
   fi

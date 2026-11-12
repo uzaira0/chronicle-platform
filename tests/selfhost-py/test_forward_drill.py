@@ -31,7 +31,8 @@ from chronicle_ops.ingress import VERIFY_HEADER, VERIFY_SCHEME, fence_path, RETR
 from chronicle_ops.dump import file_sha256
 from chronicle_ops.envfile import set_env_values, read_env
 from chronicle_ops.migrations import migration_hashes
-from selfhost_fixture import FIXTURE_POSTGRES_PASSWORD, bundle_fixture_files
+from selfhost_fixture import (FIXTURE_POSTGRES_PASSWORD, AnonymousVolumeWatch, anonymous_volumes_removed,
+                              bundle_fixture_files)
 import test_restore_deployment as deployed
 import test_restore_schemas as schemas
 from test_forward_update import next_version
@@ -82,11 +83,40 @@ class ForwardUpgradeDrill(schemas.PgTdeFixture):
         cls.bootstrap = cls.work / 'bootstrap'
         cls.bootstrap.mkdir()
         (cls.bootstrap / 'docker-compose.yml').write_text(yaml.safe_dump(cls.database_compose()))
-        cls.addClassCleanup(cls.dc_fixture, cls.bootstrap, 'down', '--volumes', '--remove-orphans')
+        cls.volume_watch = AnonymousVolumeWatch(cls.project, cls.work)
+        cls.addClassCleanup(cls.volume_watch.stop)
+        cls.volume_watch.start()
+        cls.addClassCleanup(cls.remove_project)
         cls.dc_fixture(cls.bootstrap, 'up', '-d', '--wait', '--wait-timeout', '120', 'postgres')
         if initialize_tde:
             cls.docker('exec', '--user', '0', '-e', 'POSTGRES_HOST=127.0.0.1', cls.container,
                        'bash', '/selfhost/init-tde.sh')
+
+    @classmethod
+    def remove_project(cls):
+        """The project's containers, network and named volumes, and the anonymous volumes its
+        containers mount: `down --volumes` leaves those of every container `up` recreated."""
+        with anonymous_volumes_removed(cls.project):
+            cls.dc_fixture(cls.bootstrap, 'down', '--volumes', '--remove-orphans')
+
+    @classmethod
+    def tearDownClass(cls):
+        # Before the project is removed. The updates, rollbacks and restores above removed containers
+        # made from the Postgres image again and again, each with five or six anonymous volumes
+        # (442 were left by one run on 2026-11-11); none may be left by an operator command.
+        seen = cls.volume_watch.mounted()
+        left = cls.volume_watch.unattached()
+        try:
+            cls.remove_project()
+        finally:
+            if left:
+                subprocess.run(['docker', 'volume', 'rm', *left], capture_output=True, timeout=180)
+        super().tearDownClass()
+        print(f'anonymous volumes mounted by the drill\'s containers: {len(seen)}; left by operator commands: {len(left)}',
+              flush=True)
+        if not seen or left:
+            raise AssertionError(f'{len(left)} of the {len(seen)} anonymous volumes the drill\'s containers mounted '
+                                 'were left unattached by operator commands (none may be; the watch must have seen some)')
 
     @classmethod
     def database_compose(cls):

@@ -67,7 +67,10 @@ def argument_parser():
     child = commands.add_parser("compose-services")
     child.add_argument("role", choices=("core", "monitoring"))
     child = commands.add_parser("start-monitoring")
+    # ./chronicle passes the options it gave Compose for the core services. A forced recreation
+    # always renews the anonymous volumes (common.FORCED_RECREATION), with or without the second option.
     child.add_argument("--force-recreate", action="store_true")
+    child.add_argument("--renew-anon-volumes", action="store_true")
     child.add_argument("--no-recreate", action="store_true")
     commands.add_parser("monitoring-health")
     commands.add_parser("config-drift")
@@ -181,7 +184,7 @@ def run_certificates(options):
 
 def run_services(options):
     """The launcher's view of services.py: one classification for bash and Python."""
-    from .common import compose, warn
+    from .common import FORCED_RECREATION, compose, warn
     from .services import environment_monitoring, environment_roles, monitoring_health, start_monitoring
     import subprocess
     if options.command == "monitoring-health":
@@ -201,8 +204,8 @@ def run_services(options):
     if options.command == "compose-services":
         print("\n".join(core if options.role == "core" else monitoring))
         return 0
-    start_monitoring(compose, monitoring, [flag for flag, chosen in (("--force-recreate", options.force_recreate),
-                                                                     ("--no-recreate", options.no_recreate)) if chosen])
+    start_monitoring(compose, monitoring, [*(FORCED_RECREATION if options.force_recreate else ()),
+                                           *(("--no-recreate",) if options.no_recreate else ())])
     return 0
 
 

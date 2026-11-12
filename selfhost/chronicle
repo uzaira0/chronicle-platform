@@ -195,10 +195,34 @@ export CHRONICLE_HOST_UID CHRONICLE_HOST_GID
 # from that file by itself. This is the whole reason `docker compose up -d` works without
 # this script -- there is nothing here for it to be missing.
 dc() {
+  local anonymous
   # Plain python3, not ops_python: that exports operator settings into this shell.
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(dirname "$SCRIPT_PATH")" python3 -c \
-    'import sys; from chronicle_ops.common import before_compose; before_compose(sys.argv[1], sys.argv[2:])' "$PROJECT" "$@"
-  docker compose -p "$PROJECT" "$@"
+  anonymous="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(dirname "$SCRIPT_PATH")" python3 -c \
+    'import sys; from chronicle_ops.common import before_compose; print(*before_compose(sys.argv[1], sys.argv[2:]))' "$PROJECT" "$@")"
+  if [[ -z "$anonymous" ]]; then
+    docker compose -p "$PROJECT" "$@"
+    return
+  fi
+  # This command can remove containers that mount anonymous volumes (one per VOLUME path of the
+  # PostgreSQL image that no named volume covers). Compose leaves those volumes, so they are
+  # removed after it (chronicle_ops/common.py after_compose). The subshell has its own signal
+  # handlers: an interrupt during Compose still stops Compose, and the removal runs before this
+  # script's traps do.
+  (
+    trap : HUP INT TERM
+    status=0
+    docker compose -p "$PROJECT" "$@" || status=$?
+    # From here a signal ends this at once (after_compose_status stops the Docker call it waits
+    # for), and the Docker calls together are limited to AFTER_COMPOSE_SECONDS.
+    trap - HUP INT TERM
+    after=0
+    # shellcheck disable=SC2086 # one volume name per word
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$(dirname "$SCRIPT_PATH")" python3 -c \
+      'import sys; from chronicle_ops.common import after_compose_status; sys.exit(after_compose_status(sys.argv[1], sys.argv[2:]))' "$PROJECT" $anonymous || after=$?
+    if (( after > 128 )); then exit "$after"; fi
+    if (( after )); then warn "could not check for anonymous volumes left by removed containers"; fi
+    exit "$status"
+  )
 }
 
 record_operation() {
@@ -1447,7 +1471,9 @@ cmd_up() {
   local configured_services monitoring_services service has_ca_export=false
   local -a startup_services=() startup_options=()
   if [[ "$certificate_state" == changed ]]; then
-    startup_options+=(--force-recreate)
+    # Renewed, not carried over: a recreated container gets its own anonymous volumes and the old
+    # ones go with the old container (chronicle_ops/common.py FORCED_RECREATION).
+    startup_options+=(--force-recreate --renew-anon-volumes)
   elif [[ "${CHRONICLE_RECONCILE_RUN:-false}" == true ]]; then
     startup_options+=(--no-recreate)
   fi
@@ -1704,7 +1730,7 @@ cmd_backup() {
   assert_no_incomplete_mutation "back up Chronicle"
   [[ "${COMPOSE_FILE:-}" == *overlays/backups.yml* ]] || die $"backup requires the backups overlay; run ./chronicle setup"
   begin_operation backup backup_failed
-  dc up -d --no-deps --force-recreate --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}" db-backup ||
+  dc up -d --no-deps --force-recreate --renew-anon-volumes --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}" db-backup ||
     die $"backup failed; inspect ./chronicle logs db-backup and ./chronicle doctor"
   operation_succeeded
 }

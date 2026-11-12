@@ -70,7 +70,7 @@ def proxy(image, network, config, *command, aliases=(), started=None):
             raise AssertionError("proxy did not start")
         yield base
     finally:
-        docker("rm", "-f", name)
+        docker("rm", "-fv", name)
 
 
 def caddy_handlers(node, handler):
@@ -255,7 +255,7 @@ class CaddyLogRedactionTests(unittest.TestCase):
                 time.sleep(0.5)
             raise AssertionError("Fluent Bit emitted %d of %d records:\n%s" % (len(rows), len(raw), output))
         finally:
-            docker("rm", "-f", name)
+            docker("rm", "-fv", name)
 
     def test_credentials_and_participant_identifiers_never_reach_raw_or_shipped_logs(self):
         sentinel = {kind: kind + uuid.uuid4().hex[:16] for kind in

@@ -23,9 +23,10 @@ perf-up:
 	@timeout 120 bash -c 'until curl -sf http://127.0.0.1:40320/actuator/health >/dev/null 2>&1; do sleep 2; done' || echo "WARN: health check timed out"
 	@echo "Backend is up at $(BASE_URL)"
 
-## Stop the Docker Compose stack and remove volumes
+## Stop the Docker Compose stack and remove volumes (remove_compose_project also removes the
+## anonymous volumes of recreated containers, which `down -v` leaves)
 perf-down:
-	cd docker && docker compose -p chronicle -f docker-compose.traefik.yml down -v
+	cd docker && ROOT_DIR="$(CURDIR)" bash -c 'source "$$ROOT_DIR/tests/security/lib/selfhost-python.sh" && remove_compose_project chronicle -f docker-compose.traefik.yml'
 
 ## Generate a JWT token for testing (requires docker/.env with JWT_SECRET)
 perf-token:

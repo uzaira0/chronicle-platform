@@ -32,7 +32,7 @@ def temporary_container(arguments):
     try:
         yield name
     finally:
-        run(['docker', 'rm', '-f', name], cwd=ROOT, check=True)
+        run(['docker', 'rm', '-fv', name], cwd=ROOT, check=True)
 
 
 def copy_probe(installer, work):

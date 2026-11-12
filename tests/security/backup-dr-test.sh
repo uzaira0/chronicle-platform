@@ -86,7 +86,7 @@ cleanup() {
     for res in "${TEMP_RESOURCES[@]}"; do
         if [[ "$res" == container:* ]]; then
             local cname="${res#container:}"
-            docker rm -f "$cname" >/dev/null 2>&1 || true
+            docker rm -fv "$cname" >/dev/null 2>&1 || true
         else
             rm -rf "$res"
         fi
@@ -369,7 +369,7 @@ else
         fi
 
         # Cleanup happens via trap, but remove container early to free port
-        docker rm -f "$DR_CONTAINER" >/dev/null 2>&1 || true
+        docker rm -fv "$DR_CONTAINER" >/dev/null 2>&1 || true
     fi
 fi
 

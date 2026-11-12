@@ -70,7 +70,7 @@ case "${1:-}" in
     [[ -z "$profile" ]] || exit 104
     printf 'up:%s\n' "$*" >>"$log"
     case "$*" in
-      'up -d --wait --wait-timeout 17 --remove-orphans --force-recreate postgres backend web db-init migrate db-backup') ;;
+      'up -d --wait --wait-timeout 17 --remove-orphans --force-recreate --renew-anon-volumes postgres backend web db-init migrate db-backup') ;;
       'up -d --wait --wait-timeout 17 --no-deps backend web db-backup')
         /bin/rm -f -- "$stopped"
         ;;

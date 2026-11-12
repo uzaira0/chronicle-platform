@@ -116,14 +116,43 @@ stage_backend_secrets() {
 }
 
 compose_cmd() {
-  local env_file
+  local env_file listed project anonymous
   env_file="$(env_file_path)"
+  local -a compose_options=(--env-file "${env_file}" -f "${COMPOSE_BASE}" -f "${COMPOSE_PROD}")
 
-  docker compose \
-    --env-file "${env_file}" \
-    -f "${COMPOSE_BASE}" \
-    -f "${COMPOSE_PROD}" \
-    "$@"
+  # A command that removes a container (an orphan, or one recreated from an image that no longer
+  # declares a VOLUME path) leaves that container's anonymous volumes: five per container of the
+  # Percona image. chronicle_ops lists them before such a command and removes them after it
+  # (selfhost/chronicle_ops/common.py project_volumes_before, after_compose; named volumes are
+  # never in the list). For every other command the list is empty.
+  # No -p here, so the project is the one Compose resolves for these options: the caller's
+  # COMPOSE_PROJECT_NAME, else the one in the --env-file file, else the Compose file's `name:`.
+  # project_volumes_before asks Compose and prints that name first.
+  listed="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${PROJECT_ROOT}/selfhost" python3 -c \
+    'import sys; from chronicle_ops.common import project_volumes_before; count = int(sys.argv[1]); print(*project_volumes_before(sys.argv[2:2 + count], sys.argv[2 + count:]))' \
+    "${#compose_options[@]}" "${compose_options[@]}" "$@" </dev/null)" || listed=""
+  if [[ -z "$listed" ]]; then
+    docker compose "${compose_options[@]}" "$@"
+    return
+  fi
+  project="${listed%% *}"
+  anonymous="${listed#* }"
+  # The subshell has its own signal handlers: an interrupt during Compose still stops Compose, and
+  # the removal runs before the caller's handlers do.
+  (
+    trap : HUP INT TERM
+    status=0
+    docker compose "${compose_options[@]}" "$@" || status=$?
+    # From here a signal ends this at once (after_compose_status stops the Docker call it waits
+    # for), and the Docker calls together are limited to AFTER_COMPOSE_SECONDS.
+    trap - HUP INT TERM
+    after=0
+    # shellcheck disable=SC2086 # one volume name per word
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${PROJECT_ROOT}/selfhost" python3 -c \
+      'import sys; from chronicle_ops.common import after_compose_status; sys.exit(after_compose_status(sys.argv[1], sys.argv[2:]))' "$project" $anonymous || after=$?
+    if (( after > 128 )); then exit "$after"; fi
+    exit "$status"
+  )
 }
 
 env_file_path() {

@@ -1,0 +1,42 @@
+id: compose-down-leaves-anonymous-volumes-shell
+language: Bash
+severity: error
+message: Remove a Compose project with remove_compose_project (tests/security/lib/selfhost-python.sh), or through the operator's dc(). A bare `docker compose down` leaves the removed containers' anonymous volumes, and `down -v` still leaves those of every container `up` recreated.
+note: |
+  Blind spots: direct `docker compose ... down` and `docker compose ... rm` commands only (and the
+  docker-compose binary). A command held in a string (trap text, eval), a wrapper function that
+  forwards to Compose (clients down) and a Makefile recipe are not parsed. docker/** is outside the
+  repository scan.
+files:
+  - selfhost/**/*.sh
+  - selfhost/chronicle
+  - scripts/**/*.sh
+  - tests/**/*.sh
+rule:
+  all:
+    - kind: command
+    - any:
+        - all:
+            - has:
+                field: name
+                regex: '^docker$'
+            - has:
+                kind: word
+                regex: '^compose$'
+        - has:
+            field: name
+            regex: '^docker-compose$'
+    - has:
+        kind: word
+        regex: '^(down|rm)$'
+    - not:
+        has:
+          kind: word
+          regex: '^(exec|run)$'
+    - not:
+        inside:
+          stopBy: end
+          kind: function_definition
+          has:
+            field: name
+            regex: '^remove_compose_project$'

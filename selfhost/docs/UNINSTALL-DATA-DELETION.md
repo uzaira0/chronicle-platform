@@ -286,10 +286,29 @@ From the active `selfhost/` directory:
 ./chronicle down
 ```
 
-This removes running containers and the Compose network. It intentionally retains named
+This removes running containers and the Compose network, and with each container the anonymous
+volumes Docker made for it. The PostgreSQL image declares six `VOLUME` paths; Chronicle keeps its
+data in named volumes, and Docker makes an empty volume for every declared path that no named
+volume covers. It intentionally retains named
 volumes, `${CHRONICLE_STATE_DIR:-.}/backups`, TLS material, `.env`, and operator receipts.
 Running `./chronicle up` later reuses them and resumes automatic reconciliation.
 Bare Compose commands do not update the stop marker.
+
+Only a volume that Docker made by itself for a container is removed: one the container's own
+configuration does not name. A volume your Compose file mounts is kept with its contents, whether
+it has a name or you made it with `docker volume create` and no name (Docker labels those
+anonymous as well). Two cases leave anonymous volumes behind:
+
+- Compose recreated a container by itself, after a setting of that service changed or after
+  `docker compose up` typed by hand. Compose gives the old container's anonymous volumes to the
+  new one by name, and from then on they cannot be told from a volume of yours. `./chronicle down`
+  leaves them and prints `note: N volumes without a name were left`. Update, rollback, restore,
+  secret rotation and the backup restart recreate containers with new anonymous volumes, so they
+  leave none.
+- Docker Engine older than 23.0 does not label anonymous volumes. There `./chronicle down`
+  removes none and prints nothing about them.
+
+"Remove the current Compose resources" below says how to list what was left.
 
 ## Remove the application and all installation storage
 
@@ -363,6 +382,15 @@ Then repeat the label inventory. For each remaining name, inspect it before remo
 Run `docker volume rm` only for names whose
 `com.docker.compose.project` label exactly matches the recorded project. Do not use a broad
 `docker volume prune`, wildcard, or `xargs` command; other applications may share the host.
+
+keep all data" behind on every `./chronicle down`, update and rollback, and this release still
+leaves the ones named there. Docker gives an anonymous
+volume no project label, so the inventory above does not list them and nothing ties them to this
+installation. `docker volume ls --filter dangling=true --filter label=com.docker.volume.anonymous`
+lists every anonymous volume on the host that no container uses, whichever application made it,
+and every volume made with `docker volume create` and no name that no container uses.
+Chronicle's are empty directories. Remove one by name, after `docker volume inspect`, only when
+you know no other application on the host made it and it is not a volume of yours.
 
 ### 3. Remove bind-mounted state and release files
 

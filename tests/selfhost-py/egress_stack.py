@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / 'selfhost'))
 
 from chronicle_ops.envfile import set_env_values  # noqa: E402
 from chronicle_ops.images import SOURCE_IMAGES  # noqa: E402
-from selfhost_fixture import context_sources  # noqa: E402
+from selfhost_fixture import anonymous_volumes_removed, context_sources  # noqa: E402
 
 OVERLAYS = 'docker-compose.yml:overlays/mode-behind-proxy-internal.yml:overlays/backups.yml:overlays/monitoring.yml'
 TAG = 'egress-test'
@@ -171,7 +171,9 @@ def up(run_dir, source_root, project, log=None):
 
 def down(run_dir, project, log=None):
     bundle = Path(run_dir) / 'selfhost'
-    return compose(bundle, project, 'down', '-v', '--remove-orphans', '-t', '5', log=log).returncode
+    # `down -v` leaves the anonymous volumes of every container `up` recreated; this removes them too.
+    with anonymous_volumes_removed(project):
+        return compose(bundle, project, 'down', '-v', '--remove-orphans', '-t', '5', log=log).returncode
 
 
 if __name__ == '__main__':

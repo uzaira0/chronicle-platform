@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import time
 
-from .common import (Interrupted, PREPARATION_TIMEOUT_SECONDS, UPDATE_PEAK_BYTES, acquire_operation_lock,
+from .common import (FORCED_RECREATION, Interrupted, PREPARATION_TIMEOUT_SECONDS, UPDATE_PEAK_BYTES, acquire_operation_lock,
                      application_services, compose_project, release_operation_lock, require, require_storage, run, warn)
 from .envfile import read_env, value
 from .ingress import close_ingress, open_ingress
@@ -38,7 +38,7 @@ def start_release(directory, project, names, timeout):
     startup, unawaited = awaited_by_update([service for service in core if service != 'ca-export'])
     require(startup, 'release has no services to start')
     start_split(lambda *args, **kwargs: compose_release(directory, project, names, *args, **kwargs),
-                startup, monitoring, timeout, ('--remove-orphans', '--force-recreate'), unawaited)
+                startup, monitoring, timeout, ('--remove-orphans', *FORCED_RECREATION), unawaited)
     if 'ca-export' in core:
         compose_release(directory, project, names, 'run', '--rm', '--no-deps', 'ca-export', check=True)
 

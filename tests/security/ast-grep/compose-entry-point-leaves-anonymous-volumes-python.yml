@@ -1,0 +1,28 @@
+id: compose-entry-point-leaves-anonymous-volumes-python
+language: Python
+severity: error
+message: A Compose entry point that calls before_compose must pass what it returns to after_compose (in a finally). `down`, an orphan removed by `up` and --renew-anon-volumes leave the removed containers' anonymous volumes for good, and after the command nothing in Docker says which project they belonged to.
+note: |
+  Blind spots: checks that a function calling before_compose also calls after_compose somewhere in
+  its body; it does not check that the returned list is the one passed on, or that the call is in a
+  finally. A function that runs `docker compose` without calling either is not seen: operator code
+  reaches Compose through chronicle_ops.common.compose and chronicle_ops.release.compose_release
+  (tests/selfhost-py/test_anonymous_volumes.py runs both against Docker).
+files:
+  - "selfhost/chronicle_ops/**/*.py"
+rule:
+  all:
+    - kind: function_definition
+    - has:
+        stopBy: end
+        kind: call
+        has:
+          field: function
+          regex: '(^|\.)before_compose$'
+    - not:
+        has:
+          stopBy: end
+          kind: call
+          has:
+            field: function
+            regex: '(^|\.)after_compose$'

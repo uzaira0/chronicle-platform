@@ -11,6 +11,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 from .startup import startup_timeout
 
 GIB = 1024 ** 3
@@ -39,6 +40,32 @@ COMPOSE_LOG_LINE = re.compile(r'time="[^"]*" level=(?:warning|info|debug) ')
 # valid in the pipe encoding becomes \xNN instead of raising UnicodeDecodeError. Every stderr is
 # decoded this way; a caller passes errors=SHOWN to have stdout decoded so too.
 SHOWN = "backslashreplace"
+# Docker (Engine 23.0 and newer) sets this label on every volume made without a name: the ones
+# it creates for a container's VOLUME paths, and one an operator makes with `docker volume create`
+# and no name. So the label alone does not say whose a volume is (volume_ownership).
+ANONYMOUS_VOLUME_LABEL = "com.docker.volume.anonymous"
+# In the list before_compose returns: a labelled volume that is only reported, never removed.
+KEPT_VOLUME_PREFIX = "kept:"
+# What every forced recreation here passes to `up`. Compose mounts the anonymous volumes it
+# carries over to a recreated container by name, exactly as it mounts a volume an operator asked
+# for, and from then on nothing in Docker says which of the two a volume is; such a volume is
+# never removed (volume_ownership). With --renew-anon-volumes the new container gets its own, the
+# old container's are removed with it (after_compose), and none is left that cannot be told apart.
+# They are empty in this stack; `down` followed by `up` never carried them over either.
+FORCED_RECREATION = ("--force-recreate", "--renew-anon-volumes")
+# The Compose commands that can remove a container or replace its anonymous volumes: `up` and
+# `create` remove orphans and replace what --renew-anon-volumes names, and recreate a container
+# from an image that no longer declares a path. `run --remove-orphans` is matched by its option.
+REMOVING_COMMANDS = frozenset({"create", "down", "rm", "up"})
+# Compose's own options that take a value and come before the command.
+COMPOSE_VALUE_OPTIONS = frozenset({"--ansi", "--env-file", "-f", "--file", "--parallel", "--profile", "--progress",
+                                   "--project-directory", "-p", "--project-name"})
+DOCKER_QUERY_TIMEOUT_SECONDS = 120
+# All Docker calls of after_compose together. They take about 0.05 seconds each on a daemon that
+# answers (measured with 18,000 volumes on it, 2026-11-11). The command the operator ran has
+# finished by then, so a daemon that has stopped answering must not hold the terminal.
+AFTER_COMPOSE_SECONDS = 30
+ANONYMOUS_VOLUME_HINT = "`docker volume ls --filter dangling=true --filter label=com.docker.volume.anonymous` lists them"
 
 
 def same_path(recorded, actual):
@@ -215,6 +242,12 @@ def warn(message):
     print("{}warning:{} {}".format(YEL, RST, message), file=sys.stderr)
 
 
+def note(message):
+    """Something an operator may want to know that is not a fault. On stderr, like warn: commands
+    whose output a script reads print only that output on stdout."""
+    print("note: {}".format(message), file=sys.stderr)
+
+
 def compose_project(settings):
     from .envfile import value
     return value(settings, "COMPOSE_PROJECT_NAME") or DEFAULT_COMPOSE_PROJECT
@@ -292,7 +325,10 @@ def spawn(args, **kwargs):
 def clear_interrupted_recreates(project):
     """Compose names a replacement "<old id>_<name>" and renames it once the old container is gone.
     An interrupted recreation leaves that never-started placeholder, and every later `up` then fails
-    on the name. Only such placeholders are removed; started containers and volumes are untouched."""
+    on the name. Only such placeholders are removed; started containers and named volumes are
+    untouched. --volumes removes the anonymous volumes Docker made for the placeholder alone; the
+    ones it took over from the container it was replacing are mounted by name, which --volumes
+    never removes, and that container still mounts them."""
     placeholder = re.compile(rf"[0-9a-f]{{12}}_{re.escape(project)}-")
     listed = run(["docker", "ps", "-a", "--filter", f"label=com.docker.compose.project={project}",
                   "--filter", "status=created", "--format", "{{.ID}} {{.Names}}"], capture=True)
@@ -310,21 +346,307 @@ def clear_interrupted_recreates(project):
                         and placeholder.match(current.get("Name", "").lstrip("/"))
                         and state.get("Status") == "created"
                         and re.fullmatch(r"0001-01-01T00:00:00(?:\.0+)?Z", state.get("StartedAt", ""))):
-                    run(["docker", "rm", current["Id"]], quiet=True)
+                    run(["docker", "rm", "--volumes", current["Id"]], quiet=True)
+
+
+def compose_command(args):
+    """The Compose command in args, after Compose's own options: `--progress quiet up -d` is `up`."""
+    args = [str(arg) for arg in args]
+    index = 0
+    while index < len(args) and args[index].startswith("-"):
+        index += 2 if args[index] in COMPOSE_VALUE_OPTIONS else 1
+    return args[index] if index < len(args) else ""
+
+
+def seconds_until(until):
+    """The timeout for one Docker call that has to end by `until` (a time.monotonic() value), or
+    the limit of a single query when there is none. Raises subprocess.TimeoutExpired once that
+    time has passed, so that no further call is started."""
+    if until is None:
+        return DOCKER_QUERY_TIMEOUT_SECONDS
+    left = until - time.monotonic()
+    if left <= 0:
+        raise subprocess.TimeoutExpired(["docker"], 0)
+    return left
+
+
+def docker_query(*args, missing_ok=False, until=None):
+    """What a read-only `docker <args>` prints. Raises OSError or subprocess.SubprocessError, with
+    Docker's own message, when Docker cannot answer; within DOCKER_QUERY_TIMEOUT_SECONDS, or by
+    `until` (seconds_until).
+    missing_ok is for the inspect commands: an object removed since it was listed makes Docker
+    exit 1 and still print the others, which is an answer.
+    The output is only matched (ids, names, JSON), so it is decoded like stderr (SHOWN): a byte
+    outside the pipe encoding, in a container's label or environment, cannot raise here."""
+    result = run(["docker", *args], capture=True, stderr=subprocess.PIPE, errors=SHOWN, timeout=seconds_until(until))
+    errors = [line.strip() for line in (result.stderr or "").splitlines() if line.strip()]
+    if result.returncode and not (missing_ok and errors and all("no such" in line.lower() for line in errors)):
+        raise subprocess.SubprocessError(errors[0][:COMPOSE_ERROR_LINE_LENGTH] if errors
+                                         else f"docker {args[0]} exited {result.returncode}")
+    return result.stdout or ""
+
+
+def project_containers(project, until=None):
+    """`docker inspect` of every container of the Compose project, in any state. Raises like docker_query."""
+    containers = docker_query("ps", "-a", "-q", "--filter", f"label=com.docker.compose.project={project}", until=until).split()
+    return json.loads(docker_query("inspect", *containers, missing_ok=True, until=until) or "[]") if containers else []
+
+
+def mounted_volumes(containers):
+    """Names of the volumes the inspected containers list as a mount."""
+    return {mount["Name"] for container in containers for mount in container.get("Mounts") or []
+            if mount.get("Type") == "volume" and mount.get("Name")}
+
+
+def requested_volumes(container):
+    """Names the container's own configuration asks for as the source of a mount.
+
+    `docker run -v name:/path`, and Compose 5 for a volume of the Compose file in either syntax,
+    put "name:/path[:options]" in HostConfig.Binds; `--mount`, Compose 2.17 for every volume of
+    the Compose file, and every Compose for a volume it carries over to a recreated container put
+    {"Type": "volume", "Source": name, "Target": path} in HostConfig.Mounts. A volume Docker makes
+    by itself for a VOLUME path of the image is in neither."""
+    host = container.get("HostConfig") or {}
+    return ({str(bind).split(":", 1)[0] for bind in host.get("Binds") or []}
+            | {mount.get("Source") for mount in host.get("Mounts") or [] if mount.get("Source")})
+
+
+def volume_ownership(project):
+    """(Docker's own, asked for) among the volumes without a name that the project's containers
+    mount now at a VOLUME path of their image: two sorted lists of names.
+
+    Docker creates a volume for every VOLUME path of an image that the Compose file mounts nothing
+    over: the Percona image declares six (/backrestrepo, /data/db, /pgconf, /pgdata, /pgwal, /sshd),
+    so each container made from POSTGRES_IMAGE or BACKUP_IMAGE has five or six.
+    They are empty in a running stack: PostgreSQL's data directory is the named volume mounted
+    over /data/db, and nothing writes to the other five paths.
+
+    Docker's own, the only ones ever removed, are those for which all of this holds:
+      - a container of the project mounts it at a path its Config.Volumes lists (the image's VOLUMEs);
+      - that container's configuration does not name it (requested_volumes) and has no
+        HostConfig.VolumesFrom, so Docker made the volume for this container and nobody asked for it;
+      - no other container of the project names it;
+      - Docker labels it ANONYMOUS_VOLUME_LABEL.
+    `docker rm --volumes` draws the same line: it leaves a volume that was specified with a name.
+    The label alone is not enough: Docker also sets it on a volume an operator made with
+    `docker volume create` and no name. Mounted over /data/db through the Compose file, such a
+    volume held the database and `./chronicle down` removed it (Engine 29.8.2, 2026-11-11).
+
+    Asked for: labelled and mounted at such a path, but named by a container, or reached through
+    --volumes-from. That is an operator's own volume, and also every volume Compose carried over
+    to a container it recreated: Compose mounts those by name, and with Compose 2.17 the entry is
+    the same as for a volume the Compose file asks for in the long syntax. They are never removed;
+    after_compose reports the ones a command leaves unused. FORCED_RECREATION keeps this code's
+    own recreations from producing any.
+
+    An Engine older than 23.0 sets no label (20.10.24 measured): both lists are empty there, so
+    nothing is removed and nothing is reported.
+    Raises OSError, ValueError or subprocess.SubprocessError when Docker cannot be asked."""
+    containers = project_containers(project)
+    named = set().union(*(requested_volumes(container) for container in containers)) if containers else set()
+    own: set[str] = set()
+    candidates: set[str] = set()
+    for container in containers:
+        declared = set((container.get("Config") or {}).get("Volumes") or {})
+        at_image_paths = {mount["Name"] for mount in container.get("Mounts") or []
+                          if mount.get("Type") == "volume" and mount.get("Name") and mount.get("Destination") in declared}
+        candidates |= at_image_paths
+        if not (container.get("HostConfig") or {}).get("VolumesFrom"):
+            own |= at_image_paths - named
+    if not candidates:
+        return [], []
+    volumes = json.loads(docker_query("volume", "inspect", *sorted(candidates), missing_ok=True) or "[]")
+    labelled = {volume["Name"] for volume in volumes if ANONYMOUS_VOLUME_LABEL in (volume.get("Labels") or {})}
+    return sorted(own & labelled), sorted((candidates - own) & labelled)
+
+
+def anonymous_volumes(project):
+    """Names of the anonymous volumes Docker made for the project's containers, sorted: the ones
+    that may be removed once no container mounts them (volume_ownership). Raises like it."""
+    return volume_ownership(project)[0]
+
+
+def used_volumes(volumes, until=None):
+    """The ones among volumes that a container lists as a mount: any project, any state.
+
+    `docker volume rm` refuses a volume only while a container holds a reference to it, and a
+    container that took a volume with --volumes-from and has never started holds none when the
+    first container mounted the volume by name, as Compose does for the anonymous volumes of a
+    recreated container (Engine 29.8.2: the volume was removed under a created container that
+    listed it). So the containers are asked. Raises like docker_query."""
+    def listing(names):
+        filters = [argument for name in names for argument in ("--filter", "volume=" + name)]
+        return docker_query("ps", "-a", "-q", *filters, until=until).split()
+    volumes = list(volumes)
+    if not volumes or not listing(volumes):
+        return set()
+    return {volume for volume in volumes if listing([volume])}
+
+
+def removes_containers(args):
+    """Whether the Compose command in args can remove a container (REMOVING_COMMANDS, --remove-orphans)."""
+    return compose_command(args) in REMOVING_COMMANDS or "--remove-orphans" in [str(arg) for arg in args]
+
+
+def resolved_project(options):
+    """The project name Compose itself resolves for a command line that starts with these options
+    (--env-file, -f, ...), for an entry point that passes no -p. Compose takes it from -p, else
+    from COMPOSE_PROJECT_NAME in the environment, else from that variable in the file given with
+    --env-file, else from the Compose file's `name:`, else from the directory (Compose 2.17.0 and
+    5.5.0, 2026-11-11). Read from the first line of the form `name: ...` in what `config` prints:
+    2.17.0 has no name in `config --format json`.
+    Raises OSError, ValueError or subprocess.SubprocessError when Compose cannot load the
+    project; the command itself then fails the same way."""
+    result = run(["docker", "compose", *options, "config"], capture=True, stderr=subprocess.PIPE, errors=SHOWN,
+                 timeout=DOCKER_QUERY_TIMEOUT_SECONDS)
+    if result.returncode:
+        raise subprocess.SubprocessError(compose_error(result.stderr) or f"docker compose config exited {result.returncode}")
+    named = re.search(r"""(?m)^name: *(["']?)(.+?)\1 *$""", result.stdout or "")
+    if not named:
+        raise ValueError("docker compose config printed no project name")
+    return named.group(2)
+
+
+def project_volumes_before(options, args):
+    """anonymous_volumes_before for a shell entry point that leaves the project name to Compose
+    (scripts/deploy.sh, scripts/rotate-secrets.sh): [project, *volumes], or nothing when there
+    are no volumes. options are the Compose options the entry point puts before args; Compose is
+    asked for the name only when args can remove a container. Never raises: when Compose cannot
+    say which project it is the command still runs, and a warning says that the volumes it leaves
+    stay."""
+    if not removes_containers(args):
+        return []
+    try:
+        project = resolved_project(options)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        warn(f"could not ask Compose for the project name ({error}); the anonymous volumes this command leaves "
+             f"will stay; {ANONYMOUS_VOLUME_HINT}")
+        return []
+    volumes = anonymous_volumes_before(project, args)
+    return [project, *volumes] if volumes else []
+
+
+def anonymous_volumes_before(project, args):
+    """What the Compose command in args can leave behind, when it can remove a container
+    (REMOVING_COMMANDS, --remove-orphans), else nothing: the names of the anonymous volumes Docker
+    made for the project's containers, then, each with KEPT_VOLUME_PREFIX, the ones a container
+    asked for (volume_ownership). For after_compose, which removes the first kind and only reports
+    the second. Never raises: when Docker cannot be asked the command still runs, and a warning
+    says that the volumes it leaves stay."""
+    if removes_containers(args):
+        try:
+            own, asked_for = volume_ownership(project)
+            return [*own, *(KEPT_VOLUME_PREFIX + name for name in asked_for)]
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            warn(f"could not list the project's anonymous volumes ({error}); the ones this command leaves "
+                 f"will stay; {ANONYMOUS_VOLUME_HINT}")
+    return []
 
 
 def before_compose(project, args):
-    """Every compose entry point (Python and both shells) calls this; `up` after any --progress option clears placeholders."""
-    args = list(args)
-    if args[:1] == ["--progress"]:
-        args = args[2:]
-    if args[:1] == ["up"]:
+    """Every compose entry point (Python and both shells) calls this before the command and
+    after_compose with what it returns after it. `up` after any Compose option clears placeholders.
+    Returns anonymous_volumes_before(project, args)."""
+    # Before the placeholders go, so their volumes are in the list.
+    volumes = anonymous_volumes_before(project, args)
+    if compose_command(args) == "up":
         clear_interrupted_recreates(project)
+    return volumes
+
+
+def after_compose(project, volumes, seconds=AFTER_COMPOSE_SECONDS):
+    """Remove the anonymous volumes a Compose command left unattached.
+
+    volumes is what before_compose returned. Compose removes a container's anonymous volumes only
+    for `down --volumes` (which also removes the named ones and is never used here) and `rm
+    --volumes`. So `down`, an orphan removed by `up` and --renew-anon-volumes each left five or
+    six volumes per container made from the Percona image, for good.
+    Removed here: a volume from the list that Docker made for a container (volume_ownership) and
+    that no container mounts any more, in this project (mounted_volumes) or any other
+    (used_volumes). A named volume is never in the list; a volume some container still lists is
+    left out, and `docker volume rm` without --force also refuses one a started container holds.
+    A listed volume that a container asked for by name (KEPT_VOLUME_PREFIX) is never removed:
+    when the command leaves it unused, one line says how many there are and how to list them.
+    When Docker cannot be asked nothing is removed. Never raises an error: a volume that stays
+    is unused space, not a failure.
+    All Docker calls here end within `seconds` together; after that the volumes stay and a
+    warning says so. A signal handled by `interrupted` passes through (Interrupted) once the
+    Docker call in progress has been stopped (run).
+    The list lives in the calling process only. An interrupt (SIGINT, SIGTERM, SIGHUP) still
+    reaches this call, through `finally` here and the subshell in the shell entry points; when
+    the process is killed outright (SIGKILL, power loss) between the Compose command and this
+    call, that command's volumes stay, because nothing in Docker ties an anonymous volume to its
+    project once the container is gone."""
+    volumes = [str(volume) for volume in volumes]
+    if not volumes:
+        return
+    kept = [volume[len(KEPT_VOLUME_PREFIX):] for volume in volumes if volume.startswith(KEPT_VOLUME_PREFIX)]
+    removable = [volume for volume in volumes if not volume.startswith(KEPT_VOLUME_PREFIX)]
+    until = time.monotonic() + seconds
+
+    def anonymous(count):
+        return f"{count} anonymous volume{'s' if count != 1 else ''}"
+
+    def unanswered(reason):
+        # With nothing removable in the list, only the count of kept volumes is lost.
+        what = (f"could not remove the {anonymous(len(removable))} that removed containers may have left" if removable
+                else "could not see which volumes without a name the removed containers left unused")
+        warn(f"{what} ({reason}); {ANONYMOUS_VOLUME_HINT}")
+    try:
+        attached = mounted_volumes(project_containers(project, until))
+        unattached = [volume for volume in (*removable, *kept) if volume not in attached]
+        used = used_volumes(unattached, until)
+        detached = [volume for volume in removable if volume not in attached and volume not in used]
+        left = [volume for volume in kept if volume not in attached and volume not in used]
+        if left:
+            note(f"{len(left)} volume{'s' if len(left) != 1 else ''} without a name {'were' if len(left) != 1 else 'was'} left: "
+                 f"the removed containers mounted {'them' if len(left) != 1 else 'it'} by name, "
+                 "as Compose does for a volume of yours and for the "
+                 f"anonymous volumes it carries over to a container it recreates; {ANONYMOUS_VOLUME_HINT}")
+        if not detached:
+            return
+        removal = run(["docker", "volume", "rm", *detached], capture=True, stderr=subprocess.PIPE, errors=SHOWN,
+                      timeout=seconds_until(until))
+        # Not failures: another container still uses it (Docker keeps it), or it is already gone.
+        refused = [line for line in (removal.stderr or "").splitlines()
+                   if line.strip() and "in use" not in line and "no such volume" not in line.lower()]
+        if refused:
+            warn(f"could not remove {anonymous(len(refused))} that removed containers left "
+                 f"({refused[0].strip()[:COMPOSE_ERROR_LINE_LENGTH]}); {ANONYMOUS_VOLUME_HINT}")
+    except subprocess.TimeoutExpired:
+        unanswered(f"Docker did not answer within {seconds} second{'s' if seconds != 1 else ''}")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        unanswered(error)
+
+
+def after_compose_status(project, volumes):
+    """after_compose for the shell entry points, which exit with what this returns (0).
+
+    Their subshell lets its signals through again once Compose has returned. A signal that arrives
+    here stops the Docker call in progress with its process group (run) and then ends this process
+    by that same signal: the shell above then sees an interrupted command, as it does when Ctrl-C
+    ends any other program. A signal the script was started ignoring (nohup, a background job)
+    stays ignored."""
+    for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        if signal.getsignal(signum) is not signal.SIG_IGN:
+            signal.signal(signum, interrupted)
+    try:
+        after_compose(project, volumes)
+    except Interrupted as error:
+        signum = error.status - 128
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+        return error.status
+    return 0
 
 
 def compose(*args, **kwargs):
-    before_compose(os.environ["CHRONICLE_OPS_PROJECT"], args)
-    return run(["docker", "compose", "-p", os.environ["CHRONICLE_OPS_PROJECT"], *args], **kwargs)
+    project = os.environ["CHRONICLE_OPS_PROJECT"]
+    volumes = before_compose(project, args)
+    try:
+        return run(["docker", "compose", "-p", project, *args], **kwargs)
+    finally:
+        after_compose(project, volumes)
 
 
 def compose_error(text):

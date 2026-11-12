@@ -1,0 +1,8 @@
+id: compose-entry-point-leaves-anonymous-volumes-python
+valid:
+- "def compose(*args, **kwargs):\n    project = os.environ['CHRONICLE_OPS_PROJECT']\n    volumes = before_compose(project, args)\n    try:\n        return run(['docker', 'compose', '-p', project, *args], **kwargs)\n    finally:\n        after_compose(project, volumes)\n"
+- "def before_compose(project, args):\n    volumes = anonymous_volumes_before(project, args)\n    if compose_command(args) == 'up':\n        clear_interrupted_recreates(project)\n    return volumes\n"
+- "def status(project):\n    return run(['docker', 'compose', '-p', project, 'ps'])\n"
+invalid:
+- "def compose(*args, **kwargs):\n    project = os.environ['CHRONICLE_OPS_PROJECT']\n    before_compose(project, args)\n    return run(['docker', 'compose', '-p', project, *args], **kwargs)\n"
+- "def compose_release(directory, project, names, *args, **kwargs):\n    command, environment = release_command(directory, project, names)\n    common.before_compose(project, args)\n    return run([*command, *args], cwd=directory, env=environment, **kwargs)\n"

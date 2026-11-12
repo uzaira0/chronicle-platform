@@ -1,0 +1,36 @@
+id: compose-entry-point-leaves-anonymous-volumes-shell
+language: Bash
+severity: error
+message: A shell function that passes its arguments to docker compose must list the project's anonymous volumes before the command and call chronicle_ops.common after_compose_status after it, with HUP, INT and TERM not ignored, as dc() in selfhost/chronicle does. `down` and an orphan removed by `up` otherwise leave five or six anonymous volumes per container of the Postgres image for good; and with those signals ignored (trap '' ...) Ctrl-C does nothing while a Docker daemon that has stopped answering is waited for.
+note: |
+  Blind spots: matches a function whose body runs `docker compose ... "$@"` and whose text never
+  names after_compose_status, or contains `trap ''`; it does not check that the list from before
+  the command is the one passed on, or where in the function the trap stands. A wrapper that
+  forwards an array or named arguments, and a Compose command typed in full,
+  are not seen (the second is compose-down-leaves-anonymous-volumes-shell). docker/** is outside
+  the repository scan; docker/restore-chronicle.sh compose_cmd is run against Docker by
+  tests/selfhost-py/test_anonymous_volumes.py instead.
+files:
+  - selfhost/**/*.sh
+  - selfhost/chronicle
+  - scripts/**/*.sh
+rule:
+  all:
+    - kind: function_definition
+    - has:
+        stopBy: end
+        all:
+          - kind: command
+          - has:
+              field: name
+              regex: '^docker$'
+          - has:
+              kind: word
+              regex: '^compose$'
+          - has:
+              kind: string
+              regex: '^"\$@"$'
+    - any:
+        - not:
+            regex: 'after_compose_status'
+        - regex: "trap '' "

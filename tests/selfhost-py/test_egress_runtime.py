@@ -127,7 +127,7 @@ class CaddyStaplingTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        subprocess.run(['docker', 'rm', '-f', cls.name + '-ocsp', cls.name + '-caddy'], capture_output=True, timeout=60)
+        subprocess.run(['docker', 'rm', '-fv', cls.name + '-ocsp', cls.name + '-caddy'], capture_output=True, timeout=60)
         subprocess.run(['docker', 'network', 'rm', cls.name], capture_output=True, timeout=60)
         shutil.rmtree(cls.work, ignore_errors=True)
 
@@ -140,7 +140,7 @@ class CaddyStaplingTests(unittest.TestCase):
         import test_egress
         environment = test_egress.render(mode)['services']['web']['environment']
         environment.update(settings)
-        self.docker('rm', '-f', self.name + '-caddy', check=False)
+        self.docker('rm', '-fv', self.name + '-caddy', check=False)
         self.docker('run', '-d', '--name', self.name + '-caddy', '--network', self.name, '--network-alias', 'web',
                     '--read-only', '--tmpfs', '/data:mode=1777', '--tmpfs', '/config:mode=1777', '--tmpfs', '/tmp:mode=1777',
                     *[part for key, value in environment.items() for part in ('-e', f'{key}={value}')],

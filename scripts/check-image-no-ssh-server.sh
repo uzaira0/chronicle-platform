@@ -21,7 +21,7 @@ for image in "$@"; do
   # The command is never run; `create` only needs one for images without CMD/ENTRYPOINT (scratch).
   container=$(docker create "$image" /chronicle-ssh-check)
   found=$(docker export "$container" | tar -tf - | grep -E "$SSH_SERVER_PATH" || true)
-  docker container rm "$container" >/dev/null
+  docker container rm --volumes "$container" >/dev/null
   if [[ -n "$found" ]]; then
     printf 'error: %s contains an SSH server; remove it (use docker exec from the host instead):\n%s\n' \
       "$image" "$found" >&2

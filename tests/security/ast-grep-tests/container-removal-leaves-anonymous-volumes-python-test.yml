@@ -1,0 +1,51 @@
+id: container-removal-leaves-anonymous-volumes-python
+valid:
+- 'run([''docker'', ''rm'', ''--volumes'', current[''Id'']], quiet=True)
+
+  '
+- 'subprocess.run([''docker'', ''rm'', ''-fv'', name], capture_output=True, timeout=30)
+
+  '
+- 'subprocess.run(["docker", "container", "rm", "--volumes", container], check=False)
+
+  '
+- 'self.docker(''rm'', ''-fv'', *containers)
+
+  '
+- 'cls.addClassCleanup(cls.docker, "rm", "-fv", cls.container)
+
+  '
+- 'run([''docker'', ''image'', ''rm'', ''--'', pin], quiet=True, timeout=60)
+
+  '
+- 'run([''docker'', ''volume'', ''rm'', *detached], capture=True)
+
+  '
+- 'docker(''network'', ''rm'', tag + ''-internal'', check=False)
+
+  '
+- 'run([''docker'', ''exec'', container, ''rm'', ''-f'', path])
+
+  '
+invalid:
+- 'run([''docker'', ''rm'', current[''Id'']], quiet=True)
+
+  '
+- 'subprocess.run([''docker'', ''rm'', ''-f'', name], capture_output=True)
+
+  '
+- 'subprocess.run([''docker'', ''container'', ''rm'', container], capture_output=True, check=False)
+
+  '
+- 'docker("rm", "-f", name)
+
+  '
+- 'self.docker(''rm'', ''-f'', self.name + ''-caddy'', check=False)
+
+  '
+- 'self.addCleanup(self.docker, ''rm'', ''-f'', container)
+
+  '
+- 'command = (''docker'', ''rm'', ''--force'', name)
+
+  '

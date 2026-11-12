@@ -1587,7 +1587,7 @@ job_http_smoke_stack() {
   # Freeze these function-local paths now; they are out of scope when the
   # process-level EXIT trap runs after the selected job returns.
   # shellcheck disable=SC2064
-  trap "docker compose -p chronicle-ci-smoke --env-file '$env_file' -f '$ROOT_DIR/docker/docker-compose.traefik.yml' -f '$override_file' down -v --remove-orphans >/dev/null 2>&1 || true; if [ '$repo_env_created' = '1' ]; then rm -f '$repo_env_file'; fi; rm -rf '$tmp_dir'" EXIT
+  trap "remove_compose_project chronicle-ci-smoke --env-file '$env_file' -f '$ROOT_DIR/docker/docker-compose.traefik.yml' -f '$override_file' >/dev/null 2>&1 || true; if [ '$repo_env_created' = '1' ]; then rm -f '$repo_env_file'; fi; rm -rf '$tmp_dir'" EXIT
 
   run_ci_smoke_stack
 }

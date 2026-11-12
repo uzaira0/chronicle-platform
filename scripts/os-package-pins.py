@@ -127,7 +127,7 @@ def image_files(reference: str, *paths: str) -> dict[str, str]:
                 if handle:
                     found[path] = handle.read().decode('utf-8', 'replace')
     finally:
-        subprocess.run(['docker', 'rm', cid], capture_output=True, check=False)
+        subprocess.run(['docker', 'rm', '--volumes', cid], capture_output=True, check=False)
     return found
 
 

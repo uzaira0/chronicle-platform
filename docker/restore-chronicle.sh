@@ -30,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_KEY="/etc/chronicle/backup-encryption-key"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.traefik.yml"
 COMPOSE_PROD_FILE="${SCRIPT_DIR}/docker-compose.production.yml"
+COMPOSE_PROJECT="chronicle"
 CONTAINER="chronicle-postgres"
 DB_USER="chronicle"
 DB_NAME="chronicle"
@@ -401,7 +402,7 @@ restore_validated_config() {
 }
 
 compose_cmd() {
-    local args=(-p chronicle)
+    local args=(-p "$COMPOSE_PROJECT") anonymous=""
     if [ -n "${CHRONICLE_RESTORE_ENV_FILE:-}" ]; then
         args+=(--env-file "${CHRONICLE_RESTORE_ENV_FILE}")
     elif [ -f "${SCRIPT_DIR}/.env.production.local" ]; then
@@ -413,7 +414,37 @@ compose_cmd() {
     if [ -f "$COMPOSE_PROD_FILE" ]; then
         args+=(-f "$COMPOSE_PROD_FILE")
     fi
-    docker compose "${args[@]}" "$@"
+    # `down` and an orphan removed by `up` leave the removed containers' anonymous volumes: five
+    # per container of the Percona image (one per VOLUME path the Compose file mounts nothing
+    # over). chronicle_ops lists them before such a command and removes them after it; named
+    # volumes are never in the list (selfhost/chronicle_ops/common.py anonymous_volumes_before,
+    # after_compose). Without python3 or the selfhost directory beside this one the command runs
+    # as it did before.
+    if command -v python3 >/dev/null 2>&1 && [ -d "${SCRIPT_DIR}/../selfhost/chronicle_ops" ]; then
+        anonymous="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${SCRIPT_DIR}/../selfhost" python3 -c \
+            'import sys; from chronicle_ops.common import anonymous_volumes_before; print(*anonymous_volumes_before(sys.argv[1], sys.argv[2:]))' \
+            "$COMPOSE_PROJECT" "$@" </dev/null)" || anonymous=""
+    fi
+    if [ -z "$anonymous" ]; then
+        docker compose "${args[@]}" "$@"
+        return
+    fi
+    # The subshell has its own signal handlers: an interrupt during Compose still stops Compose,
+    # and the removal runs before this script's handlers do.
+    (
+        trap : HUP INT TERM
+        status=0
+        docker compose "${args[@]}" "$@" || status=$?
+        # From here a signal ends this at once (after_compose_status stops the Docker call it waits
+        # for), and the Docker calls together are limited to AFTER_COMPOSE_SECONDS.
+        trap - HUP INT TERM
+        after=0
+        # shellcheck disable=SC2086 # one volume name per word
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="${SCRIPT_DIR}/../selfhost" python3 -c \
+            'import sys; from chronicle_ops.common import after_compose_status; sys.exit(after_compose_status(sys.argv[1], sys.argv[2:]))' "$COMPOSE_PROJECT" $anonymous || after=$?
+        if (( after > 128 )); then exit "$after"; fi
+        exit "$status"
+    )
 }
 
 postgres_exec() {
@@ -444,7 +475,7 @@ run_flyway_migrations() {
     MIGRATION_RUN_ACTIVE=true
     if ! compose_cmd run --rm --no-deps --name "$MIGRATION_CONTAINER" \
         migrate; then
-        if docker rm -f "$MIGRATION_CONTAINER" >/dev/null 2>&1; then
+        if docker rm -fv "$MIGRATION_CONTAINER" >/dev/null 2>&1; then
             MIGRATION_RUN_ACTIVE=false
         fi
         return 1
@@ -755,7 +786,7 @@ cleanup_restore_artifacts() {
     fi
 
     if [ "$MIGRATION_RUN_ACTIVE" = true ]; then
-        if docker rm -f "$MIGRATION_CONTAINER" >/dev/null 2>&1; then
+        if docker rm -fv "$MIGRATION_CONTAINER" >/dev/null 2>&1; then
             MIGRATION_RUN_ACTIVE=false
         else
             cleanup_failed=true

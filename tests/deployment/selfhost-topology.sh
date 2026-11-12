@@ -49,8 +49,12 @@ cleanup() {
     (cd "$STACK" && docker compose -p "$PROJECT" logs --no-color --tail 80 config-guard migrate backend postgres) >&2 2>&1 || true
     clients logs --no-color --tail 40 lb >&2 2>&1 || true
   fi
-  clients down -v --remove-orphans >/dev/null 2>&1 || true
-  (cd "$STACK" && docker compose -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1) || true
+  # Both projects with their volumes, the anonymous ones of recreated containers included.
+  export ROOT_DIR="$ROOT"  # the library's name for the repository root
+  # shellcheck source=tests/security/lib/selfhost-python.sh
+  source "$ROOT/tests/security/lib/selfhost-python.sh"
+  remove_compose_project "$TOPOLOGY_PROJECT" -f "$CLIENT_COMPOSE" >/dev/null 2>&1 || true
+  (cd "$STACK" && remove_compose_project "$PROJECT" >/dev/null 2>&1) || true
   printf 'status=%s\n' "$status" >"$RUN/result.txt"
   return "$status"
 }

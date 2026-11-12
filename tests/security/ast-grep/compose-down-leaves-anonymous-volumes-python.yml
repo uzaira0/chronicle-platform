@@ -1,0 +1,38 @@
+id: compose-down-leaves-anonymous-volumes-python
+language: Python
+severity: error
+message: A harness that removes its Compose project must do it inside `with anonymous_volumes_removed(project):` (tests/selfhost-py/selfhost_fixture.py). `docker compose down --volumes` leaves the anonymous volumes of every container `up` recreated; one run of test_forward_drill left 442.
+note: |
+  Blind spots: matches the literal 'down' passed as an argument of a call that is not an assertion.
+  A Compose argv built as a list first, a command name held in a variable and `compose rm` are not
+  resolved. tests/selfhost-py/test_anonymous_volumes.py is left out: it runs the operator's own
+  entry points and plain Compose to measure what each leaves, and removes by name.
+files:
+  - "tests/**/*.py"
+  - "scripts/**/*.py"
+ignores:
+  - "tests/selfhost-py/test_anonymous_volumes.py"
+rule:
+  all:
+    - kind: string
+    - regex: '^[''"]down[''"]$'
+    - inside:
+        kind: argument_list
+        inside:
+          kind: call
+          not:
+            has:
+              field: function
+              regex: 'assert'
+    - not:
+        inside:
+          stopBy: end
+          kind: with_statement
+          has:
+            kind: with_clause
+            has:
+              stopBy: end
+              kind: call
+              has:
+                field: function
+                regex: '(^|\.)anonymous_volumes_removed$'

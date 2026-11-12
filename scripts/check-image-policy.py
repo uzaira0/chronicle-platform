@@ -53,7 +53,7 @@ def filesystem(image):
             if export.wait():
                 raise subprocess.CalledProcessError(export.returncode, 'docker export')
     finally:
-        subprocess.run(['docker', 'container', 'rm', container], capture_output=True, check=False)
+        subprocess.run(['docker', 'container', 'rm', '--volumes', container], capture_output=True, check=False)
     return setid, tools
 
 

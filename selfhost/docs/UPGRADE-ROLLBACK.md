@@ -28,6 +28,16 @@ signature with the installed public key, checks every manifest digest, and prese
 to select a published version explicitly. Selecting the installed version repairs it from
 a new verified release directory. Downgrades are refused.
 
+An update, a repair and a rollback remove the previous release's containers, and with each
+container the anonymous volumes Docker made for it (one for every `VOLUME` path of the PostgreSQL
+image that no named volume covers; they hold no data). The new containers get new ones. Named
+volumes are never removed by these commands, apart from the ones a failed update itself created
+(see "PostgreSQL major versions"), and neither is any other volume your Compose file mounts,
+including one made with `docker volume create` and no name.
+Releases before 2026.11.12 left those anonymous volumes behind;
+[UNINSTALL-DATA-DELETION.md](UNINSTALL-DATA-DELETION.md) says how to list them, and which
+anonymous volumes `./chronicle down` still leaves.
+
 Files you edited inside the installed release (for example `docker-compose.yml`) do not stop
 the update. The new release installs its own copy; your edited file and a diff against the new
 release's copy are kept in `<state>/local-edits/<installed version>/`, and the update names

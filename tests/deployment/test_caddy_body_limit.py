@@ -171,7 +171,7 @@ http://127.0.0.1:{self.port} {{
         logs = subprocess.run(['docker', 'logs', self.container], check=True, capture_output=True, text=True)
         (self.evidence / 'caddy.log').write_text(logs.stdout + logs.stderr)
         (self.evidence / 'upstream.txt').write_text(repr(self.upstream.received) + '\n')
-        subprocess.run(['docker', 'rm', '-f', self.container], check=True, capture_output=True)
+        subprocess.run(['docker', 'rm', '-fv', self.container], check=True, capture_output=True)
         self.assertNotIn('type conversion error', logs.stdout + logs.stderr)
 
     def upload(self, case, size, *, framing='length', expect=False):

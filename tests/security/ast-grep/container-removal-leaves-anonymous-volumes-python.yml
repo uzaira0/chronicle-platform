@@ -1,0 +1,35 @@
+id: container-removal-leaves-anonymous-volumes-python
+language: Python
+severity: error
+message: docker rm without --volumes leaves the container's anonymous volumes behind for good (five or six per container of the Postgres image, which declares six VOLUME paths). Pass -v, -fv or --volumes; it removes anonymous volumes only, never a named one.
+note: |
+  Blind spots: matches an argv literal that starts with 'docker', 'rm' or 'docker', 'container', 'rm',
+  a call of a helper named docker whose first argument is 'rm', and that helper passed as a callback
+  followed by 'rm' (addCleanup(self.docker, 'rm', ...)). An argv assembled from variables, a shell
+  string and `docker compose` are not resolved; Compose removals are covered by
+  compose-entry-point-leaves-anonymous-volumes-python and compose-down-leaves-anonymous-volumes-python.
+  --volumes does not remove the volumes Compose carried over to a recreated container, which are
+  mounted by name: a Compose container is removed through Compose.
+files:
+  - "selfhost/**/*.py"
+  - "scripts/**/*.py"
+  - "tests/**/*.py"
+rule:
+  any:
+    - all:
+        - any:
+            - kind: list
+            - kind: tuple
+        - regex: '^[\[(]\s*[''"]docker[''"]\s*,\s*([''"]container[''"]\s*,\s*)?[''"]rm[''"]'
+        - not:
+            regex: '[''"](-[A-Za-z]*v[A-Za-z]*|--volumes)[''"]'
+    - all:
+        - kind: call
+        - regex: '^(\w+\.)*docker\(\s*[''"]rm[''"]'
+        - not:
+            regex: '[''"](-[A-Za-z]*v[A-Za-z]*|--volumes)[''"]'
+    - all:
+        - kind: argument_list
+        - regex: '^\(\s*(\w+\.)*docker\s*,\s*[''"]rm[''"]'
+        - not:
+            regex: '[''"](-[A-Za-z]*v[A-Za-z]*|--volumes)[''"]'

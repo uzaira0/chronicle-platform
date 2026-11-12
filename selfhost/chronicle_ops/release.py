@@ -13,7 +13,7 @@ from typing import NamedTuple
 
 from .reconcile import RECOVERY_FILE, UPGRADE_LOCK
 
-from .common import DEFAULT_MIN_FREE_DISK_GIB, before_compose, require, run, same_path
+from .common import DEFAULT_MIN_FREE_DISK_GIB, after_compose, before_compose, require, run, same_path
 from . import envfile
 from .dump import backup_release_header, CATALOG_GATE_SQL, DUMP_EXCLUDE_OPTIONS, file_sha256, validate_dump, installed_backup_version
 from .receipts import write_text
@@ -598,8 +598,11 @@ def record_applied_certificates(state, digest):
 
 def compose_release(directory, project, names, *args, **kwargs):
     command, environment = release_command(directory, project, names)
-    before_compose(project, args)
-    return run([*command, *args], cwd=directory, env=environment, **kwargs)
+    volumes = before_compose(project, args)
+    try:
+        return run([*command, *args], cwd=directory, env=environment, **kwargs)
+    finally:
+        after_compose(project, volumes)
 
 
 def postgres_major(version_text, image):

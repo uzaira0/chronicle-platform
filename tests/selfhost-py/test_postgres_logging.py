@@ -88,7 +88,7 @@ class PostgresLoggingTests(PgTdeFixture):
                     '-v', f'{config}:/fixture.conf:ro', '-v', f'{config_root / "parsers.conf"}:/parsers.conf:ro',
                     '-v', f'{config_root / "sanitize.lua"}:/sanitize.lua:ro', image,
                     '/fluent-bit/bin/fluent-bit', '-c', '/fixture.conf')
-        self.addCleanup(self.docker, 'rm', '-f', container)
+        self.addCleanup(self.docker, 'rm', '-fv', container)
         for _ in range(150):
             logs = self.docker('logs', container).decode()
             rows = [json.loads(row) for row in logs.splitlines() if row.startswith('{')]

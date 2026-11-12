@@ -198,7 +198,42 @@ PY
   log "Rotated $key ($length chars)"
 }
 
-dc() { CHRONICLE_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
+dc() {
+  local listed project anonymous
+  local -a compose_options=(--env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+  # chronicle_ops lists the anonymous volumes of the containers a command can remove before it
+  # and removes the ones it left after it (selfhost/chronicle_ops/common.py
+  # project_volumes_before, after_compose; named volumes are never in the list).
+  # No -p here, so the project is the one Compose resolves for these options: the caller's
+  # COMPOSE_PROJECT_NAME, else the one in the --env-file file, else the Compose file's `name:`.
+  # project_volumes_before asks Compose and prints that name first.
+  # scripts/deploy.sh compose_cmd does the same.
+  listed="$(CHRONICLE_ENV_FILE="$ENV_FILE" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$REPO_ROOT/selfhost" python3 -c \
+    'import sys; from chronicle_ops.common import project_volumes_before; count = int(sys.argv[1]); print(*project_volumes_before(sys.argv[2:2 + count], sys.argv[2 + count:]))' \
+    "${#compose_options[@]}" "${compose_options[@]}" "$@" </dev/null)" || listed=""
+  if [[ -z "$listed" ]]; then
+    CHRONICLE_ENV_FILE="$ENV_FILE" docker compose "${compose_options[@]}" "$@"
+    return
+  fi
+  project="${listed%% *}"
+  anonymous="${listed#* }"
+  # The subshell has its own signal handlers: an interrupt during Compose still stops Compose, and
+  # the removal runs before this script's handlers do.
+  (
+    trap : HUP INT TERM
+    status=0
+    CHRONICLE_ENV_FILE="$ENV_FILE" docker compose "${compose_options[@]}" "$@" || status=$?
+    # From here a signal ends this at once (after_compose_status stops the Docker call it waits
+    # for), and the Docker calls together are limited to AFTER_COMPOSE_SECONDS.
+    trap - HUP INT TERM
+    after=0
+    # shellcheck disable=SC2086 # one volume name per word
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$REPO_ROOT/selfhost" python3 -c \
+      'import sys; from chronicle_ops.common import after_compose_status; sys.exit(after_compose_status(sys.argv[1], sys.argv[2:]))' "$project" $anonymous || after=$?
+    if (( after > 128 )); then exit "$after"; fi
+    exit "$status"
+  )
+}
 
 postgres_stdin() {
   local input="$1"
@@ -465,7 +500,7 @@ restart_services() {
         [[ "$svc" == chronicle-postgres-exporter || "$svc" == postgres-replica ]] && continue
         return 1
       fi
-      dc up -d --force-recreate --wait --wait-timeout 120 "$svc" || return 1
+      dc up -d --force-recreate --renew-anon-volumes --wait --wait-timeout 120 "$svc" || return 1
     fi
   done
   if [[ "${postgres_changed:-false}" == true ]]; then
