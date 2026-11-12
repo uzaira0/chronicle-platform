@@ -19,7 +19,7 @@ from chronicle_ops.common import run
 from test_secret_generation import SelfhostSetupFixture
 
 ROOT = Path(__file__).resolve().parents[2]
-PROBE_IMAGE = 'ghcr.io/uzaira0/chronicle-selfhost-caddy:2026.11.6@sha256:' + '1' * 64
+PROBE_IMAGE = 'ghcr.io/uzaira0/chronicle-selfhost-caddy:2026.11.12@sha256:' + '1' * 64
 # Inserted into the bash docker fake of tests/security/lib/selfhost-fixtures.sh.
 ARCHITECTURE_ANSWER = r'''elif [[ "$*" == 'info --format {{.Architecture}}' ]]; then
   printf '%s\n' "${DOCKER_FIXTURE_ARCH:-}"

@@ -319,7 +319,7 @@
   },
   "selfhost/Dockerfile.grafana::golang.org/x/net": {
     "pin": "v0.62.0",
-    "reason": "Grafana 13.2.5 server binary links golang.org/x/net v0.60.0 and its x/net/html tokenizer; v0.62.0 (published 2026-10-27) fixes the HIGH denial of service CVE-2026-78661 that stopped the 2026.11.6 trivy gate. Same server rebuild stage and replace mechanism as go-jose.",
+    "reason": "Grafana 13.2.5 server binary links golang.org/x/net v0.60.0 and its x/net/html tokenizer; v0.62.0 (published 2026-10-27) fixes the HIGH denial of service CVE-2026-78661 that stopped the 2026.11.12 trivy gate. Same server rebuild stage and replace mechanism as go-jose.",
     "remove_when": "Remove this replace when the pinned Grafana release image's binary reports golang.org/x/net v0.62.0 or newer in go version -m and passes the trivy gate unmodified.",
     "reviewed_on": "2026-11-07",
     "review_after": "2026-12-07",

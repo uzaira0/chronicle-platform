@@ -541,7 +541,7 @@ vulnerabilities:
       victoriametrics-logs-datasource 0.33.1 backend (x/net 0.60.0) and the bundled prometheus datasource
       backend (x/net 0.61.0) list the x/net module but link no x/net/html code: their function tables
       name x/net/http2, hpack, trace, idna, dnsmessage, socks and httpguts and no golang.org/x/net/html
-      symbol (strings over both 2026.11.6 binaries, 2026-11-07), so no HTML is ever tokenized. Monitoring
+      symbol (strings over both 2026.11.12 binaries, 2026-11-07), so no HTML is ever tokenized. Monitoring
       overlay only (opt-in); both talk only to internal victorialogs/victoriametrics. The Grafana server
       binary, which does link x/net/html, is rebuilt with x/net 0.62.0 (Dockerfile.grafana). Rechecked
       2026-11-07: 0.33.1 is still the newest victoriametrics-logs-datasource release. cadvisor v0.60.6
@@ -614,6 +614,7 @@ vulnerabilities:
       intermediate-certificate verification: gosu only switches user and execs postgres; it makes no TLS
       connection and verifies no certificate.
       Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
+# Reviewed 2026-11-12 for release 2026.11.12 (image gate at 70a693b7): MIT krb5 in the postgres, backup,
 # fluentbit and cAdvisor images, the Python 3.9 build the pinned fix no longer replaces, and expat. Short
 # expiries on purpose: 2026-11-19 is three days after UBI's current Python build passes the dependency wait;
 # the krb5 and expat entries end within 21 days of this review.

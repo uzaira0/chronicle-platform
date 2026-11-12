@@ -315,7 +315,7 @@ The two Sigstore bundles per image ship in the release under `selfhost/image-sig
 `release-manifest.json` (`image_signatures`) and covered by the signed checksum. `./chronicle update`
 checks them offline before it pulls (`selfhost/chronicle_ops/image_signatures.py`: the DSSE signature
 verifies with the shipped key through openssl, the predicate is the right one, and the statement names
-exactly the pinned digest); a release from before 2026.11.6 ships none and updates as before. Anyone can
+exactly the pinned digest); a release from before 2026.11.12 ships none and updates as before. Anyone can
 check a registry copy:
 
     cosign verify --key selfhost/image-signing.pub --insecure-ignore-tlog IMAGE@DIGEST

@@ -10,7 +10,7 @@ covers all of it. Anyone can check the registry copies with
 `./chronicle update` checks the candidate's bundles here, offline, before it pulls anything: each bundle's
 DSSE envelope must be signed by the pinned key (ECDSA P-256, verified with the host's openssl, which the
 launcher already requires), carry the right in-toto predicate, and name the exact digest the manifest pins.
-A release from before 2026.11.6 has no image_signatures entry and is accepted as before: its digests are
+A release from before 2026.11.12 has no image_signatures entry and is accepted as before: its digests are
 bound by the SSH-signed manifest alone.
 """
 import base64

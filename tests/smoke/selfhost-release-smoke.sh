@@ -1108,7 +1108,7 @@ if len(trust) != 1:
 environment = dict(item.split('=', 1) for item in services['backend']['Config']['Env'])
 secret = environment.get('CHRONICLE_INTERNAL_WEB_SECRET')
 if secret is None:
-    # 2026.11.6 and later: the backend reads it from CHRONICLE_SECRETS_DIR (backend-entrypoint.sh).
+    # 2026.11.12 and later: the backend reads it from CHRONICLE_SECRETS_DIR (backend-entrypoint.sh).
     secret = subprocess.check_output(
         ['docker', 'exec', services['backend']['Id'], 'cat',
          environment.get('CHRONICLE_SECRETS_DIR', '/run/secrets/chronicle') + '/internal-web-secret'],

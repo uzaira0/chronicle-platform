@@ -560,7 +560,7 @@ free_port() {
   return 1
 }
 
-# The services that hold each listener: since 2026.11.6 the forwarders publish the ports of web,
+# The services that hold each listener: since 2026.11.12 the forwarders publish the ports of web,
 # Grafana and Fluent Bit (docs/NETWORK-EGRESS.md); a stack started by an older release still has
 # them on the services themselves until its update.
 WEB_PORT_OWNERS=web-forward,web

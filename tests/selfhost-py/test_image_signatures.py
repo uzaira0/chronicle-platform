@@ -46,7 +46,7 @@ class ImageSignatureTests(unittest.TestCase):
         self.assertEqual(sorted(image.component for image in SOURCE_IMAGES), sorted(self.verify()))
 
     def test_a_release_without_signatures_is_accepted_unchanged(self):
-        # Every release before 2026.11.6: their digests are bound by the SSH-signed manifest alone.
+        # Every release before 2026.11.12: their digests are bound by the SSH-signed manifest alone.
         manifest = dict(self.manifest)
         del manifest[image_signatures.SIGNATURES_KEY]
         self.assertEqual([], self.verify(manifest))

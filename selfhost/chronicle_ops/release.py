@@ -48,7 +48,7 @@ UPDATE_AVAILABLE_EXIT = 3
 UPGRADE_FROM_MINIMUM = "2026.10.18"
 UPGRADE_FLOOR_KEY = "upgrade_from_minimum"
 # The platform every first-party release image is built for (scripts/publish-images.sh release_platform,
-# toolchain-manifest.yaml release_platform). Manifests since 2026.11.6 record it; earlier releases were
+# toolchain-manifest.yaml release_platform). Manifests since 2026.11.12 record it; earlier releases were
 # linux/amd64 too, so a manifest without the key means linux/amd64.
 RELEASE_PLATFORM = "linux/amd64"
 PLATFORM_KEY = "platform"
@@ -62,7 +62,7 @@ ANDROID_COMPATIBILITY = dict(minimum_version_code=80, version_name="2026.10.31-i
 MIGRATIONS_KEY = "migrations"
 FRESH_INSTALL_REQUIRED = "fresh install required for pre-reset releases; see docs/UPGRADE-ROLLBACK.md"
 OWNER_FILE = ".chronicle-owner"
-# Updates since 2026.11.6 install each release at <root>/chronicle-releases/<version>/.
+# Updates since 2026.11.12 install each release at <root>/chronicle-releases/<version>/.
 RELEASES_DIRECTORY = "chronicle-releases"
 # The operator's original selfhost/ directory, recorded at the first update this release commits.
 FRONT_DOOR_FILE = ".chronicle-front-door"
@@ -536,7 +536,7 @@ def read_manifest(path, require_upgrade_script, *, discovery=False, installed=Fa
             and all(isinstance(tree, str) and revision_re.fullmatch(tree) for tree in inputs.values())
             and len(set(inputs.values())) == 1, 'first-party images require one immutable source inputs tree')
     # Before anything is pulled: each first-party digest must carry the release's cosign signature and
-    # provenance (releases from before 2026.11.6 ship none and pass unchanged).
+    # provenance (releases from before 2026.11.12 ship none and pass unchanged).
     from .image_signatures import verify_release_images
     verify_release_images(bundle, manifest)
     return ReleaseManifest(manifest, version_key)

@@ -123,7 +123,7 @@ class DocumentedMinimumTests(unittest.TestCase):
     def test_release_notes_state_the_runtime_minimums(self):
         from chronicle_ops import host_versions
         changelog = (ROOT / 'CHANGELOG.md').read_text()
-        notes = changelog[changelog.index('## [2026.11.6]'):changelog.index('## [2026.11.2]')]
+        notes = changelog[changelog.index('## [2026.11.12]'):changelog.index('## [2026.11.2]')]
         for version in self.dotted(host_versions.ENGINE_FIXED + host_versions.CONTAINERD_FIXED + host_versions.RUNC_FIXED):
             with self.subTest(version=version):
                 self.assertRegex(notes, r'(?<![\d.])' + re.escape(version) + r'(?![\d])')

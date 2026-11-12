@@ -1,7 +1,7 @@
 """Test certificates must pass strict X.509 verification.
 
 Python 3.13+ verifies with ssl.VERIFY_X509_STRICT by default and refuses a CA-signed leaf without an
-Authority Key Identifier. The 2026.11.6 release smoke failed on exactly that: its load-balancer fixture
+Authority Key Identifier. The 2026.11.12 release smoke failed on exactly that: its load-balancer fixture
 leaf was signed by `openssl x509 -req -extfile` with only subjectAltName, so the smoke's own client
 (tests/deployment/selfhost-client.py) refused it. tests/security/lib/fixture-pki.sh issues those fixtures now,
 and every other place that signs a certificate must set the identifier itself."""

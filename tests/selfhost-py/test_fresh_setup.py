@@ -163,7 +163,7 @@ esac
                         validate(args)
 
     def test_every_first_party_image_must_be_built_for_the_release_platform(self):
-        """2026.11.6 candidates built unpinned on an arm64 Mac were arm64; the manifest declares linux/amd64."""
+        """2026.11.12 candidates built unpinned on an arm64 Mac were arm64; the manifest declares linux/amd64."""
         from chronicle_ops.images import SOURCE_IMAGES, source_inputs_tree
         builder = runpy.run_path(str(ROOT / 'scripts/build-selfhost-release.py'))
         revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()

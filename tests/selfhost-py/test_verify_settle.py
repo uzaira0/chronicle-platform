@@ -1,6 +1,6 @@
 """Verification right after a start waits for the services to settle before a failure counts.
 
-The 2026.11.6 drill's rollback ran 2026.11.2's ./chronicle verify seconds after restarting the
+The 2026.11.12 drill's rollback ran 2026.11.2's ./chronicle verify seconds after restarting the
 stack; its edge rate-limit probe sent 400 requests to a cold backend, which answered too slowly
 for 200 of them to land in one rate-limit window, so the check failed, the rollback stopped and
 its journal stayed. The previous release's verifier cannot change, so verify_release reruns a
@@ -61,7 +61,7 @@ class VerifyReleaseSettleTests(unittest.TestCase):
 
 class RateLimitProbeTests(unittest.TestCase):
     """A missing 429 fails verification only when a burst was fast enough that the edge had to refuse part of
-    it. The 2026.11.6 release smoke on a busy host sent 1200 requests too slowly to exceed 200 per second and
+    it. The 2026.11.12 release smoke on a busy host sent 1200 requests too slowly to exceed 200 per second and
     failed although the same Caddy limited the matrix rows' bursts; that is unproven, not broken."""
 
     def run_probe(self, bursts, settings=None):

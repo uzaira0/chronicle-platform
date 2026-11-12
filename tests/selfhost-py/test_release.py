@@ -550,7 +550,7 @@ class ReleasePlatformTests(unittest.TestCase):
         from chronicle_ops.migrations import migration_hashes
         from selfhost_fixture import bundle_fixture_files
         builder = runpy.run_path(str(ROOT / 'scripts/build-selfhost-release.py'))
-        version = '2026.11.6'
+        version = '2026.11.12'
         bundle = Path(folder) / ('chronicle-selfhost-' + version)
         args = SimpleNamespace(source_revision='a' * 40, public_revision=None, inputs_tree='b' * 40,
                                source_date_epoch=1700000000, migrations=migration_hashes(ROOT))
@@ -589,4 +589,4 @@ class ReleasePlatformTests(unittest.TestCase):
                                      str(bundle / 'release-manifest.json')], capture_output=True, text=True, timeout=60,
                                     check=False, env={key: item for key, item in os.environ.items() if key != 'PYTHONPATH'})
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual('2026.11.6\n2026.11.6\n', result.stdout)
+        self.assertEqual('2026.11.12\n2026.11.12\n', result.stdout)

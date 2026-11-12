@@ -60,7 +60,7 @@ new release without it would serve another database, so the update refuses befor
 anything and names the file; move that volume selection out of it first.
 
 Discovery and download are done by the release that is installed, before it hands over to the
-new one, so what follows holds for updates run by 2026.11.6 or later. Release discovery and
+new one, so what follows holds for updates run by 2026.11.12 or later. Release discovery and
 downloads go through the proxy in `https_proxy`/`HTTPS_PROXY` (and honour `no_proxy`) when one is
 set in the environment of `./chronicle update`; nothing else in the bundle uses a proxy. A failed
 download is retried after 1, 2, 4 and 8 seconds within its transfer deadline. Discovery tries
@@ -83,24 +83,24 @@ On a host that reaches GitHub directly this needs nothing. Before each release i
 supported installed release's own discovery is run on the catalog it will publish
 (`scripts/check-release-discovery.py`), so no catalog row stops 2026.11.2 from finding it.
 
-A host that reaches GitHub only through a proxy does this once, for the update to 2026.11.6 or
+A host that reaches GitHub only through a proxy does this once, for the update to 2026.11.12 or
 later; every update after it is run by the newer release and uses the proxy:
 
 1. On any machine that can reach GitHub, download the new release's three assets from its GitHub
    release page: `chronicle-selfhost-<version>.tar.gz`, `.tar.gz.sha256` and `.tar.gz.sha256.sig`.
 2. Put them on an HTTP or HTTPS server that the Chronicle host reaches directly, without the proxy
    (an internal web server; for HTTPS its certificate must be trusted by the host's `curl`), and
-   beside them a `releases.json` that names them, as below (here for 2026.11.6 at
+   beside them a `releases.json` that names them, as below (here for 2026.11.12 at
    `https://mirror.example.internal/chronicle/`):
 
    ```json
-   [{"tag_name": "2026.11.6", "draft": false, "prerelease": false, "assets": [
-     {"name": "chronicle-selfhost-2026.11.6.tar.gz",
-      "browser_download_url": "https://mirror.example.internal/chronicle/chronicle-selfhost-2026.11.6.tar.gz"},
-     {"name": "chronicle-selfhost-2026.11.6.tar.gz.sha256",
-      "browser_download_url": "https://mirror.example.internal/chronicle/chronicle-selfhost-2026.11.6.tar.gz.sha256"},
-     {"name": "chronicle-selfhost-2026.11.6.tar.gz.sha256.sig",
-      "browser_download_url": "https://mirror.example.internal/chronicle/chronicle-selfhost-2026.11.6.tar.gz.sha256.sig"}]}]
+   [{"tag_name": "2026.11.12", "draft": false, "prerelease": false, "assets": [
+     {"name": "chronicle-selfhost-2026.11.12.tar.gz",
+      "browser_download_url": "https://mirror.example.internal/chronicle/chronicle-selfhost-2026.11.12.tar.gz"},
+     {"name": "chronicle-selfhost-2026.11.12.tar.gz.sha256",
+      "browser_download_url": "https://mirror.example.internal/chronicle/chronicle-selfhost-2026.11.12.tar.gz.sha256"},
+     {"name": "chronicle-selfhost-2026.11.12.tar.gz.sha256.sig",
+      "browser_download_url": "https://mirror.example.internal/chronicle/chronicle-selfhost-2026.11.12.tar.gz.sha256.sig"}]}]
    ```
 
 3. Run the update with that file as the catalog:
@@ -279,13 +279,13 @@ key and run `ssh-keygen -lf release-signing.pub -E sha256`. Compare its fingerpr
 the one the maintainer sent separately, by email or message from your study's Chronicle
 contact. If it differs, stop. Do not install. Only the fingerprint comes separately.
 
-A changed signing key needs no operator step on 2026.11.6 and later. A release signed by a new
+A changed signing key needs no operator step on 2026.11.12 and later. A release signed by a new
 key carries two extra assets: `release-signing.pub`, the new key, and `release-signing.pub.sig`,
 the installed key's signature over it in the separate `chronicle-release-key` namespace.
 `./chronicle update` accepts the new key only through that signature, verifies the checksum with
 it, and refuses the release unless its bundle ships the same key as `selfhost/release-signing.pub`,
 which then becomes the installed key. Anything else is refused before extraction. Updaters before
-2026.11.6 cannot rotate, so the key stays unchanged until no server runs one. For a manual
+2026.11.12 cannot rotate, so the key stays unchanged until no server runs one. For a manual
 verification across a rotation, verify `release-signing.pub.sig` with the old key and namespace
 `chronicle-release-key`, then the checksum with the new key. Do not replace a trusted key with one
 from an unverified download.

@@ -1,6 +1,6 @@
 """Release-image HEALTHCHECKs: exec (JSON) form, and Grafana's probes the protocol the server serves.
 
-hadolint 2.15 (DL3025) refuses the shell form the 2026.11.6 Dockerfiles used. Grafana's image probed
+hadolint 2.15 (DL3025) refuses the shell form the 2026.11.12 Dockerfiles used. Grafana's image probed
 http:// while the monitoring overlay serves HTTPS (GF_SERVER_PROTOCOL=https), so the image's own check
 failed wherever the Compose override was absent (audit AF-S8).
 """

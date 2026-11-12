@@ -5,7 +5,7 @@ matching the `chronicle-selfhost-<version>` bundle, its image tags, and `./chron
 One bundle per calendar day: a same-day suffix such as `-2` is a semver prerelease and
 would sort below the day's release, so `./chronicle update` would refuse it.
 
-## [2026.11.6]
+## [2026.11.12]
 
 Server, dashboard and self-host bundle, updated in place from 2026.11.2 with `./chronicle update`;
 Android open flavor (versionCode 85) on Play internal testing.
@@ -67,7 +67,7 @@ Android open flavor (versionCode 85) on Play internal testing.
   `selfhost/image-signing.pub`) and each carries a signed SLSA v0.2 provenance attestation from
   BuildKit. Both Sigstore bundles ship in the release under `selfhost/image-signatures/`, and
   `./chronicle update` checks them against the pinned key and the manifest's digests before it
-  pulls anything. A release from before 2026.11.6 carries none and updates as before.
+  pulls anything. A release from before 2026.11.12 carries none and updates as before.
 - Every image a release runs, built or third-party (cAdvisor, the socket proxy, VictoriaMetrics,
   VictoriaLogs, busybox), is checked before publishing for an SSH server, undeclared listeners, a
   root user, a missing HEALTHCHECK, setuid/setgid files and compilers, linkers or debuggers
@@ -99,6 +99,10 @@ Android open flavor (versionCode 85) on Play internal testing.
   GHCR only right before the first push and logs out after the last.
 - The Caddy and backup images build Go code from committed `go.mod`/`go.sum` with `-mod=readonly`;
   the Caddy edge links golang.org/x/net 0.62.0 and klauspost/compress 1.20.2.
+- The Go programs built for the Caddy, backup and Grafana images (Caddy, chronicle-forward, go-cron
+  and the rebuilt Grafana server) are compiled with Go 1.27.4, which fixes CVE-2026-97054
+  (GO-2026-6859): an HTTP/1 server that limits request size could crash when a handler read the
+  request body while it wrote response headers.
 - The dependency gate runner decides with its own checkout only: the candidate is cloned as data
   (with none of the checkout's other branches, so full-history scans see only its history), a
   candidate that changes `scripts/`, `tests/`, `renovate.json`, the exception, addition or scanner
@@ -130,6 +134,11 @@ Android open flavor (versionCode 85) on Play internal testing.
   unpinned `apk upgrade` steps are gone. The age gate dates them from the APK index, snapshot.debian.org,
   Launchpad and the UBI repository metadata, and `scripts/os-package-pins.py` proposes the pins (run by
   `deps-regenerate.py` when a base image changes).
+- A pinned Debian or Ubuntu package installs from the live mirror while its version is the current
+  one and from the distribution's snapshot service (`snapshot.debian.org`, `snapshot.ubuntu.com`)
+  once the mirror has replaced it, on arm64 as on amd64: Ubuntu's ports mirror, which serves arm64,
+  is read at the same snapshot. Building the images from source on an arm64 host (Apple silicon, an
+  arm64 server) therefore keeps working after a pinned version has left the mirror.
 - `deps-freshness.sh`: a repository without GitHub releases is compared by its newest version tag
   again (the tag filter was an invalid jq expression and every such lookup failed).
 - The engineering job passes where it actually runs: the gate runner's own tests no longer need a
@@ -138,6 +147,15 @@ Android open flavor (versionCode 85) on Play internal testing.
   `config_inventory.proxy_violations` (verify-config.sh) requires to honour `HTTPS_PROXY`. Before,
   the two checks contradicted each other and no tree could pass both. The curl part is its own rule,
   `selfhost-curl-ignores-proxy-environment`.
+- Traefik and Kubernetes deployments: the log forwarders (four Fluent Bit configurations and the
+  Filebeat one under `docker/siem` and `k8s/observability`) also drop a top-level
+  `randomDeviceId` or `random_device_id`, next to the `deviceId` and `device_id` they already
+  dropped. The server and its API renamed the identifier on 2026-10-22 and the forwarders' lists
+  had only the old name. Nothing that was forwarded changes: no record the server writes has
+  the field at the top level under either name. An audit record's top-level keys are fixed, and
+  the device appears in it only as a fingerprint under `data.randomDeviceId`, which these rules
+  do not touch; the JSON application log has no device field. The lists remove a raw identifier
+  should a line ever carry one. The self-host bundle does not use these files.
 
 ### Fixed
 
@@ -228,6 +246,14 @@ Android open flavor (versionCode 85) on Play internal testing.
   Prometheus. The twelve others were already disabled and are now removed from the image.
 - The directory the operator installed stays the one place to run `./chronicle`. After an update commits, its `chronicle` forwards to the release that owns the deployment (and runs its own release again after a rollback to it; the original launcher is kept as `chronicle.release`). Updates install each release at `chronicle-releases/<version>/` instead of a new random `chronicle-update-*` directory. The update from 2026.11.2 is staged by 2026.11.2's updater and gets the front door from this release's apply step; a test runs 2026.11.2's `update.py` from its tag for that handoff.
 - Bun 1.4.4 (from 1.3.12) for chronicle-web, its Docker builds and CI.
+- The public repository is `uzaira0/chronicle-platform` since 2026-11-10; it was `uzaira0/methodic`.
+  `./chronicle update` in this release asks GitHub for releases under the new name, on the API and
+  on the releases feed. From the feed it takes a release only from an entry's own link, under the
+  repository name the feed itself gives, so a later rename does not empty the feed, and it skips a
+  tag that has no release. A server on 2026.11.2 asks the API under the old name, which GitHub
+  redirects for as long as no repository takes that name. Promoting a release now refuses unless
+  that address still answers with this repository's published releases, and runs the downloaded
+  bundle's own updater on the catalog and on the feed GitHub serves at that moment.
 
 ### Fixed
 
@@ -290,7 +316,7 @@ Android open flavor (versionCode 85) on Play internal testing.
 - An automatic rollback whose crontab cannot be read or written now finishes: it records the previous release as the owner (read back), starts and verifies it and reopens ingress, and only warns about the schedule. It stopped after the new release was down, with nothing serving. After an update or a rollback that could not write the crontab, the next `./chronicle up` installs the schedule, and `./chronicle doctor` warns until it does.
 - Update and rollback no longer wait for `db-backup`'s first dump before reopening ingress. Its health needs a fresh full dump plus a restore check (up to `BACKUP_VERIFY_TIMEOUT_SECONDS`), so a slow dump kept participants out and could roll a good update back; the update has already taken its own safety dump. `db-backup` is started once the other services are healthy, and after the commit the update says whether it is still taking that backup or has failed. Scheduled backups run as before; `./chronicle doctor` reports `service-db-backup` (a first backup in progress is a warning) and `./chronicle verify` still checks the newest restore-verified backup, a backup already missing before the update remaining a warning.
 - A deployment with no alert recipient (`CHRONICLE_ALERT_WEBHOOK_URL` unset, the default) no longer makes `./chronicle doctor` exit 1 and every scheduled reconciliation record a failure. `alert-route` is a warning that says to add the setting to `.env` and run `./chronicle up`.
-- The first update from 2026.11.2 is discovered and downloaded by 2026.11.2's own code, which does not use a proxy or retry; `docs/UPGRADE-ROLLBACK.md` now says proxy support and retries apply to updates run by 2026.11.6 and later, and gives a host that reaches GitHub only through a proxy a one-time path: the release's three files and a one-row `releases.json` on a server it reaches directly, named by `CHRONICLE_RELEASES_URL`. Publishing a release now runs every supported installed release's own discovery, from its git tag, on the catalog as it will be published, and refuses if any of them would not select the release (2026.11.2 rejects the whole catalog for one row it cannot parse).
+- The first update from 2026.11.2 is discovered and downloaded by 2026.11.2's own code, which does not use a proxy or retry; `docs/UPGRADE-ROLLBACK.md` now says proxy support and retries apply to updates run by 2026.11.12 and later, and gives a host that reaches GitHub only through a proxy a one-time path: the release's three files and a one-row `releases.json` on a server it reaches directly, named by `CHRONICLE_RELEASES_URL`. Publishing a release now runs every supported installed release's own discovery, from its git tag, on the catalog as it will be published, and refuses if any of them would not select the release (2026.11.2 rejects the whole catalog for one row it cannot parse).
 - `./chronicle verify` no longer fails its mobile enrollment rate-limit check on a host too slow or too
   busy to exceed the limit. A burst that drew no 429 now fails the check only when its requests were fast
   enough that the edge had to refuse some of them (more than `RATE_LIMIT_MOBILE_ABUSE_EVENTS` answered
@@ -298,6 +324,53 @@ Android open flavor (versionCode 85) on Play internal testing.
   names the rate the host reached. Each probe worker now sends its share of a burst over one connection,
   so the rate depends on the server, not on a new process and TLS handshake per request. A failed check
   in an update's verification rolls the update back, so a slow host could lose an update to it.
+- Self-host monitoring: monitoring that Docker Compose cannot start at all no longer fails
+  `./chronicle up` or makes `./chronicle update` roll back, for example when Docker has no address
+  pool left for the monitoring networks ("all predefined address pools have been fully subnetted").
+  The warning repeats Compose's own error (its last lines, without the progress output and the
+  warnings Compose logs) and lists the services that have no container; neither it nor
+  `./chronicle doctor` names `./chronicle logs` for a service that has none. A start that Compose
+  did not finish in time is reported as a timeout with its seconds, and a state Compose could not
+  list as unknown; a service is called "not created" only when Compose listed the services without
+  it. `db-backup`, which update and rollback start after the other services, is reported the same
+  way when it cannot be started.
+- Self-host: `./chronicle down`, `update` and a rollback no longer leave anonymous Docker volumes
+  behind. The PostgreSQL image declares six `VOLUME` paths, and Docker makes an empty
+  anonymous volume for every one of them that no named volume covers, for every container made
+  from that image: 35 in an installation, 59 with monitoring. Compose does not remove them with the
+  container, so each of those commands left all of them (an update that failed and rolled back left
+  70), and nothing in Docker ties such a volume to Chronicle afterwards. The operator commands now
+  remove the anonymous volumes of the containers they removed. Only a volume Docker made by itself
+  for a container is removed: one the container's own configuration does not name. A volume the
+  Compose file mounts is never removed, whether it has a name or was made with
+  `docker volume create` and no name (Docker labels those anonymous as well), nor a volume that
+  any container still mounts; `postgres_data` and every other named volume keep their contents.
+  Update, rollback, restore, secret rotation and the backup restart now recreate containers with
+  new anonymous volumes (`--renew-anon-volumes`), so the old ones go with the old container. When
+  Compose recreates a container by itself, after a changed setting, it gives the old anonymous
+  volumes to the new container by name; those stay at the next `down`, which prints how many
+  were left. With Docker Engine older than 23.0, which does not label anonymous volumes, none is
+  removed. A Docker daemon that stops answering no longer holds the command: the removal gives up
+  after 30 seconds in total and Ctrl-C ends it at once. Volumes left by earlier releases stay;
+  `docs/UNINSTALL-DATA-DELETION.md` says how to list them. The Traefik deployment scripts do the
+  same, for the project Compose resolves from the shell, the `--env-file` file or the Compose
+  file, and so do the test harnesses.
+- Self-host: `./chronicle check` and `up` no longer fail after an update that left the installed
+  release in place (one that was refused, or that failed and rolled back) when a bundled file
+  had been edited. The update saves the edited files under `<state>/local-edits`, readable by
+  their owner only, before it changes anything, and the state directory is the installed
+  directory unless `CHRONICLE_STATE_DIR` names another. The check for bundle paths the container
+  users cannot read then reported `./local-edits` and refused to start, and the repair it printed
+  would have made the saved copies readable by every user. The check and its repair now leave
+  that directory alone, as they leave `upgrade-receipts`.
+- Self-host: `./chronicle up`, `check` and `setup` no longer refuse an address the host has.
+  The address checks piped the host's address list into `grep -q`, which stops reading at the
+  first match. The command still writing the list was then ended by the system, and the launcher
+  took that as "is not an address on this host". It happened at random and a second run passed:
+  on an Alpine host with 23 addresses, 5 of 100 `check` runs and 2 of 20 `up` runs; on Debian and
+  Ubuntu not at 184 addresses and in 96 of 100 runs at 736. `update`, its verification and its
+  rollback never ran these checks. Every pipeline of this kind in the bundle's scripts, the image
+  entrypoints, the Traefik deployment scripts and the tests now reads all of its input.
 
 ### Android (open flavor, versionCode 85)
 
@@ -312,7 +385,7 @@ Android open flavor (versionCode 85) on Play internal testing.
   user identification and sensors.
 - The data-choice step fits on one screen and says each fact once; the "Share app usage data?"
   dialog and Usage Access screen use the same plain list.
-- Privacy policy link: https://www.bcm.edu/privacy everywhere.
+- The privacy policy link is the same address in the app and in both store listings.
 
 ## [2026.11.2]
 

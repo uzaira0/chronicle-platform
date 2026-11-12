@@ -61,7 +61,7 @@ class FrontDoorTests(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name).resolve()
-        self.version = '2026.11.6'
+        self.version = '2026.11.12'
         self.fixture = prepare_update(self.root, self.version)
         self.host = self.fixture.host
         self.state = self.root / 'deployment-state'
@@ -127,7 +127,7 @@ class FrontDoorTests(unittest.TestCase):
         first = Path(program).parent
         self.assertEqual(0, self.apply_as_candidate(first, self.host)[0])
         shutil.copy2(self.host / '.env', first / '.env')  # the committed release's settings
-        second = self.root / 'releases/chronicle-releases/2026.11.6/chronicle-selfhost-2026.11.6/selfhost'
+        second = self.root / 'releases/chronicle-releases/2026.11.12/chronicle-selfhost-2026.11.12/selfhost'
         shutil.copytree(first, second, symlinks=True)
         (self.state / '.chronicle-update-handoff.json').write_text(json.dumps(dict(previous=str(first), owner=str(second))))
         status, output, errors = self.apply_as_candidate(second, first)
@@ -179,7 +179,7 @@ class FrontDoorTests(unittest.TestCase):
             front = release.front_door_target(self.host, self.state)
         self.assertEqual(self.host, front)
         self.assertIn('no longer exists', errors.getvalue())
-        candidate = self.root / 'releases/chronicle-releases/2026.11.6/chronicle-selfhost-2026.11.6/selfhost'
+        candidate = self.root / 'releases/chronicle-releases/2026.11.12/chronicle-selfhost-2026.11.12/selfhost'
         candidate.mkdir(parents=True)
         (candidate / 'chronicle').write_text('#!/usr/bin/env bash\necho "owner: $*"\n')
         (candidate / 'chronicle').chmod(0o755)
@@ -189,7 +189,7 @@ class FrontDoorTests(unittest.TestCase):
 
     def test_the_front_door_refuses_to_guess_when_no_release_owns_the_deployment(self):
         """A lost or stale ownership marker never runs the old launcher against a newer stack."""
-        candidate = self.root / 'releases/chronicle-releases/2026.11.6/chronicle-selfhost-2026.11.6/selfhost'
+        candidate = self.root / 'releases/chronicle-releases/2026.11.12/chronicle-selfhost-2026.11.12/selfhost'
         candidate.mkdir(parents=True)
         (candidate / 'chronicle').write_text('#!/usr/bin/env bash\necho "owner: $*"\n')
         (candidate / 'chronicle').chmod(0o755)
@@ -210,18 +210,18 @@ class FrontDoorTests(unittest.TestCase):
         release out of the kept set, and the copies themselves are removed."""
         releases = self.root / 'releases' / release.RELEASES_DIRECTORY
         bundles = {}
-        for staging, version in (('2026.11.3', '2026.11.3'), ('2026.11.4', '2026.11.4'), ('2026.11.6', '2026.11.6'),
-                                 ('2026.11.6.1', '2026.11.6'), ('2026.11.6.2', '2026.11.6')):
+        for staging, version in (('2026.11.3', '2026.11.3'), ('2026.11.4', '2026.11.4'), ('2026.11.12', '2026.11.12'),
+                                 ('2026.11.12.1', '2026.11.12'), ('2026.11.12.2', '2026.11.12')):
             bundle = releases / staging / f'chronicle-selfhost-{version}'
             (bundle / 'selfhost').mkdir(parents=True)
             (bundle / 'release-manifest.json').write_text(json.dumps({'release_version': version, 'images': {}}))
             bundles[staging] = bundle
-        release.set_current_owner(bundles['2026.11.6'] / 'selfhost', self.state)
+        release.set_current_owner(bundles['2026.11.12'] / 'selfhost', self.state)
         with patch('chronicle_ops.release.compose_projects', return_value=[]), \
              patch('sys.stdout', new_callable=io.StringIO) as output:
             release.cleanup_releases(self.root / 'releases', self.state)
         removed = sorted(line.split()[2] for line in output.getvalue().splitlines() if line.startswith('Would remove '))
-        self.assertEqual(sorted(str(bundles[name]) for name in ('2026.11.6.1', '2026.11.6.2')), removed)
+        self.assertEqual(sorted(str(bundles[name]) for name in ('2026.11.12.1', '2026.11.12.2')), removed)
 
 
 if __name__ == '__main__':

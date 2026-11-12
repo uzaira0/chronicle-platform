@@ -6,8 +6,8 @@
 # Writes OUTPUT_DIRECTORY/release-signing.pub (the new key) and release-signing.pub.sig, the old
 # key's signature over it in the chronicle-release-key namespace. Upload both as assets of every
 # release signed by the new key, and commit the new key as selfhost/release-signing.pub so the
-# bundle ships it. `./chronicle update` (2026.11.6 and later) then accepts the release with no
-# operator step. Updaters older than 2026.11.6 cannot rotate: keep the old key until no server
+# bundle ships it. `./chronicle update` (2026.11.12 and later) then accepts the release with no
+# operator step. Updaters older than 2026.11.12 cannot rotate: keep the old key until no server
 # runs one. The old key is only read here; the namespace keeps a checksum signature from ever
 # serving as an endorsement.
 set -euo pipefail

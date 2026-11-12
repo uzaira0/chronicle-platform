@@ -83,7 +83,7 @@ DATABASE_MOUNTS = ('/data/db', '/var/lib/postgresql/tde-keyring')
 
 # verify_release runs right after a start. Some probes measure a warm stack: the edge rate-limit
 # probe needs its burst to land inside one rate-limit window, which a backend still warming up
-# answers too slowly for (2026.11.6 drill: a rollback's 2026.11.2 verify failed so, and the
+# answers too slowly for (2026.11.12 drill: a rollback's 2026.11.2 verify failed so, and the
 # rollback stopped). A release's verifier cannot be changed after it ships, so a verification
 # whose failures are new is rerun after a pause until VERIFY_SETTLE_SECONDS have passed; only a
 # failure that persists counts.

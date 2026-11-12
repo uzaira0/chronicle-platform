@@ -2,7 +2,7 @@
 
 A self-host deployment holds participant data. If a dependency inside one of its containers
 were hijacked, the damage it can do depends on where that container can send data. From
-2026.11.6 every container that holds data or a credential sits only on internal networks: it
+2026.11.12 every container that holds data or a credential sits only on internal networks: it
 has no default route, so it cannot open a connection off the host, and it cannot resolve an
 external name. The two things that must reach the internet go through one allowlisting proxy
 that tunnels only to the hosts your own settings name. `./chronicle update` applies this

@@ -401,7 +401,7 @@ def check_w67() -> None:
     assert publish.index("\nrequire_image_checks\nrun require_unchanged_source\n") < publish.index("\nstamp push\n")
 
     # Images are built and scanned for the platform the ignore-file purls name; an unpinned build on
-    # an arm64 host made arm64 images whose findings no x86_64 entry matched (2026.11.6).
+    # an arm64 host made arm64 images whose findings no x86_64 entry matched (2026.11.12).
     builds = [line for line in plan if ' docker build ' in line]
     assert builds and all('docker build --platform linux/amd64 ' in line for line in builds), builds
     ignore = yaml.safe_load(read(".trivyignore.yaml"))["vulnerabilities"]

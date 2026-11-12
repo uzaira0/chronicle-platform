@@ -664,7 +664,7 @@ class SecretFileTests(unittest.TestCase):
                    'verify.capacity_checks': inspect.getsource(verify.capacity_checks)}
         for path in ('chronicle', 'doctor.sh', 'rotate-secret.sh'):
             sources[path] = (SELFHOST / path).read_text()
-        # The release smoke and its client exec into 2026.11.6+ containers that have only the password file.
+        # The release smoke and its client exec into 2026.11.12+ containers that have only the password file.
         for path in ('tests/smoke/selfhost-release-smoke.sh', 'tests/deployment/selfhost-client.py'):
             sources[path] = (SELFHOST.parent / path).read_text()
         for label, source in sources.items():
@@ -683,7 +683,7 @@ class SecretFileTests(unittest.TestCase):
 
     def test_harnesses_never_read_a_file_delivered_secret_from_a_container_environment(self):
         # The release smoke read CHRONICLE_INTERNAL_WEB_SECRET from the backend's configured environment;
-        # 2026.11.6 delivers every secret secrets-init writes as a file, so that lookup raised KeyError.
+        # 2026.11.12 delivers every secret secrets-init writes as a file, so that lookup raised KeyError.
         import re
         names = set(re.findall(r'^write /out/\S+ \S+ \S+ "\$\{?([A-Z_]+)', (SELFHOST / 'secrets-init.sh').read_text(), re.M))
         self.assertIn('CHRONICLE_INTERNAL_WEB_SECRET', names)
@@ -726,11 +726,11 @@ class BackupProvenanceTests(unittest.TestCase):
     def test_db_backup_knows_the_release_it_stamps_into_each_dump(self):
         """The backup image has no bundle beside its chronicle_ops; without RELEASE_VERSION the
         restore self-check after every dump failed reading /.env.example (seen in the egress drill)."""
-        config = render(MODES[0], 'overlays/backups.yml', RELEASE_VERSION='2026.11.6')
-        self.assertEqual('2026.11.6', config['services']['db-backup']['environment']['RELEASE_VERSION'])
+        config = render(MODES[0], 'overlays/backups.yml', RELEASE_VERSION='2026.11.12')
+        self.assertEqual('2026.11.12', config['services']['db-backup']['environment']['RELEASE_VERSION'])
         from chronicle_ops.dump import installed_backup_version
-        with patch.dict(os.environ, {'RELEASE_VERSION': '2026.11.6'}):
-            self.assertEqual('2026.11.6', installed_backup_version('/'))
+        with patch.dict(os.environ, {'RELEASE_VERSION': '2026.11.12'}):
+            self.assertEqual('2026.11.12', installed_backup_version('/'))
 
     def test_a_release_pins_its_version_in_place_of_the_source_default(self):
         """The release builder used to insert a second RELEASE_VERSION key, which Compose refuses
@@ -738,12 +738,12 @@ class BackupProvenanceTests(unittest.TestCase):
         import runpy
         import yaml
         builder = runpy.run_path(str(ROOT / 'scripts/build-selfhost-release.py'))
-        pinned = builder['pin_backup_release']((SELFHOST / 'overlays/backups.yml').read_text(), '2026.11.6')
+        pinned = builder['pin_backup_release']((SELFHOST / 'overlays/backups.yml').read_text(), '2026.11.12')
         self.assertEqual(1, pinned.count('RELEASE_VERSION:'))
         environment = yaml.safe_load(pinned)['services']['db-backup']['environment']
-        self.assertEqual('2026.11.6', environment['RELEASE_VERSION'])
+        self.assertEqual('2026.11.12', environment['RELEASE_VERSION'])
         with self.assertRaises(SystemExit):
-            builder['pin_backup_release'](pinned, '2026.11.6')
+            builder['pin_backup_release'](pinned, '2026.11.12')
 
     def test_a_release_pins_its_version_wherever_compose_reads_it(self):
         """RELEASE_VERSION=development in a release .env turned off the guard's digest-pin rule
@@ -761,13 +761,13 @@ class BackupProvenanceTests(unittest.TestCase):
         self.assertEqual(reading, set(files))
         for name, count in files.items():
             with self.subTest(file=name):
-                pinned = builder['pin_release_version']((SELFHOST / name).read_text(), '2026.11.6', count)
+                pinned = builder['pin_release_version']((SELFHOST / name).read_text(), '2026.11.12', count)
                 self.assertNotRegex(pinned, default)
-                self.assertEqual(count, pinned.count('RELEASE_VERSION: "2026.11.6"'))
+                self.assertEqual(count, pinned.count('RELEASE_VERSION: "2026.11.12"'))
                 yaml.safe_load(pinned)
         guard = yaml.safe_load(builder['pin_release_version'](
-            (SELFHOST / 'docker-compose.yml').read_text(), '2026.11.6', files['docker-compose.yml']))
-        self.assertEqual('2026.11.6', guard['services']['config-guard']['environment']['RELEASE_VERSION'])
+            (SELFHOST / 'docker-compose.yml').read_text(), '2026.11.12', files['docker-compose.yml']))
+        self.assertEqual('2026.11.12', guard['services']['config-guard']['environment']['RELEASE_VERSION'])
 
 
 class BundleInventoryTests(unittest.TestCase):

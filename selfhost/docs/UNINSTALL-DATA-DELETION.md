@@ -383,6 +383,7 @@ Run `docker volume rm` only for names whose
 `com.docker.compose.project` label exactly matches the recorded project. Do not use a broad
 `docker volume prune`, wildcard, or `xargs` command; other applications may share the host.
 
+Releases before 2026.11.12 left the empty anonymous volumes described under "Stop Chronicle but
 keep all data" behind on every `./chronicle down`, update and rollback, and this release still
 leaves the ones named there. Docker gives an anonymous
 volume no project label, so the inventory above does not list them and nothing ties them to this

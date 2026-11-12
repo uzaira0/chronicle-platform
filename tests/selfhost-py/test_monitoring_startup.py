@@ -118,6 +118,7 @@ class ReleaseStartupTests(unittest.TestCase):
             self.assertIn('./chronicle logs victorialogs', output.text)
 
 
+# The stderr of the monitoring start that failed in the 2026.11.12 release smoke on 2026-11-11:
 # 50 progress events, one per network, volume and container (17 of them repeat the error), then
 # Compose's own error on the last line. Docker had no address pool left for the egress network.
 ADDRESS_POOLS = (Path(__file__).parent / 'fixtures/compose_up_address_pools.stderr').read_text()
