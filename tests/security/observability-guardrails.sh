@@ -189,7 +189,7 @@ require_pattern "k8s/observability/siem-forwarder/config/fluent-bit.conf" \
 require_pattern "k8s/observability/siem-forwarder/config/fluent-bit.conf" \
   'forbidden_fields_removed true' \
   "operator SIEM forwarder adds forbidden-field-removal evidence marker"
-for forbidden_field in participantId participant_id sourceDevice source_device randomDeviceId random_device_id requestBody responseBody rawPayload stackTrace authorization mobileSigningKey; do
+for forbidden_field in participantId participant_id sourceDevice source_device deviceId device_id randomDeviceId random_device_id requestBody responseBody rawPayload stackTrace authorization mobileSigningKey; do
   require_pattern "k8s/observability/siem-forwarder/config/fluent-bit.conf" \
     "Remove[[:space:]]+${forbidden_field}" \
     "operator SIEM forwarder strips forbidden field: ${forbidden_field}"
@@ -392,6 +392,8 @@ forbidden_shipper_fields=(
   participant_id
   sourceDevice
   source_device
+  deviceId
+  device_id
   randomDeviceId
   random_device_id
   ipAddress
@@ -674,7 +676,7 @@ else
 fi
 
 reject_pattern_recursive "k8s/observability/grafana-lite/config/dashboards" \
-  'participantId|participant_id|sourceDevice|source_device|randomDeviceId|random_device_id|userId|user_id|email|phone|jwt|api[_-]?key|token|session[_-]?id|raw[_-]?ip|client[_-]?ip|remoteAddr|User-Agent|user_agent' \
+  'participantId|participant_id|sourceDevice|source_device|deviceId|device_id|randomDeviceId|random_device_id|userId|user_id|email|phone|jwt|api[_-]?key|token|session[_-]?id|raw[_-]?ip|client[_-]?ip|remoteAddr|User-Agent|user_agent' \
   "Grafana dashboards must not query or display forbidden raw identifiers/secrets"
 
 if python3 - "$ROOT_DIR/k8s/observability/grafana-lite/config/dashboards" "$REPORT_DIR/dashboard-parse.txt" <<'PY'

@@ -74,6 +74,8 @@ processors:
         - source_device
         - deviceId
         - device_id
+        - randomDeviceId
+        - random_device_id
         - ipAddress
         - ip_address
         - clientIp
