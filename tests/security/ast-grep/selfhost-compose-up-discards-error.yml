@@ -1,0 +1,25 @@
+id: selfhost-compose-up-discards-error
+language: Python
+note: |
+  Blind spots: matches one call that passes the literal "up" and quiet=True without stderr=; an argv
+  built from a variable, or quiet passed through **kwargs, is not resolved. The launcher's shell `up`
+  calls print Compose's stderr themselves; tests/selfhost-py/test_monitoring_startup.py covers both.
+severity: error
+message: A Compose up with quiet=True discards Compose's error, so a failed start names no cause (on 2026-11-11 "all predefined address pools have been fully subnetted" was thrown away and every monitoring service was reported as not created). Start it through chronicle_ops/services.py unwatched_up, which keeps stderr and returns the cause.
+files:
+  - "selfhost/chronicle_ops/**/*.py"
+rule:
+  kind: call
+  has:
+    kind: argument_list
+    all:
+      - has:
+          kind: string
+          regex: '^["'']up["'']$'
+      - has:
+          kind: keyword_argument
+          regex: '^quiet\s*=\s*True$'
+      - not:
+          has:
+            kind: keyword_argument
+            regex: '^stderr\s*='

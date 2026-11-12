@@ -1,0 +1,11 @@
+id: selfhost-compose-up-discards-error
+valid:
+- "cause = unwatched_up(dc, 'up', '-d', '--no-deps', *options, *services, timeout=PREPARATION_TIMEOUT_SECONDS)\n"
+- "result = dc(*arguments, quiet=True, stderr=subprocess.PIPE, timeout=timeout)\n"
+- "result = dc('up', '-d', *services, quiet=True, stderr=subprocess.PIPE, timeout=600)\n"
+- "checked(dc('up', '-d', '--wait-timeout', timeout, *core, check=True), arguments)\n"
+- "compose('exec', '-T', 'backend', 'grep', '-qF', origin, '/server/rendered-config/cors.yaml', quiet=True)\n"
+invalid:
+- "dc('up', '-d', '--wait-timeout', timeout, *options, *services, quiet=True, timeout=int(timeout) + 120)\n"
+- "dc(\"up\", \"-d\", \"--no-deps\", *options, *services, quiet=True, timeout=PREPARATION_TIMEOUT_SECONDS)\n"
+- "compose_release(directory, project, names, 'up', '-d', *services, quiet=True)\n"

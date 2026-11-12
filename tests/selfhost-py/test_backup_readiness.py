@@ -89,7 +89,7 @@ class ReadinessReportTests(unittest.TestCase):
             with self.subTest(row=row):
                 output = io.StringIO()
                 with redirect_stdout(output), redirect_stderr(output):
-                    states = report_unawaited(lambda *_args, row=row, **_kwargs: SimpleNamespace(stdout=row + '\n'), ['db-backup'])
+                    states = report_unawaited(lambda *_args, row=row, **_kwargs: SimpleNamespace(returncode=0, stdout=row + '\n'), ['db-backup'])
                 self.assertEqual(expected, states)
                 self.assertIn(shown, output.getvalue().replace('\x1b[33m', '').replace('\x1b[0m', ''))
 

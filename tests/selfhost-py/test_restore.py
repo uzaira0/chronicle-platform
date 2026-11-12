@@ -142,6 +142,7 @@ class FakeRunner:
         self.calls = []
         self.fail_at = {}
         self.outputs = {}
+        self.errors = {}  # call number -> what Compose wrote to stderr, for a caller that pipes it
         self.services = "postgres\nbackend\nweb\ndb-init\ndb-backup\nrestore"
         self.startup = "postgres\nbackend\nweb\ndb-init\ndb-backup\nca-export"
         self.before = "postgres\nbackend\nweb\ndb-backup"
@@ -149,9 +150,10 @@ class FakeRunner:
         self.ps_count = 0
         self.hook = None
 
-    def compose(self, *args, capture=False, quiet=False, **_options):  # check/env: the caller reads returncode.
+    def compose(self, *args, capture=False, quiet=False, **options):  # check/env: the caller reads returncode.
         status, output = self(["dc", *args], capture=capture, quiet=quiet)
-        return SimpleNamespace(returncode=status, stdout=output)
+        errors = self.errors.get(len(self.calls)) if options.get("stderr") == subprocess.PIPE else None
+        return SimpleNamespace(returncode=status, stdout=output, stderr=errors)
 
     def __call__(self, args, capture=False, quiet=False):
         self.calls.append((args, capture, quiet))
@@ -329,15 +331,22 @@ class RestoreTests(unittest.TestCase):
         self.assertNotIn(self.lock, self.fs.dirs)
 
     def test_startup_and_ca_failure_stop_warning(self):
+        """The stop that follows a failed start says why it failed too: Compose's own error line
+        when it wrote one, else its exit status. Its output was discarded."""
+        daemon = " Container fixture-backend-1 Stopping \nCannot connect to the Docker daemon at unix:///var/run/docker.sock\n"
         for step, message in ((7, "startup failure"), (8, "CA export failure")):
-            with self.subTest(step=step):
-                self.setUp()
-                self.runner.fail_at = {step: 42, step + 1: 43}
-                self.assertEqual(self.operation.execute(), 1)
-                self.assertIn("could not confirm every application service stopped after " + message,
-                              self.err.getvalue())
-                self.assertIn(self.lock, self.fs.dirs)
-                self.doCleanups()
+            for errors, cause in ((None, "docker compose stop exited with status 43"),
+                                  (daemon, "Cannot connect to the Docker daemon at unix:///var/run/docker.sock")):
+                with self.subTest(step=step, cause=cause):
+                    self.setUp()
+                    self.runner.fail_at = {step: 42, step + 1: 43}
+                    self.runner.errors = {step + 1: errors}
+                    self.assertEqual(self.operation.execute(), 1)
+                    self.assertIn("could not confirm every application service stopped after " + message + ": " + cause + "\n",
+                                  self.err.getvalue())
+                    self.assertNotIn("Stopping", self.err.getvalue())
+                    self.assertIn(self.lock, self.fs.dirs)
+                    self.doCleanups()
 
     def test_running_service_rejection(self):
         for running, message, recovery in (("postgres\nrestore", "already running", False),

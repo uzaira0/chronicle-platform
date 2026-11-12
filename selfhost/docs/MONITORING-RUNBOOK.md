@@ -4,6 +4,12 @@ Monitoring is optional and never gates Chronicle: `./chronicle up`, `update` and
 only for Chronicle's own services, then start the monitoring services with a separate bounded
 wait. An unhealthy monitoring service is printed as a warning naming the service and
 the command to read its log (for example `./chronicle logs grafana`), and `./chronicle doctor` reports it as a warning.
+When Docker Compose cannot start monitoring at all (for example Docker has no address pool left
+for its networks), the warning repeats Compose's own error and lists the services that were not
+created. Those have no container and no logs: correct that error, then run `./chronicle up`.
+A start that does not finish in time is reported as that, with the seconds it was given, and the
+services are listed with the state Compose gives for each. When Compose cannot list them either,
+the warning says their state is unknown and why; `./chronicle doctor` reports it once Docker answers.
 
 Start with `./chronicle doctor`. It reports the failed check, likely cause, and recovery
 command without exposing deployment secrets. After any repair, run `./chronicle doctor`

@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 
-from .common import compose, warn
+from .common import SHOWN, compose, failure_cause, warn
 
 
 ROUTINE_RECEIPT_KEEP = 96
@@ -108,18 +108,21 @@ def record_operation(operation, outcome, category="none"):
     if "overlays/monitoring.yml" not in os.environ.get("COMPOSE_FILE", ""):
         return
     try:
-        running = compose("ps", "--status", "running", "--services", capture=True, timeout=15)
+        running = compose("ps", "--status", "running", "--services", capture=True, timeout=15, errors=SHOWN)
         if running.returncode or "operational-probe" not in running.stdout.splitlines():
             return
         # exec, not run: a one-off container makes Compose reconcile project networks against this
         # directory's definition, which can detach a stack started from another release.
         result = compose("exec", "-T", "operational-probe", "/monitoring/record-operation.sh",
-                         operation, outcome, category, quiet=True, timeout=15)
+                         operation, outcome, category, quiet=True, stderr=subprocess.PIPE, timeout=15)
         if not result.returncode:
             return
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    warn("the command completed, but its monitoring event could not be recorded within 15 seconds")
+        cause = failure_cause(result, "the recording command")
+    except subprocess.TimeoutExpired:
+        cause = "no answer within 15 seconds"
+    except OSError as error:
+        cause = str(error)
+    warn(f"the command completed, but its monitoring event could not be recorded: {cause}")
 
 
 def finish_operation(operation, status, category, started):

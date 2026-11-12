@@ -191,7 +191,9 @@ the selected release is verified. Preserve the journal until this command comple
 Startup, update and rollback wait only for Chronicle's own services. The optional monitoring
 services (those `overlays/monitoring.yml` adds) start afterwards with a separate wait of at most
 300 seconds; one that is unhealthy is named in a warning with the command to read its log (for example `./chronicle logs grafana`) and
-never fails the command or triggers a rollback. `./chronicle doctor` reports each one.
+never fails the command or triggers a rollback. When Docker Compose itself fails to start them, the
+warning repeats Compose's error and lists the services it did not create; a start that did not finish
+in time, or services whose state Compose could not list, are reported as that. `./chronicle doctor` reports each one.
 
 Update and rollback also start `db-backup` without waiting for it. It is healthy only after a
 fresh full dump has passed a restore check, which can take up to `BACKUP_VERIFY_TIMEOUT_SECONDS`;

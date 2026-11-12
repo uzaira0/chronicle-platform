@@ -6,6 +6,8 @@ Go-style --format template, `run`, `stop` and `down`. Monitoring services appear
 configuration only when overlays/monitoring.yml is among the selected files, and db-backup only
 with overlays/backups.yml, as with real Compose. A `starting` service is still in its start period
 (db-backup taking its first dump): `--wait` on it times out, and `ps` reports it running, starting.
+An `uncreated` service is one Compose cannot create (a network it needs cannot be made): `up`
+naming it prints `up_stderr` and exits 1, and `ps` has no row for it.
 Engine, containerd and runc versions answer `docker version --format` and `docker info --format`.
 """
 
@@ -30,7 +32,7 @@ sys.exit(main(sys.argv[1:]))
 '''
 
 
-def install(directory, *, unhealthy=(), versions=None, starting=()):
+def install(directory, *, unhealthy=(), versions=None, starting=(), uncreated=(), up_stderr=''):
     """Write `docker` into directory and return the environment entries that select it."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -38,7 +40,8 @@ def install(directory, *, unhealthy=(), versions=None, starting=()):
     docker.write_text(SHIM.format(python=sys.executable, tests=str(Path(__file__).resolve().parent)))
     docker.chmod(0o755)
     scenario = directory / 'scenario.json'
-    scenario.write_text(json.dumps({'unhealthy': list(unhealthy), 'versions': versions or {}, 'starting': list(starting)}))
+    scenario.write_text(json.dumps({'unhealthy': list(unhealthy), 'versions': versions or {}, 'starting': list(starting),
+                                    'uncreated': list(uncreated), 'up_stderr': up_stderr}))
     log = directory / 'docker.log'
     log.write_text('')
     return {'PATH': str(directory) + os.pathsep + os.environ['PATH'],
@@ -114,6 +117,7 @@ def main(args):
     configured = CORE + (BACKUPS if backups else []) + (MONITORING if monitoring else [])
     unhealthy = set(scenario['unhealthy'])
     starting = set(scenario.get('starting', ()))
+    uncreated = set(scenario.get('uncreated', ()))
     verb = command[0] if command else ''
     listed = [arg for arg in command[1:] if arg in configured]
     if verb == 'config':
@@ -123,6 +127,9 @@ def main(args):
             print(json.dumps({'services': {name: {} for name in configured}}))
         return 0
     if verb == 'up':
+        if uncreated & set(listed):
+            sys.stderr.write(scenario.get('up_stderr', ''))
+            return 1
         failed = [name for name in listed if name in unhealthy]
         if '--wait' in command and failed:
             print(f'container fixture-{failed[0]}-1 is unhealthy', file=sys.stderr)
@@ -133,7 +140,7 @@ def main(args):
             return 1
         return 0
     if verb == 'ps':
-        services = listed or configured
+        services = [name for name in listed or configured if name not in uncreated]
         if '--services' in command:
             print('\n'.join(name for name in services if name not in ONE_SHOT))
             return 0

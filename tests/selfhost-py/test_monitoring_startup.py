@@ -10,7 +10,9 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -114,6 +116,332 @@ class ReleaseStartupTests(unittest.TestCase):
             self.assertIs(operation.phase, RestorePhase.VERIFIED)
             self.assertFalse(set(compose_shim.MONITORING) & set(wait_calls(environment)[0]))
             self.assertIn('./chronicle logs victorialogs', output.text)
+
+
+# 50 progress events, one per network, volume and container (17 of them repeat the error), then
+# Compose's own error on the last line. Docker had no address pool left for the egress network.
+ADDRESS_POOLS = (Path(__file__).parent / 'fixtures/compose_up_address_pools.stderr').read_text()
+CAUSE = ('failed to create network chronicle-release-smoke-46767-77e7c0_egress: Error response from daemon: '
+         'all predefined address pools have been fully subnetted')
+
+
+def plain(text):
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+
+class FailedStartCauseTests(unittest.TestCase):
+    """A Compose `up` whose output the operator does not see must still say why it failed.
+
+    start_monitoring and start_unawaited ran `up` with its output discarded and did not look at
+    the result. When Docker could not create the monitoring networks, every monitoring service
+    was reported as "not created" and the operator was told to read the logs of containers that
+    did not exist; Compose's one line naming the cause was thrown away."""
+
+    def assert_names_the_cause(self, text, services):
+        text = plain(text)
+        self.assertEqual(1, text.count(CAUSE), text)
+        self.assertNotIn('Creating', text)  # progress events are left out
+        self.assertNotIn('error during connect', text)  # and so is each resource's copy of the error
+        self.assertNotIn('./chronicle logs', text)  # no container, so no logs to read
+        self.assertIn('Chronicle itself is running', text)
+        self.assertIn('./chronicle up', text)
+        for service in services:
+            self.assertIn(service, text)
+
+    def test_update_names_composes_error_when_monitoring_cannot_be_created(self):
+        from chronicle_ops.upgrade import start_release
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            directory = release_directory(root / 'candidate', WITH_MONITORING)
+            environment = compose_shim.install(root / 'bin', uncreated=compose_shim.MONITORING, up_stderr=ADDRESS_POOLS)
+            with patch.dict(os.environ, environment), Captured() as output:
+                start_release(directory, 'fixture', WITH_MONITORING, '60')  # monitoring never fails the update
+            self.assert_names_the_cause(output.text, compose_shim.MONITORING)
+            self.assertIn('monitoring is degraded', output.text)
+
+    def test_an_unhealthy_service_keeps_its_logs_hint_and_gains_composes_reason(self):
+        from chronicle_ops.upgrade import start_release
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            directory = release_directory(root / 'candidate', WITH_MONITORING)
+            environment = compose_shim.install(root / 'bin', unhealthy=['grafana'])
+            with patch.dict(os.environ, environment), Captured() as output:
+                start_release(directory, 'fixture', WITH_MONITORING, '60')
+            self.assertIn('./chronicle logs grafana', output.text)
+            self.assertIn('container fixture-grafana-1 is unhealthy', output.text)
+
+    def fake_dc(self, style, stderr=ADDRESS_POOLS, status=1):
+        """A Compose caller whose `up` fails, by returning the failed result or by raising (see
+        services.checked); like common.run it has the command's stderr only when asked to pipe it.
+        `ps` finds no container."""
+        calls = []
+
+        def dc(*args, **kwargs):
+            calls.append((args, kwargs))
+            if args[0] != 'up':
+                return SimpleNamespace(returncode=0, stdout='')
+            captured = stderr if kwargs.get('stderr') == subprocess.PIPE else None
+            if style == 'raises':
+                raise subprocess.CalledProcessError(status, ['docker', 'compose', *args], None, captured)
+            return subprocess.CompletedProcess(['docker', 'compose', *args], status, None, captured)
+        return dc, calls
+
+    def test_start_monitoring_names_composes_error_whether_the_caller_returns_or_raises(self):
+        from chronicle_ops.services import start_monitoring
+        services = ['victoriametrics', 'grafana']
+        for style in ('returns', 'raises'):
+            with self.subTest(style):
+                dc, calls = self.fake_dc(style)
+                with Captured() as output:
+                    failed = start_monitoring(dc, services, ('--force-recreate',))
+                self.assertEqual([('victoriametrics', 'not created'), ('grafana', 'not created')], failed)
+                self.assert_names_the_cause(output.text, services)
+                self.assertTrue(calls[0][1].get('quiet'), 'a start that works still prints no progress')
+                self.assertEqual(['up', 'ps'], [args[0] for args, _ in calls])
+
+    def test_start_unawaited_names_composes_error_whether_the_caller_returns_or_raises(self):
+        from chronicle_ops.services import start_unawaited
+        for style in ('returns', 'raises'):
+            with self.subTest(style):
+                dc, calls = self.fake_dc(style)
+                with Captured() as output:
+                    self.assertIsNone(start_unawaited(dc, ['db-backup'], ('--force-recreate',)))
+                text = plain(output.text)
+                self.assertEqual(1, text.count(CAUSE), text)
+                self.assertIn('could not start db-backup', text)
+                self.assertIn('Chronicle itself is running', text)
+                self.assertNotIn('Creating', text)
+                self.assertNotIn('./chronicle logs', text)
+                self.assertTrue(calls[0][1].get('quiet'))
+
+    def test_a_failed_up_that_printed_nothing_is_reported_with_its_exit_status(self):
+        from chronicle_ops.services import start_monitoring, start_unawaited
+        for style in ('returns', 'raises'):
+            with self.subTest(style):
+                dc, _ = self.fake_dc(style, stderr='', status=137)
+                with Captured() as output:
+                    start_monitoring(dc, ['grafana'])
+                    start_unawaited(dc, ['db-backup'])
+                self.assertEqual(2, plain(output.text).count('docker compose up exited with status 137'), output.text)
+
+    def test_the_reported_error_is_the_last_few_lines_compose_wrote_as_its_own(self):
+        from chronicle_ops.common import compose_error
+        self.assertEqual(CAUSE, compose_error(ADDRESS_POOLS))
+        self.assertEqual('error 47; error 48; error 49', compose_error(''.join(f'error {number}\n' for number in range(50))))
+        self.assertEqual('same', compose_error('same\n' * 9))
+        # Progress events only: their last lines are kept rather than nothing.
+        self.assertEqual('Container fixture-grafana-1 Starting; Container fixture-grafana-1 Error',
+                         compose_error(' Container fixture-grafana-1 Starting \n Container fixture-grafana-1 Error \n'))
+        self.assertLessEqual(len(compose_error('x' * 100_000 + '\n' + 'y' * 100_000)), 1000)
+        self.assertEqual('', compose_error(''))
+        self.assertEqual('', compose_error(None))
+
+    def test_what_compose_logs_as_a_warning_is_not_reported_as_its_error(self):
+        """Compose logs what it warns about on lines of its own (time="..." level=warning msg="..."),
+        one for each variable that is not set, for example. With an error line present they are left
+        out wherever they stand; when they are all Compose wrote as its own, they are kept."""
+        from chronicle_ops.common import compose_error
+        warning = ('time="2026-11-11T00:00:00Z" level=warning msg="The \\"GRAFANA_ADMIN_PASSWORD\\" variable is not set. '
+                   'Defaulting to a blank string."\n')
+        progress = ' Container fixture-grafana-1 Creating \n'
+        error = 'Error response from daemon: driver failed programming external connectivity\n'
+        for written in (warning + progress + error, progress + error + warning, warning * 4 + error + warning * 4):
+            with self.subTest(written=written):
+                self.assertEqual(error.strip(), compose_error(written))
+        self.assertEqual(warning.strip(), compose_error(progress + warning))
+
+    def test_a_service_without_a_container_is_never_sent_to_its_logs(self):
+        from chronicle_ops.services import report, report_unawaited
+        with Captured() as output:
+            report([('grafana', 'not created'), ('cadvisor', 'not created'), ('victorialogs', 'unhealthy')])
+            states = report_unawaited(lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=''), ['db-backup'])
+        text = plain(output.text)
+        self.assertEqual([('db-backup', 'not created')], states)
+        for service in ('grafana', 'cadvisor', 'db-backup'):
+            self.assertIn(service, text)
+            self.assertNotIn('./chronicle logs ' + service, text)
+        self.assertIn('./chronicle logs victorialogs', text)
+        self.assertIn('./chronicle up', text)
+
+
+class UnknownStateTests(unittest.TestCase):
+    """A warning says what is known and nothing more.
+
+    When the `up` that starts monitoring hit its process timeout, or `ps` failed or was not
+    answered, every service was classed "not created" and the operator read "They have no logs to
+    read: correct Docker Compose's error", with no error shown and containers that might exist.
+    A timeout is reported as a timeout with its seconds; a `ps` that could not be read as that,
+    with every service's state unknown; "not created" only for a service `ps` answered without."""
+
+    HEALTHY = 'grafana\trunning\thealthy\t0\n'
+
+    def compose(self, up=None, ps=HEALTHY):
+        """A Compose caller: `up` and `ps` each return (text or a finished process) or raise (an exception)."""
+        def dc(*args, **kwargs):
+            answer = up if args[0] == 'up' else ps
+            if isinstance(answer, BaseException):
+                raise answer
+            if isinstance(answer, subprocess.CompletedProcess):
+                return answer
+            return subprocess.CompletedProcess(['docker', 'compose', *args], 0, answer, '')
+        return dc
+
+    def start(self, **answers):
+        from chronicle_ops.services import start_monitoring
+        with Captured() as output:
+            failed = start_monitoring(self.compose(**answers), ['grafana', 'cadvisor'])
+        return failed, plain(output.text)
+
+    TIMED_OUT = subprocess.TimeoutExpired(['docker', 'compose', 'up'], 420)
+    REFUSED = subprocess.CompletedProcess(['docker', 'compose', 'ps'], 1, '',
+                                          'Cannot connect to the Docker daemon at unix:///var/run/docker.sock\n')
+
+    def assert_claims_no_compose_error(self, text):
+        self.assertNotIn("correct Docker Compose's error", text)
+        self.assertNotIn('reported an error', text)
+
+    def test_a_start_that_timed_out_is_a_timeout_and_the_states_are_the_ones_ps_gives(self):
+        failed, text = self.start(up=self.TIMED_OUT)
+        self.assertEqual([('cadvisor', 'not created')], failed)  # ps answered, and has no row for it
+        self.assertIn('did not finish starting monitoring within 420 seconds', text)
+        self.assert_claims_no_compose_error(text)
+        self.assertIn('cadvisor', text)
+        self.assertNotIn('./chronicle logs', text)
+        self.assertNotIn("Command '[", text)
+
+    def test_a_timed_out_start_whose_state_cannot_be_read_says_the_state_is_unknown(self):
+        for name, ps, why in (('ps failed', self.REFUSED, 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock'),
+                              ('ps raised', subprocess.CalledProcessError(1, ['docker', 'compose', 'ps'], '', self.REFUSED.stderr),
+                               'Cannot connect to the Docker daemon at unix:///var/run/docker.sock'),
+                              ('ps timed out', subprocess.TimeoutExpired(['docker', 'compose', 'ps'], 60),
+                               'docker compose ps did not answer within 60 seconds'),
+                              ('no docker', FileNotFoundError(2, 'No such file or directory', 'docker'), '[Errno 2] No such file or directory')):
+            with self.subTest(name):
+                failed, text = self.start(up=self.TIMED_OUT, ps=ps)
+                self.assertEqual([('grafana', 'unknown'), ('cadvisor', 'unknown')], failed)
+                self.assertIn('did not finish starting monitoring within 420 seconds', text)
+                self.assertIn('could not be read (' + why, text)
+                self.assertIn('grafana, cadvisor', text)
+                self.assertIn('./chronicle doctor', text)
+                self.assertNotIn('not created', text)
+                self.assertNotIn('no logs to read', text)
+                self.assertNotIn('./chronicle logs', text)
+                self.assert_claims_no_compose_error(text)
+
+    def test_a_started_monitoring_whose_state_cannot_be_read_is_not_called_not_created(self):
+        failed, text = self.start(up='', ps=self.REFUSED)
+        self.assertEqual([('grafana', 'unknown'), ('cadvisor', 'unknown')], failed)
+        self.assertIn('could not be read (Cannot connect to the Docker daemon', text)
+        self.assertNotIn('not created', text)
+        self.assert_claims_no_compose_error(text)
+
+    def test_a_service_ps_answers_without_has_no_container_and_no_compose_error_is_claimed(self):
+        failed, text = self.start(up='')
+        self.assertEqual([('cadvisor', 'not created')], failed)
+        self.assertIn('cadvisor', text)
+        self.assertIn('./chronicle up', text)
+        self.assertNotIn('./chronicle logs', text)
+        self.assert_claims_no_compose_error(text)
+
+    def test_docker_that_cannot_be_run_is_reported_as_that(self):
+        missing = FileNotFoundError(2, 'No such file or directory', 'docker')
+        failed, text = self.start(up=missing, ps=missing)
+        self.assertEqual([('grafana', 'unknown'), ('cadvisor', 'unknown')], failed)
+        self.assertIn('could not be run to start monitoring', text)
+        self.assertNotIn('not created', text)
+
+    def test_the_unawaited_services_are_not_called_not_created_when_ps_fails(self):
+        from chronicle_ops.services import report_unawaited
+        for name, ps in (('ps failed', self.REFUSED), ('ps timed out', subprocess.TimeoutExpired(['docker', 'compose', 'ps'], 60))):
+            with self.subTest(name):
+                with Captured() as output:
+                    self.assertEqual([], report_unawaited(self.compose(ps=ps), ['db-backup']))
+                text = plain(output.text)
+                self.assertIn('could not inspect db-backup', text)
+                self.assertIn('./chronicle doctor', text)
+                self.assertNotIn('not created', text)
+                self.assertNotIn('no logs to read', text)
+
+    def test_an_unawaited_start_that_timed_out_is_a_timeout(self):
+        from chronicle_ops.services import start_unawaited
+        with Captured() as output:
+            self.assertIsNone(start_unawaited(self.compose(up=subprocess.TimeoutExpired(['docker', 'compose', 'up'], 600)), ['db-backup']))
+        text = plain(output.text)
+        self.assertIn('did not finish within 600 seconds', text)
+        self.assertIn('db-backup may not have started', text)
+        self.assertNotIn('could not start', text)
+        self.assertNotIn("Command '[", text)
+
+
+class OutputThatIsNotTextTests(unittest.TestCase):
+    """Compose's captured output never raises on decoding, whether the command worked or failed.
+
+    Every caller that pipes Compose's stderr to name a cause read it as strict text. One byte that
+    is not valid in the pipe encoding raised UnicodeDecodeError out of start_monitoring, so
+    `./chronicle update` printed "Update failed: 'utf-8' codec can't decode byte" and rolled back,
+    and the rollback's own start ran the same code. Each case runs a real process through
+    common.run with the options the caller passes."""
+
+    NOISE = b' Container fixture-grafana-1 Started \n\xff\xfe daemon text\n'
+    SHOWN = '\\xff\\xfe daemon text'
+
+    def compose(self, status, rows=b''):
+        """A Compose caller: `ps` prints rows and one line that is not text; every other command
+        writes NOISE to stderr and exits with status."""
+        def dc(*args, **kwargs):
+            from chronicle_ops import common
+            listing = args[0] == 'ps'
+            script = 'import sys; sys.stdout.buffer.write({!r}); sys.stderr.buffer.write({!r}); sys.exit({})'.format(
+                rows + b'\xff\xff\n' if listing else b'', b'' if listing else self.NOISE, 0 if listing else status)
+            return common.run([sys.executable, '-c', script], **kwargs)
+        return dc
+
+    def setUp(self):
+        encoding = patch('locale.getpreferredencoding', return_value='utf-8')
+        encoding.start()
+        self.addCleanup(encoding.stop)
+
+    def test_start_monitoring(self):
+        from chronicle_ops.services import start_monitoring
+        healthy = b'grafana\trunning\thealthy\t0\n'
+        with Captured() as output:
+            self.assertEqual([], start_monitoring(self.compose(0, healthy), ['grafana']))
+        self.assertEqual('', output.text)
+        with Captured() as output:
+            self.assertEqual([], start_monitoring(self.compose(1, healthy), ['grafana']))
+        self.assertIn('docker compose reported an error while starting monitoring: ' + self.SHOWN, plain(output.text))
+
+    def test_start_unawaited(self):
+        from chronicle_ops.services import start_unawaited
+        with Captured() as output:
+            self.assertIsNone(start_unawaited(self.compose(0), ['db-backup']))
+        self.assertEqual('', output.text)
+        with Captured() as output:
+            self.assertIsNone(start_unawaited(self.compose(1), ['db-backup']))
+        self.assertIn(f'could not start db-backup ({self.SHOWN})', plain(output.text))
+
+    def test_record_operation(self):
+        for status, expected in ((0, ''), (1, 'its monitoring event could not be recorded: ' + self.SHOWN)):
+            with self.subTest(status=status):
+                with patch.dict(os.environ, {'COMPOSE_FILE': 'overlays/monitoring.yml'}), \
+                     patch('chronicle_ops.receipts.compose', side_effect=self.compose(status, b'operational-probe\n')), \
+                     Captured() as output:
+                    receipts.record_operation('restore', 'failure', 'restore_failed')
+                self.assertIn(expected, plain(output.text))
+                self.assertEqual(bool(expected), bool(output.text))
+
+    def test_the_stop_after_a_failed_start(self):
+        from chronicle_ops.restore import Restore, RestoreError
+        operation = Restore.__new__(Restore)
+        operation.stopped = ['backend', 'web']
+        for status, expected in ((0, ''), (1, 'could not confirm every application service stopped after startup failure: '
+                                           + self.SHOWN)):
+            with self.subTest(status=status):
+                with patch('chronicle_ops.restore.compose', side_effect=self.compose(status)), \
+                     Captured() as output, self.assertRaises(RestoreError):
+                    operation.stop_failed_start('post-restore startup failed', 'startup failure', 'database restored')
+                self.assertIn(expected, plain(output.text))
+                self.assertEqual(bool(expected), 'could not confirm' in output.text)
 
 
 class RollbackTests(unittest.TestCase):
@@ -281,6 +609,30 @@ class LauncherTests(unittest.TestCase):
             self.assertIn('./chronicle logs grafana', result.stdout)
             for service in ('cadvisor', 'victoriametrics', 'metrics-exporter'):
                 self.assertIn('ok', rows['monitor-' + service], plain)
+
+    def test_up_succeeds_and_names_composes_error_when_monitoring_cannot_be_created(self):
+        with tempfile.TemporaryDirectory() as folder:
+            selfhost, environment = self.install(Path(folder).resolve(), [])
+            environment.update(compose_shim.install(Path(folder).resolve() / 'bin', uncreated=compose_shim.MONITORING,
+                                                    up_stderr=ADDRESS_POOLS))
+            result = self.harness(selfhost, environment, 'cmd_up', 'up')
+            output = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout + result.stderr)
+            self.assertEqual(0, result.returncode, output)
+            self.assertIn('Started.', output)
+            self.assertEqual(1, output.count(CAUSE), output)
+            self.assertNotIn('./chronicle logs', output)
+            self.assertNotIn('Creating', output)
+
+    def test_doctor_does_not_send_the_operator_to_the_logs_of_a_missing_monitoring_container(self):
+        with tempfile.TemporaryDirectory() as folder:
+            selfhost, environment = self.install(Path(folder).resolve(), ['victorialogs'])
+            environment.update(compose_shim.install(Path(folder).resolve() / 'bin', unhealthy=['victorialogs'],
+                                                    uncreated=['grafana']))
+            result = self.harness(selfhost, environment, 'doctor_monitoring')
+            plain = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout)
+            self.assertIn('grafana is not created', plain)
+            self.assertNotIn('./chronicle logs grafana', plain)
+            self.assertIn('./chronicle logs victorialogs', plain)
 
 
 if __name__ == '__main__':

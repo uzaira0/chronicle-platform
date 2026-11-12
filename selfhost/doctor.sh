@@ -130,6 +130,8 @@ doctor_check_database() {
         action="Check Docker connectivity and rerun doctor"
       else
         summary="${service} is not running (state: ${health:-missing})"
+        # No container, so no logs to read: `up` prints why Compose cannot create it.
+        [[ -n "$health" ]] || action="Run ./chronicle up and correct the error Docker Compose prints"
       fi
       doctor_add "service-${service}" fail "$summary" "$action"
     fi
@@ -211,8 +213,11 @@ doctor_check_backups() {
       'running starting')
         doctor_add service-db-backup warn "db-backup is taking its first backup since it started" \
           "Nothing to do; rerun ./chronicle doctor later. ./chronicle logs db-backup shows its progress" ;;
+      '')
+        doctor_add service-db-backup fail "db-backup has no container: scheduled backups are not running" \
+          "Run ./chronicle up and correct the error Docker Compose prints" ;;
       *)
-        doctor_add service-db-backup fail "db-backup is ${backup_state:-not running}: scheduled backups are not running" \
+        doctor_add service-db-backup fail "db-backup is ${backup_state}: scheduled backups are not running" \
           "Run ./chronicle logs db-backup, correct the first error, then run ./chronicle up" ;;
     esac
 
@@ -279,6 +284,9 @@ doctor_check_monitoring() {
         [[ -n "$monitor_service" ]] || continue
         if [[ "$monitor_state" == healthy || "$monitor_state" == completed ]]; then
           doctor_add "monitor-${monitor_service}" ok "${monitor_service} is ${monitor_state}" "none"
+        elif [[ "$monitor_state" == "not created" ]]; then
+          # No container, so no logs to read: `up` warns with Compose's own error (services.py report).
+          doctor_add "monitor-${monitor_service}" warn "${monitor_service} is ${monitor_state}" "Run ./chronicle up and correct the Docker Compose error its warning names"
         else
           doctor_add "monitor-${monitor_service}" warn "${monitor_service} is ${monitor_state}" "Run ./chronicle logs ${monitor_service}, correct the first error, then docker compose up -d ${monitor_service}"
         fi

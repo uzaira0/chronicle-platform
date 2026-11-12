@@ -8,6 +8,7 @@ import site
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -76,6 +77,73 @@ time.sleep(60)
             with suppress(ProcessLookupError):
                 os.kill(child, signal.SIGKILL)
 
+    def test_a_timeout_is_raised_as_one_when_a_process_outside_the_group_holds_the_pipes(self):
+        """A helper that started its own session (a credential helper, a plugin's daemon) outlives
+        the command's process group and keeps the pipes open. The command is still reported as
+        timed out, and promptly: the rest of its output is waited for one second, not until the
+        helper exits. macOS refuses a signal to a group that holds only the dead, unreaped command
+        (EPERM); that is not an error to raise in place of the timeout."""
+        script = '''
+import subprocess, sys, time
+helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+print(helper.pid, flush=True)
+time.sleep(60)
+'''
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            run([sys.executable, "-c", script], capture=True, stderr=subprocess.PIPE, timeout=3)
+        elapsed = time.monotonic() - started
+        helper = int(caught.exception.output)
+        try:
+            os.kill(helper, 0)  # outside the group, so it was not signalled and still holds the pipes
+            self.assertLess(elapsed, 10)
+        finally:
+            with suppress(ProcessLookupError):
+                os.kill(helper, signal.SIGKILL)
+
+    # A command that writes one row and one diagnostic, each holding a byte that is not UTF-8.
+    NOT_TEXT = ("import sys; sys.stdout.buffer.write(b'row\\xff\\r\\nlast\\n'); "
+                "sys.stderr.buffer.write(b' Container x Started \\r\\n\\xff\\xfe daemon text\\n'); sys.exit({status})")
+
+    def test_what_a_command_writes_to_stderr_never_raises_on_decoding(self):
+        """stderr is text for a person. Docker's messages can carry bytes that are not valid in the
+        pipe encoding (a file name, a cut multi-byte character); decoded strictly, one such byte
+        raised UnicodeDecodeError out of whoever had piped stderr to name a cause, on a command
+        that had worked as much as on one that had failed. Both paths of run(), with a timeout
+        and without, give the same text, each such byte as \\xNN."""
+        shown = " Container x Started \n\\xff\\xfe daemon text\n"
+        with patch("locale.getpreferredencoding", return_value="utf-8"):
+            for timeout in (None, 20):
+                for status in (0, 3):
+                    with self.subTest(timeout=timeout, status=status):
+                        result = run([sys.executable, "-c", self.NOT_TEXT.format(status=status)],
+                                     quiet=True, stderr=subprocess.PIPE, timeout=timeout)
+                        self.assertEqual((status, None, shown), (result.returncode, result.stdout, result.stderr))
+                with self.subTest(timeout=timeout, check=True), self.assertRaises(subprocess.CalledProcessError) as caught:
+                    run([sys.executable, "-c", self.NOT_TEXT.format(status=3)], quiet=True, stderr=subprocess.PIPE,
+                        timeout=timeout, check=True)
+                self.assertEqual((3, shown), (caught.exception.returncode, caught.exception.stderr))
+
+    def test_stdout_is_data_and_is_decoded_strictly_unless_the_caller_only_reads_it(self):
+        """What a caller may write back (a crontab, a rendered configuration) must not come back
+        changed, so a byte that is not text there still raises. A caller that only matches or shows
+        the text says so with errors=SHOWN and never raises. Text keeps universal newlines and
+        input is still written in the pipe encoding; bytes mode is untouched."""
+        from chronicle_ops.common import SHOWN
+        command = [sys.executable, "-c", self.NOT_TEXT.format(status=0)]
+        with patch("locale.getpreferredencoding", return_value="utf-8"):
+            for timeout in (None, 20):
+                with self.subTest(timeout=timeout):
+                    with self.assertRaises(UnicodeDecodeError):
+                        run(command, capture=True, stderr=subprocess.PIPE, timeout=timeout)
+                    self.assertEqual("row\\xff\nlast\n", run(command, capture=True, stderr=subprocess.PIPE,
+                                                             timeout=timeout, errors=SHOWN).stdout)
+                    self.assertEqual(b"row\xff\r\nlast\n", run(command, capture=True, stderr=subprocess.DEVNULL,
+                                                               timeout=timeout, text=False).stdout)
+                    echoed = run([sys.executable, "-c", "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+                                 capture=True, timeout=timeout, input="café\n")
+                    self.assertEqual("café\n", echoed.stdout)
+
     def test_compose_preserves_arguments_and_capture_stream_quiet_modes(self):
         with patch.dict(os.environ, {"CHRONICLE_OPS_PROJECT": "pilot"}), \
              patch("chronicle_ops.common.subprocess.run") as call:
@@ -103,13 +171,20 @@ time.sleep(60)
             self.assertEqual(caught.exception.status, 143)
 
     def test_monitoring_timeout_and_nonzero_warn_but_do_not_fail_operation(self):
-        for failure in (subprocess.TimeoutExpired("docker", 15), subprocess.CompletedProcess([], 42)):
+        """The warning names what happened: a timeout, or the failed command's own last error
+        line. It said "within 15 seconds" for every failure, with the command's output discarded."""
+        refused = subprocess.CompletedProcess([], 1, None, " Container fixture-operational-probe-1 Running \n"
+                                              "write /monitoring/operations/event.json: read-only file system\n")
+        for failure, cause in ((subprocess.TimeoutExpired("docker", 15), "no answer within 15 seconds"),
+                               (subprocess.CompletedProcess([], 42), "the recording command exited with status 42"),
+                               (refused, "write /monitoring/operations/event.json: read-only file system")):
             with self.subTest(failure=failure), \
                  patch.dict(os.environ, {"COMPOSE_FILE": "overlays/monitoring.yml"}), \
                  patch("chronicle_ops.receipts.compose", side_effect=[subprocess.CompletedProcess([], 0, "operational-probe\n"), failure]), \
                  patch("sys.stderr", new_callable=io.StringIO) as output:
                 record_operation("restore", "failure", "restore_failed")
-                self.assertIn("could not be recorded within 15 seconds", output.getvalue())
+                self.assertIn("its monitoring event could not be recorded: " + cause + "\n", output.getvalue())
+                self.assertNotIn("Running", output.getvalue())
 
     def test_monitoring_success_is_quiet_and_bounded(self):
         with patch.dict(os.environ, {"COMPOSE_FILE": "overlays/monitoring.yml"}), \
@@ -117,7 +192,7 @@ time.sleep(60)
              patch("sys.stderr", new_callable=io.StringIO) as output:
             record_operation("restore", "success")
             self.assertEqual(output.getvalue(), "")
-            self.assertEqual(call.call_args.kwargs, {"quiet": True, "timeout": 15})
+            self.assertEqual(call.call_args.kwargs, {"quiet": True, "stderr": subprocess.PIPE, "timeout": 15})
             # exec into the running probe; a one-off run would reconcile the project's networks.
             self.assertEqual(call.call_args.args, ("exec", "-T", "operational-probe", "/monitoring/record-operation.sh",
                                                    "restore", "success", "none"))

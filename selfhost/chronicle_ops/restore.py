@@ -17,7 +17,7 @@ import time
 from .reconcile import RECOVERY_FILE, RESTORE_LOCK, ROTATION_MARKER, UPGRADE_LOCK, recovery_command
 
 from .dump import RESTORE_MUTATION_MARKER, DumpError, EXIT_RESTORE_TRANSACTION_ROLLED_BACK, validate_dump
-from .common import BLD, GRN, RED, RST, Interrupted, acquire_operation_lock, release_operation_lock, application_services, compose, compose_project, require, same_path, warn, OPERATION_LOCK_CREATE_ERROR
+from .common import BLD, GRN, RED, RST, Interrupted, acquire_operation_lock, release_operation_lock, application_services, compose, compose_project, failure_cause, require, same_path, warn, OPERATION_LOCK_CREATE_ERROR
 from .receipts import OPERATOR_RECEIPTS_DIR, durable_replace, finish_operation, json_text, publish_journal, write_text, write_json
 from .envfile import read_env, value
 from .reconcile import STOP_MARKER
@@ -421,9 +421,10 @@ class Restore:
 
     def stop_failed_start(self, warning, reason, error):
         warn(warning + "; stopping application services again")
-        status, _ = self.dc("stop", *self.stopped, quiet=True)
-        if status:
-            warn("could not confirm every application service stopped after " + reason)
+        stopped = compose("stop", *self.stopped, quiet=True, stderr=subprocess.PIPE)
+        if stopped.returncode:
+            warn(f"could not confirm every application service stopped after {reason}: "
+                 + failure_cause(stopped, "docker compose stop"))
         raise RestoreError(error)
 
     def inspect_recovery(self):

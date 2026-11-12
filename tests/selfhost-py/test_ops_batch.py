@@ -165,6 +165,24 @@ esac
                 checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
                 self.assertEqual(expected, checks['service-db-backup']['status'], result.stdout)
 
+    def test_doctor_does_not_send_the_operator_to_the_logs_of_a_missing_container(self):
+        """A service whose container was never created has no logs: `./chronicle logs` prints
+        nothing for it. Doctor names `./chronicle up`, which prints why Compose cannot create it."""
+        fixture = self.doctor_fixture()
+        services = ('service-postgres', 'service-backend', 'service-web', 'service-db-backup')
+        result = self.run_doctor(fixture, CONTAINER_STATE='')
+        checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+        for check in services:
+            with self.subTest(check, container='missing'):
+                self.assertEqual('fail', checks[check]['status'], result.stdout)
+                self.assertNotIn('./chronicle logs', checks[check]['recoveryCommand'])
+                self.assertIn('./chronicle up', checks[check]['recoveryCommand'])
+        result = self.run_doctor(fixture, CONTAINER_STATE='running unhealthy')
+        checks = {row['check']: row for row in json.loads(result.stdout)['checks']}
+        for check in services:
+            with self.subTest(check, container='unhealthy'):
+                self.assertIn('./chronicle logs ' + check.removeprefix('service-'), checks[check]['recoveryCommand'])
+
     def test_low_free_percentage_warns_and_only_the_startup_reserve_fails(self):
         # A 1-TiB host filesystem with 100 GiB available is below 15% free yet far above the reserve.
         from chronicle_ops import verify

@@ -5,6 +5,7 @@ from contextlib import suppress
 import fcntl
 import json
 import ipaddress
+import locale
 from pathlib import Path
 import re
 import signal
@@ -29,6 +30,15 @@ DEFAULT_MIN_FREE_DISK_GIB = 5
 PREPARATION_TIMEOUT_SECONDS = 600
 DEFAULT_COMPOSE_PROJECT = "chronicle-selfhost"
 TRANSFER_TIMEOUT_ENV = "CHRONICLE_TRANSFER_TIMEOUT_SECONDS"
+# How much of a failed Compose command's stderr a warning repeats.
+COMPOSE_ERROR_LINES = 3
+COMPOSE_ERROR_LINE_LENGTH = 300
+# A line Compose logs below error level (logrus form); compose_error does not report it as the error.
+COMPOSE_LOG_LINE = re.compile(r'time="[^"]*" level=(?:warning|info|debug) ')
+# How run() decodes text that is only matched or shown, never written back: a byte that is not
+# valid in the pipe encoding becomes \xNN instead of raising UnicodeDecodeError. Every stderr is
+# decoded this way; a caller passes errors=SHOWN to have stdout decoded so too.
+SHOWN = "backslashreplace"
 
 
 def same_path(recorded, actual):
@@ -215,7 +225,19 @@ def transfer_timeout():
                                TRANSFER_TIMEOUT_ENV))
 
 
+def pipe_text(data, errors):
+    """The text subprocess's own text mode makes of a pipe's bytes (the locale's encoding, universal
+    newlines), with the given handler for a byte that encoding does not have."""
+    if not isinstance(data, bytes):
+        return data
+    return data.decode(locale.getpreferredencoding(False), errors).replace("\r\n", "\n").replace("\r", "\n")
+
+
 def run(args, capture=False, quiet=False, timeout=None, **kwargs):
+    """Run an argv command. Text results by default (text=False for bytes): stdout is data and is
+    decoded strictly unless errors= says otherwise, because a caller may write it back (a crontab,
+    a rendered configuration); stderr is a message for a person and never raises on decoding
+    (SHOWN). A command with a timeout runs in its own process group, which is killed with it."""
     if timeout is None and "pull" in args:
         timeout = transfer_timeout()
     elif timeout is None and any(arg in ("config", "info", "inspect") for arg in args):
@@ -223,30 +245,43 @@ def run(args, capture=False, quiet=False, timeout=None, **kwargs):
     descriptor = os.environ.get(LOCK_FD_ENV, "")
     if descriptor.isdigit():
         kwargs.setdefault("pass_fds", (int(descriptor),))
-    streams = dict(text=kwargs.pop("text", True),
-                   stdout=kwargs.pop("stdout", subprocess.PIPE if capture else subprocess.DEVNULL if quiet else None),
+    text, errors = kwargs.pop("text", True), kwargs.pop("errors", "strict")
+    streams = dict(stdout=kwargs.pop("stdout", subprocess.PIPE if capture else subprocess.DEVNULL if quiet else None),
                    stderr=kwargs.pop("stderr", subprocess.DEVNULL if quiet else None))
-    if timeout is None:
-        return subprocess.run(args, **streams, **kwargs)
     data, check = kwargs.pop("input", None), kwargs.pop("check", False)
-    if data is not None:
-        kwargs["stdin"] = subprocess.PIPE
-    with spawn(args, **streams, **kwargs) as process:
-        try:
-            output, errors = process.communicate(data, timeout=timeout)
-        except BaseException:
+    if text and isinstance(data, str):
+        data = data.encode(locale.getpreferredencoding(False))
+    if timeout is None:
+        finished = subprocess.run(args, input=data, **streams, **kwargs)
+        status, output, diagnostics = finished.returncode, finished.stdout, finished.stderr
+    else:
+        if data is not None:
+            kwargs["stdin"] = subprocess.PIPE
+        with spawn(args, **streams, **kwargs) as process:
             try:
-                with suppress(ProcessLookupError, subprocess.TimeoutExpired):
-                    os.killpg(process.pid, signal.SIGTERM)
-                    process.communicate(timeout=1)
-            finally:
-                with suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
-                process.communicate()
-            raise
-        if check and process.returncode:
-            raise subprocess.CalledProcessError(process.returncode, args, output, errors)
-        return subprocess.CompletedProcess(args, process.returncode, output, errors)
+                output, diagnostics = process.communicate(data, timeout=timeout)
+            except BaseException:
+                # The timeout (or interrupt) is what the caller is told, whatever stopping the group
+                # runs into. macOS answers EPERM for a group that holds only the dead, unreaped
+                # command. A process that left the group (a helper in its own session) can keep the
+                # pipes open after the group is dead, so the rest of the output is waited for one
+                # second, not until that process exits; leaving the block closes the pipes.
+                try:
+                    with suppress(ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
+                        os.killpg(process.pid, signal.SIGTERM)
+                        process.communicate(timeout=1)
+                finally:
+                    with suppress(ProcessLookupError, PermissionError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    with suppress(subprocess.TimeoutExpired):
+                        process.communicate(timeout=1)
+                raise
+            status = process.returncode
+    if text:
+        output, diagnostics = pipe_text(output, errors), pipe_text(diagnostics, SHOWN)
+    if check and status:
+        raise subprocess.CalledProcessError(status, args, output, diagnostics)
+    return subprocess.CompletedProcess(args, status, output, diagnostics)
 
 
 def spawn(args, **kwargs):
@@ -290,6 +325,27 @@ def before_compose(project, args):
 def compose(*args, **kwargs):
     before_compose(os.environ["CHRONICLE_OPS_PROJECT"], args)
     return run(["docker", "compose", "-p", os.environ["CHRONICLE_OPS_PROJECT"], *args], **kwargs)
+
+
+def compose_error(text):
+    """Compose's own error out of the stderr of a failed command, bounded. Compose writes one
+    progress event per network, volume and container, each line starting with a space (50 in the
+    monitoring start that failed on 2026-11-11, 17 of them repeating the error), and then its
+    error on a line that does not. The last few distinct lines of that kind are returned, or the
+    last progress events when there is no such line. What Compose logs as a warning is on such a
+    line too (time="..." level=warning msg="The \"X\" variable is not set..."); those are left out
+    unless they are all it wrote as its own."""
+    own = [line.strip() for line in (text or "").splitlines() if line.strip() and not line[0].isspace()]
+    lines = [line for line in own if not COMPOSE_LOG_LINE.match(line)] or own
+    lines = lines or [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return "; ".join(line[:COMPOSE_ERROR_LINE_LENGTH] for line in list(dict.fromkeys(lines))[-COMPOSE_ERROR_LINES:])
+
+
+def failure_cause(result, command):
+    """Why `command` failed, for a warning: Compose's error from the stderr the caller piped
+    (compose_error), or the exit status when it wrote none. result is the finished process, or
+    the CalledProcessError of a caller that raises."""
+    return compose_error(getattr(result, "stderr", None)) or f"{command} exited with status {result.returncode}"
 
 
 def application_services(services):

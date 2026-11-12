@@ -15,7 +15,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from .common import PREPARATION_TIMEOUT_SECONDS, compose, warn
+from .common import PREPARATION_TIMEOUT_SECONDS, SHOWN, compose, failure_cause, warn
 from .egress import BLACKHOLE_RESOLVER
 
 # Networks Compose creates with `internal: true`: Docker gives them no gateway route, so nothing
@@ -107,6 +107,11 @@ MONITORING_OVERLAY = "overlays/monitoring.yml"
 # unhealthy after this is reported and left to its restart policy.
 MONITORING_WAIT_TIMEOUT_SECONDS = "300"
 PS_FORMAT = "{{.Service}}\t{{.State}}\t{{.Health}}\t{{.ExitCode}}"
+PS_TIMEOUT_SECONDS = 60
+# A service `ps` answered without a row for: it has no container.
+NOT_CREATED = "not created"
+# A service whose state Compose did not give: `ps` failed or was not answered, or its row has none.
+UNKNOWN = "unknown"
 
 
 def is_monitoring_overlay(name):
@@ -129,6 +134,20 @@ def checked(result, args):
     if result.returncode:
         raise subprocess.CalledProcessError(result.returncode, list(args), getattr(result, "stdout", None))
     return result
+
+
+def unwatched_up(dc, *arguments, timeout):
+    """Run a Compose `up` whose progress the operator is not shown. None when it worked, else why
+    it did not (common.failure_cause: Compose's own error, or its exit status when it printed
+    none). A caller that raises for the failed command gives the same answer as one that returns
+    it; an error that is not Compose's exit status (a timeout, a missing docker) is left to the
+    caller. The only place operator Python may discard the output of `up`
+    (ast-grep rule selfhost-compose-up-discards-error)."""
+    try:
+        result = dc(*arguments, quiet=True, stderr=subprocess.PIPE, timeout=timeout)
+    except subprocess.CalledProcessError as error:
+        result = error
+    return failure_cause(result, "docker compose up") if result.returncode else None
 
 
 def listed(dc, *args, **kwargs):
@@ -191,14 +210,56 @@ def failures(rows, services):
         elif state == "exited":
             failed.append((service, "exited with status " + code))
         else:
-            failed.append((service, state or "unknown"))
-    return failed + [(service, "not created") for service in services if service not in seen]
+            failed.append((service, state or UNKNOWN))
+    return failed + [(service, NOT_CREATED) for service in services if service not in seen]
 
 
-def report(failed):
+def inspected(dc, services):
+    """(rows, None): Compose's `ps` rows for the services; no row for one is an answer, it has no
+    container. (None, why) when Compose did not list them: `ps` failed, was not answered in
+    PS_TIMEOUT_SECONDS or could not be run, and then no service's state is known."""
+    try:
+        listing = dc("ps", "-a", "--format", PS_FORMAT, *services, capture=True, stderr=subprocess.PIPE,
+                     timeout=PS_TIMEOUT_SECONDS, errors=SHOWN)
+    except subprocess.TimeoutExpired as error:
+        return None, f"docker compose ps did not answer within {error.timeout:g} seconds"
+    except subprocess.CalledProcessError as error:
+        return None, failure_cause(error, "docker compose ps")
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, str(error)
+    if listing.returncode:
+        return None, failure_cause(listing, "docker compose ps")
+    return (listing.stdout or "").splitlines(), None
+
+
+def report(failed, cause=None, problem=None, unread=None):
+    """Warn about a monitoring start, saying what is known and nothing more. cause is the error
+    Compose gave for `up`; problem is a start that did not run to its end (it timed out, or
+    Compose could not be run); unread is why `ps` gave no states, and then every state in failed
+    is UNKNOWN. A service that was not created has no container and so no logs: it is named with
+    the others like it, and Compose's error is called the thing to correct only when it gave one."""
+    if cause:
+        warn(f"docker compose reported an error while starting monitoring: {cause}")
+    if problem:
+        warn(problem)
+    if unread:
+        warn(f"the state of the monitoring services could not be read ({unread}): "
+             f"{', '.join(service for service, _ in failed)}; Chronicle itself is running. "
+             "./chronicle doctor reports their state")
+        return
+    missing = [service for service, state in failed if state == NOT_CREATED]
     for service, state in failed:
-        warn(f"monitoring service {service} is {state}; Chronicle itself is running. "
-             f"Inspect it with ./chronicle logs {service}")
+        if state != NOT_CREATED:
+            warn(f"monitoring service {service} is {state}; Chronicle itself is running. "
+                 f"Inspect it with ./chronicle logs {service}")
+    if missing and cause:
+        warn(f"monitoring services not created: {', '.join(missing)}; Chronicle itself is running. They have no "
+             "logs to read: correct Docker Compose's error, then run ./chronicle up, which reports it again if "
+             "they still cannot be created")
+    elif missing:
+        warn(f"monitoring services without a container: {', '.join(missing)}; Chronicle itself is running. They "
+             "have no logs to read: run ./chronicle up, which reports Docker Compose's error if they still "
+             "cannot be created")
     if failed:
         warn("monitoring is degraded: dashboards, metrics, logs or alerts may be missing until it is healthy; "
              "./chronicle doctor reports its state")
@@ -206,19 +267,23 @@ def report(failed):
 
 def start_monitoring(dc, services, options=(), timeout=MONITORING_WAIT_TIMEOUT_SECONDS):
     """Start monitoring and wait a bounded time for its health. Never raises for a monitoring
-    failure: it warns, naming each service, and returns the failed (service, state) pairs."""
+    failure: it warns, naming each service, and returns the failed (service, state) pairs. A
+    service is NOT_CREATED only when `ps` answered without it, and UNKNOWN when `ps` did not answer."""
     if not services:
         return []
+    cause = problem = None
     try:
         # Compose bounds the health wait; the process bound covers a stalled daemon or pull.
-        dc("up", "-d", "--wait", "--wait-timeout", timeout, *options, *services, quiet=True,
-           timeout=int(timeout) + 120)
-        rows = dc("ps", "-a", "--format", PS_FORMAT, *services, capture=True, timeout=60).stdout or ""
+        cause = unwatched_up(dc, "up", "-d", "--wait", "--wait-timeout", timeout, *options, *services,
+                             timeout=int(timeout) + 120)
+    except subprocess.TimeoutExpired as error:
+        problem = (f"docker compose did not finish starting monitoring within {error.timeout:g} seconds and was "
+                   "stopped; it had reported no error")
     except (OSError, subprocess.SubprocessError) as error:
-        warn(f"could not start or inspect monitoring ({error})")
-        rows = ""
-    failed = failures(rows.splitlines(), services)
-    report(failed)
+        problem = f"docker compose could not be run to start monitoring ({error})"
+    rows, unread = inspected(dc, services)
+    failed = [(service, UNKNOWN) for service in services] if rows is None else failures(rows, services)
+    report(failed, cause, problem, unread)
     return failed
 
 
@@ -234,18 +299,23 @@ def report_unawaited(dc, services):
     if not services:
         return []
     try:
-        rows = dc("ps", "-a", "--format", PS_FORMAT, *services, capture=True, timeout=60).stdout or ""
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        warn(f"could not inspect {', '.join(services)} ({error}); ./chronicle doctor reports its state")
+        rows, unread = inspected(dc, services)
+    except ValueError as error:
+        rows, unread = None, str(error)
+    if rows is None:
+        warn(f"could not inspect {', '.join(services)} ({unread}); ./chronicle doctor reports its state")
         return []
     # A service still in its start period is "starting" (db-backup taking its first dump).
-    states = failures(rows.splitlines(), services)
+    states = failures(rows, services)
     for service, state in states:
         if service == "db-backup" and state == "starting":
             print("db-backup is taking its first backup since this start; ./chronicle doctor reports when it "
                   "has finished, and the safety dump taken before the update is kept meanwhile.")
         elif state == "starting":
             print(f"{service} is still starting; ./chronicle doctor reports its state.")
+        elif state == NOT_CREATED:
+            warn(f"{service} is {state}; Chronicle itself is running. It has no logs to read: run ./chronicle up "
+                 "and correct the error Docker Compose prints")
         else:
             warn(f"{service} is {state}; Chronicle itself is running. Inspect it with ./chronicle logs {service}, "
                  "correct the first error, then run ./chronicle up")
@@ -259,9 +329,16 @@ def start_unawaited(dc, services, options=()):
         return
     try:
         # --no-deps: their dependencies were just started and waited on; don't recreate them again.
-        dc("up", "-d", "--no-deps", *options, *services, quiet=True, timeout=PREPARATION_TIMEOUT_SECONDS)
+        cause = unwatched_up(dc, "up", "-d", "--no-deps", *options, *services, timeout=PREPARATION_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        warn(f"{', '.join(services)} may not have started: docker compose up did not finish within "
+             f"{error.timeout:g} seconds and was stopped; Chronicle itself is running. "
+             "./chronicle doctor reports its state")
+        return
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        warn(f"could not start {', '.join(services)} ({error}); Chronicle itself is running. "
+        cause = str(error)
+    if cause:
+        warn(f"could not start {', '.join(services)} ({cause}); Chronicle itself is running. "
              "./chronicle doctor reports its state")
 
 
