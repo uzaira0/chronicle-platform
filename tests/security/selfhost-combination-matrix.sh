@@ -148,7 +148,7 @@ if backups:
     expected.add("db-backup")
 if monitoring:
     expected.update({"monitoring-config", "monitoring-cert-init", "health-probe", "docker-socket-proxy", "cadvisor", "operational-probe", "public-probe",
-                     "metrics-exporter", "victoriametrics", "victorialogs", "fluent-bit", "grafana", "monitoring-forward"})
+                     "metrics-exporter", "victoriametrics", "victorialogs", "fluent-bit", "grafana", "monitoring-forward", "egress-proxy"})
 if set(services) != expected:
     raise SystemExit(f"service set mismatch: expected {sorted(expected)}, got {sorted(services)}")
 if any("build" in service for service in services.values()):
