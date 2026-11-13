@@ -337,11 +337,12 @@
     "recorded_advisories": []
   },
   "chronicle-web/package.json::minimatch": {
-    "pin": "11.0.1",
+    "pin": "11.0.3",
     "reason": "GHSA-g3hv-75wg-m249 / CVE-2026-118764 affects all earlier minimatch releases. Current ESLint, TypeScript-ESLint, Stryker and Redocly select 10.x/5.x unforced. Redocly 1.34.22 needs the named-export Bun patch; latest openapi-typescript 7.13.0 cannot use Redocly 2 because it imports ref-utils.js.",
     "remove_when": "Remove when unforced, unlocked resolution of every current consumer selects minimatch 11.0.1 or newer and resolver, generator, typed lint and configured Stryker checks pass. Remove the Redocly patch when its maintained compatible parent uses the named minimatch export or replaces that dependency; keep the resolver regression.",
-    "reviewed_on": "2026-11-01",
+    "reviewed_on": "2026-11-08",
     "review_after": "2026-12-01",
+    "review_note": "11.0.1 -> 11.0.3 reviewed 2026-11-08: published 2026-10-28T20:00Z by isaacs (11 days, past the 7-day wait); GitHub v11.0.1...v11.0.3 is 6 verified commits: src/index.ts adds a 256-entry LRU of Minimatch objects in minimatch() and defers Matcher creation for merged brace rows, @isaacs/nonrecursive-glob-match ^1.0.1 -> ^1.0.3 (lock already 1.0.3); both registry tarballs match their sha512 integrity, same file list, dist diff equals the source diff, no install scripts or new network/process calls; OSV has no advisory and no MAL- entry for 11.0.3, nonrecursive-glob-match or brace-expansion 5.0.12; GHSA-g3hv-75wg-m249 covers < 11.0.1 only.",
     "recorded_advisories": [
       "GHSA-g3hv-75wg-m249",
       "CVE-2026-118764"
