@@ -28,14 +28,14 @@ snapshot.ubuntu.com
 # Go module proxy and checksum database: go mod tidy
 proxy.golang.org
 sum.golang.org
-# Scanner databases and APIs: osv-scanner, grype, deps-freshness, Bearer's rules (from the
-# bearer-rules release through the GitHub API; deps-freshness's GitHub lookups come from the runner)
+# Scanner databases and APIs: osv-scanner, grype, deps-freshness (its GitHub lookups come from the
+# runner). No api.github.com: Bearer's rules are the pinned bearer-rules archives the tools step fetches
+# from github.com (local-ci.sh ensure_bearer_rules), and bearer scans with no network call.
 api.osv.dev
 osv-vulnerabilities.storage.googleapis.com
 api.deps.dev
 grype.anchore.io
 hub.docker.com
-api.github.com
 # Gate tool releases (local-ci.sh ensure_*, checked against toolchain-manifest.yaml sha256)
 github.com
 objects.githubusercontent.com

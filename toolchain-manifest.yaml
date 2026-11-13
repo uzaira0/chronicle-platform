@@ -124,6 +124,16 @@ gate_tools:
       darwin-arm64: "84f089005c643271572e45ebd507732b29326f4123602f7d6f5ca41844805717"
       linux-amd64: "865c80c5f80aaca1f83e98bca4decb0fd5b5d024e13f8ec48e94d69430d0d23b"
       linux-arm64: "cd6b64990c5df0cdfd88be1417fedfb0118f607897baac2f9cda9cb292f665a2"
+  # Bearer's default rules (local-ci.sh ensure_bearer_rules): one archive per language, digests from the release.
+  bearer-rules:
+    version: "v0.48.4"
+    sha256:
+      go: "0d406d5295d3bcc408c856ba80a2fcfb29e28e3f316afb68d0d3bc2aab103643"
+      java: "0b0c2ccfd10fa2b8d9df792274dc162fa9b058614bf2203449817c0ab5ee4bc3"
+      javascript: "08c12673a8bdcf0cb0332aac93c1657baba1d2d27503e954f564268f76482688"
+      php: "4197647742328a32c0b4cd00feaa33ff125cf41ce8842369523346a722411ab0"
+      python: "771bf56a12e6abbf36549174f32b93d83244e879dc36247e2281f9e755cc6208"
+      ruby: "86dd93dd2fe0ab95cc5bafd0ab4722aa60733c8722774b2029e4b1f81b42dfa0"
   osv-scanner:
     version: "v2.3.8"
     sha256:

@@ -755,6 +755,12 @@ reviewer = "intake-coverage session 2026-11-07 under the owner's approval in cha
 reason = "docker/hetzner/crowdsec/Dockerfile.hardened builds re2 2023-03-01 from the GitHub tag archive (sha256 pinned)."
 
 [[addition]]
+ecosystem = "github-release"
+name = "Bearer/bearer-rules"
+reviewer = "intake-coverage session 2026-11-08 under the owner's approval in chat (lane D: the intake gate must not fail on downloads); not new code: bearer 2.0.2 already downloaded this release's latest version on every scan"
+reason = "local-ci.sh ensure_bearer_rules fetches the six language archives of v0.48.4 (sha256 per archive in toolchain-manifest.yaml gate_tools) so bearer scans with --disable-default-rules --external-rule-dir and no network call; the same 325 rules load and the results on this repo are identical to the downloaded default rules."
+
+[[addition]]
 ecosystem = "deb"
 lockfile = "scripts/sandbox/Dockerfile.gate"
 revision = "d6e7fd064931fec25599c623d4874e00b6b23777"

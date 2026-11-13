@@ -108,6 +108,7 @@ GATE_TOOL_RELEASES = {
     'ast-grep': ('ast-grep/ast-grep', '{v}'),
     'pmd': ('pmd/pmd', 'pmd_releases/{v}'),
     'bearer': ('Bearer/bearer', 'v{v}'),
+    'bearer-rules': ('Bearer/bearer-rules', '{v}'),
     'osv-scanner': ('google/osv-scanner', '{v}'),
     'grype': ('anchore/grype', 'v{v}'),
     'syft': ('anchore/syft', 'v{v}'),

@@ -813,6 +813,39 @@ ensure_bearer() {
   rm -f "$archive"
 }
 
+# Bearer's default rules, pinned like the tools. Without them bearer scan looks up the latest bearer-rules
+# release through the unauthenticated GitHub API on every run and downloads its language archives, checking
+# no status: on 2026-11-08 the dependency gate failed twice on that download ("gzip: invalid header", then
+# "0 rules found ... default rules could not be downloaded"), and the rules changed whenever a release did.
+# The same 325 rules load from these archives as --external-rule-dir (bearer 2.0.2, compared on this repo).
+BEARER_RULES_VERSION="v0.48.4"
+BEARER_RULES_LANGUAGES=(go java javascript php python ruby)
+
+bearer_rules_dir() {
+  printf '%s/bearer-rules-%s\n' "$LOCAL_BIN_DIR" "$BEARER_RULES_VERSION"
+}
+
+ensure_bearer_rules() {
+  local dir language archive staging
+  dir="$(bearer_rules_dir)"
+  if [[ -f "$dir/.verified" ]]; then
+    return 0
+  fi
+  ensure_dir "$LOCAL_BIN_DIR"
+  staging="$(gate_tool_temp -d)"
+  for language in "${BEARER_RULES_LANGUAGES[@]}"; do
+    archive="$(gate_tool_temp)"
+    download_asset "https://github.com/Bearer/bearer-rules/releases/download/${BEARER_RULES_VERSION}/${language}.tar.gz" "$archive"
+    sha256_check "$(pinned_tool_sha256 bearer-rules "$BEARER_RULES_VERSION" "$language")" "$archive"
+    mkdir -p "$staging/$language"
+    tar -xzf "$archive" -C "$staging/$language"
+    rm -f "$archive"
+  done
+  touch "$staging/.verified"
+  rm -rf "$dir"
+  mv "$staging" "$dir"
+}
+
 ensure_osv_scanner() {
   local version="v2.3.8"
   local bin="$LOCAL_BIN_DIR/osv-scanner"
@@ -2083,6 +2116,7 @@ job_gate_tools() {
   ensure_ast_grep
   ensure_pmd
   ensure_bearer
+  ensure_bearer_rules
   ensure_osv_scanner
   ensure_grype
   ensure_syft
@@ -2100,15 +2134,19 @@ job_pmd() {
 
 job_bearer() {
   ensure_bearer
+  ensure_bearer_rules
   local sarif_report all_report no_waivers status=0 all_status=0
   sarif_report="$(report_path "$ROOT_DIR/bearer-results.sarif" "bearer-results.sarif")"
   all_report="$(report_path "$ROOT_DIR/build/bearer-all-findings.json" "bearer-all-findings.json")"
   ensure_dir "$(dirname "$all_report")"
+  # The rules are the pinned bearer-rules release (ensure_bearer_rules), so neither scan makes a network call:
+  # with default rules and the version check both off, bearer skips its version API and the GitHub lookup.
   BEARER_SCANNER=sast \
     BEARER_FORMAT=sarif \
     BEARER_OUTPUT="$sarif_report" \
     BEARER_HIDE_PROGRESS_BAR=true \
-    bearer scan "$ROOT_DIR" || status=$?
+    BEARER_DISABLE_VERSION_CHECK=true \
+    bearer scan "$ROOT_DIR" --disable-default-rules --external-rule-dir "$(bearer_rules_dir)" || status=$?
   # 1 is a scan that found something bearer.ignore does not waive; any other status is a scan that did not finish.
   if [[ "$status" != 0 && "$status" != 1 ]]; then return "$status"; fi
   python3 - "$sarif_report" <<'PY' || return
@@ -2128,7 +2166,8 @@ PY
   # compares what each waiver covers now with the statement recorded when it was reviewed.
   no_waivers="$(gate_tool_temp)"
   printf '{}\n' >"$no_waivers"
-  BEARER_SCANNER=sast BEARER_HIDE_PROGRESS_BAR=true bearer scan "$ROOT_DIR" \
+  BEARER_SCANNER=sast BEARER_HIDE_PROGRESS_BAR=true BEARER_DISABLE_VERSION_CHECK=true bearer scan "$ROOT_DIR" \
+    --disable-default-rules --external-rule-dir "$(bearer_rules_dir)" \
     --ignore-file "$no_waivers" --format json --output "$all_report" --exit-code 0 || all_status=$?
   rm -f -- "$no_waivers"
   if [[ "$all_status" != 0 ]]; then return "$all_status"; fi

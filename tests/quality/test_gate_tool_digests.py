@@ -25,7 +25,7 @@ PLATFORMS = ('darwin-amd64', 'darwin-arm64', 'linux-amd64', 'linux-arm64')
 TOOLS = {'container-structure-test': 'ensure_container_structure_test', 'hadolint': 'ensure_hadolint',
          'ast-grep': 'ensure_ast_grep', 'pmd': 'ensure_pmd', 'bearer': 'ensure_bearer',
          'osv-scanner': 'ensure_osv_scanner', 'grype': 'ensure_grype', 'syft': 'ensure_syft',
-         'detekt-cli': 'ensure_detekt'}
+         'detekt-cli': 'ensure_detekt', 'bearer-rules': 'ensure_bearer_rules'}
 
 
 def manifest(root=ROOT):
@@ -128,11 +128,16 @@ extract_binary_from_zip() { fixture_binary "$3"; }
                         version_output = 'Haskell Dockerfile Linter ' + pins[tool]['version'].lstrip('v')
                     else:
                         version_output = 'fixture'
-                    result = bash(self.STUBS + f'{function}\n', {'WORK': work, 'PLATFORM': platform,
+                    # The rule archives are unpacked, not run: the stub download is empty.
+                    stubs = self.STUBS + ('tar() { :; }\n' if tool == 'bearer-rules' else '')
+                    result = bash(stubs + f'{function}\n', {'WORK': work, 'PLATFORM': platform,
                                   'FIXTURE_MANIFEST': str(ROOT / 'toolchain-manifest.yaml'),
                                   'FIXTURE_VERSION_OUTPUT': version_output}, work)
                     self.assertEqual(0, result.returncode, result.stderr)
                     verified = (Path(work) / 'verified').read_text().split()
+                    if tool == 'bearer-rules':  # one archive per language, the same on every platform
+                        self.assertEqual(sorted(pins[tool]['sha256'].values()), sorted(verified))
+                        continue
                     expected = pins[tool]['sha256'].get(platform) or pins[tool]['sha256']['any']
                     self.assertEqual([expected], verified)
 

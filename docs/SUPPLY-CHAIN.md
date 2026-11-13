@@ -161,11 +161,13 @@ the user  ->  merges deps/auto onward, cuts and publishes releases
      builder in `scripts/sandbox/Dockerfile.gate` with `docker/Dockerfile.backend` sees both new digests:
      - `python`: the candidate's `requirements-dev.txt`, wheels only, every hash checked, into a
        directory the later steps mount read-only (registries);
-     - `tools`: `local-ci.sh gate-tools` downloads every checksum-pinned security tool and grype's
-       database into a directory only this step writes, mounted read-only everywhere else (registries);
+     - `tools`: `local-ci.sh gate-tools` downloads every checksum-pinned security tool, Bearer's pinned
+       rules (bearer-rules, one sha256 per language archive) and grype's database into a directory only
+       this step writes, mounted read-only everywhere else (registries);
      - `toolchain`: `verify-toolchain.sh` (no network);
      - `scan`: the jobs that query a live database and run only tools and this checkout's scripts:
-       `bun-audit`, `deps-freshness`, `bearer`, `osv` (registries);
+       `bun-audit`, `deps-freshness`, `osv` (registries). `bearer` scans with only the pinned rules
+       and its version check off, so it makes no network call and runs in `security`;
      - `gradle`: Gradle downloads every resolvable configuration (registries); the offline builds
        verify each artifact against the candidate's `verification-metadata.xml`;
      - `security`: every other security job with no network, the scanners first and the jobs that

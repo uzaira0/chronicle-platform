@@ -482,7 +482,21 @@ with open(os.environ['FIXTURE_CALLS'], 'a') as handle:
     handle.write(' '.join(['python3', *args]) + '\\n')
 sys.exit(json.loads(os.environ['BEARER_FIXTURE']).get('check', 0))
 ''')
-            for tool in ('bearer', 'python3'):
+            # Both scans read the pinned bearer-rules release from the tool directory (ensure_bearer_rules).
+            # The rules are already there and marked verified, so the job has nothing to download; a
+            # download would end it with 91. Before this the test fetched six archives from GitHub.
+            (fixture / 'curl').write_text('''#!/bin/bash
+printf 'curl %s\\n' "$*" >>"$FIXTURE_CALLS"
+printf '%s\\n' 'unexpected fixture download' >&2
+exit 91
+''')
+            rules_pin = subprocess.run(['yq', '-r', '.gate_tools."bearer-rules".version', str(ROOT / 'toolchain-manifest.yaml')],
+                                       capture_output=True, text=True, check=True).stdout.strip()
+            rules = fixture / f'bearer-rules-{rules_pin}'
+            rules.mkdir()
+            (rules / '.verified').touch()
+            pinned_rules = f'--disable-default-rules --external-rule-dir {rules}'
+            for tool in ('bearer', 'python3', 'curl'):
                 (fixture / tool).chmod(0o755)
             reports = fixture / 'reports'
             for settings, status, phases, checked in cases:
@@ -494,8 +508,9 @@ sys.exit(json.loads(os.environ['BEARER_FIXTURE']).get('check', 0))
                                                       BEARER_FIXTURE=json.dumps(settings)))
                     self.assertEqual(status, result.returncode, result.stdout + result.stderr)
                     recorded = calls.read_text().splitlines()
-                    scans = [f'bearer waived scan {ROOT} format=sarif',
-                             f'bearer all scan {ROOT} --ignore-file <no waivers> --format json '
+                    self.assertFalse(any(line.startswith('curl ') for line in recorded), recorded)
+                    scans = [f'bearer waived scan {ROOT} {pinned_rules} format=sarif',
+                             f'bearer all scan {ROOT} {pinned_rules} --ignore-file <no waivers> --format json '
                              f'--output {reports}/bearer-all-findings.json --exit-code 0']
                     check = f'python3 {ROOT}/scripts/check-bearer-waivers.py --findings {reports}/bearer-all-findings.json'
                     self.assertEqual(scans[:len(phases)] + [check] * checked,

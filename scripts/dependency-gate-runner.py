@@ -516,10 +516,11 @@ def touched_images(root: Path, tree: Path, paths: list[str]) -> list[str]:
     return touched
 
 
-# local-ci security jobs that query a live database (npm audit, OSV, GitHub releases, Bearer's rules) and
-# run only checksum-pinned tools and this checkout's scripts: the only ones with a network. Every other
-# job runs with none, the ones that build or test (dependency code) after all the scanners.
-ONLINE_JOBS = ('bun-audit', 'deps-freshness', 'bearer', 'osv')
+# local-ci security jobs that query a live database (npm audit, OSV, GitHub releases) and run only
+# checksum-pinned tools and this checkout's scripts: the only ones with a network. Every other job runs
+# with none, the ones that build or test (dependency code) after all the scanners. Bearer reads the pinned
+# rules the tools step fetched (local-ci.sh ensure_bearer_rules), so it runs offline.
+ONLINE_JOBS = ('bun-audit', 'deps-freshness', 'osv')
 DEPENDENCY_CODE_JOBS = ('engineering', 'gradle-depcheck')
 FUZZ_JOB = 'fuzz'
 
