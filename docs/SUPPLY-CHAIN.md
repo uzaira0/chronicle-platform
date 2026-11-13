@@ -386,6 +386,12 @@ their digests, and `scripts/check-runtime-images.py` checks them at publish.
   `age-gate-only`. The age gate still dates both.
 - The Android app repository (`chronicle-dev`) is not in the Renovate run.
 - Postgres/Percona major versions are disabled in `renovate.json`: they need a data migration.
+- A newer Percona build of the same PostgreSQL major is an ordinary Renovate update (7-day wait: the age
+  gate knows a security fix only through OSV, which has nothing on image tags). PostgreSQL ships its
+  security fixes in minor releases and Trivy has no advisories for Percona's packages, so the image gate
+  does not report a database that is behind one. `deps-freshness` does: it fails once the pinned image has
+  trailed a newer build of its major for more than `freshness.database_max_lag_days` (10) days, unless
+  `freshness.database_lag_accepted` gives a reason and an expiry (`scripts/database_image_lag.py`).
 - A version forced by a Gradle override (`config/dependency-overrides.json`: jackson, netty, log4j,
   commons-lang3, bouncycastle and the rest) carries a removal review with its pinned version. Renovate
   may bump it, but `deps-freshness` and the override-review test fail the branch until a person

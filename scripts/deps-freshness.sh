@@ -7,6 +7,9 @@
 # Also exit 1 when a direct chronicle-web dependency's newest registry release is older than
 # `freshness.web_max_release_age_days` and not listed, with a reason and an expiry, under
 # `freshness.web_stale_accepted` (scripts/web_dependency_age.py).
+# Also exit 1 when the database image has trailed a newer build of its PostgreSQL major for more than
+# `freshness.database_max_lag_days` and `freshness.database_lag_accepted` does not cover it
+# (scripts/database_image_lag.py): the image scan has no advisories for Percona's packages.
 # Read-only; needs curl, jq, yq, gh (for GitHub release lookups).
 #
 #   scripts/deps-freshness.sh                       # table + gate
@@ -136,6 +139,10 @@ web_policy="$(yq -o=json '.freshness' "$MANIFEST")"
 python3 "$ROOT_DIR/scripts/web_dependency_age.py" "$ROOT_DIR/chronicle-web/package.json" /dev/stdin <<<"$web_policy" >&2 \
   || { FAIL=1; echo "[fail] an unmaintained direct chronicle-web dependency (see above)" >&2; }
 
+# --- the database image: days behind a newer build of the same PostgreSQL major ----
+python3 "$ROOT_DIR/scripts/database_image_lag.py" percona/percona-distribution-postgresql "${pg##*:}" /dev/stdin <<<"$web_policy" >&2 \
+  || { FAIL=1; echo "[fail] the database image is too far behind a newer build, or its lag could not be measured (see above)" >&2; }
+
 # --- output ------------------------------------------------------------------
 if [[ $JSON -eq 1 ]]; then
   printf '%s\n' "${ROWS[@]}" | jq -R -s 'split("\n") | map(select(length>0) | split("|") | {name:.[0],pinned:.[1],latest:.[2],status:.[3],note:.[4]})'
@@ -144,7 +151,7 @@ else
   for r in "${ROWS[@]}"; do IFS='|' read -r n p l s x <<<"$r"; printf '%-18s %-14s %-14s %s %s\n' "$n" "$p" "$l" "$s" "$x"; done
 fi
 if [[ $FAIL -eq 1 ]]; then
-  echo "[fail] a lookup failed or a pin is a major version behind and not listed under freshness.accepted_behind in toolchain-manifest.yaml" >&2
+  echo "[fail] a lookup failed, a pin is a major version behind and not listed under freshness.accepted_behind in toolchain-manifest.yaml, or a check above failed" >&2
   exit 1
 fi
 echo "[ok] dependency freshness: no unaccepted major drift" >&2

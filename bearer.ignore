@@ -163,7 +163,7 @@
   },
   "3f423e53bc78e24bb4b165c54c266d43_0": {
     "author": "chronicle",
-    "comment": "scripts/web_dependency_age.py:95 False positive: subprocess receives an argv list (no shell); curl gets fixed flags and a registry URL whose package name is percent-encoded.",
+    "comment": "scripts/web_dependency_age.py:95 False positive: subprocess receives an argv list (no shell); curl gets fixed flags and one address. From this script it is a registry URL whose package name is percent-encoded. From scripts/database_image_lag.py (second caller, reviewed 2026-11-13) it is a Docker Hub tag-list URL built from a repository name checked against Docker Hub's NAMESPACE/NAME grammar, or that list's next-page link, which is fetched only when it starts with the same tag-list URL and its query has no character outside [A-Za-z0-9._~%&=+-].",
     "false_positive": true,
     "ignored_at": "2026-11-02T00:00:00Z"
   },

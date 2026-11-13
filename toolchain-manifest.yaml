@@ -83,6 +83,13 @@ freshness:
   # web_stale_accepted as {name, reason, expires: YYYY-MM-DD}. Expired or stale entries also fail.
   web_max_release_age_days: 1095
   web_stale_accepted: []
+  # The database image (postgres.image) may trail a newer build of the same PostgreSQL major on Docker Hub
+  # for at most this many days after that build was pushed: the 7-day dependency wait, then three days to
+  # rebuild and release. PostgreSQL ships its security fixes in minor releases and Trivy has no advisories
+  # for Percona's packages, so nothing else reports this lag (scripts/database_image_lag.py). To stay behind
+  # longer, add `database_lag_accepted: {reason: "...", expires: YYYY-MM-DD}`; it fails once expired, and
+  # while nothing is over the limit.
+  database_max_lag_days: 10
 
 # Gate tools scripts/local-ci.sh downloads into .local/bin. The sha256 committed here for each
 # release asset (keyed by os-arch as machine_os/machine_arch print it, or "any" when one file serves
