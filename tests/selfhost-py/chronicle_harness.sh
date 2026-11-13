@@ -54,6 +54,18 @@ doctor_reconcile_host() {
   doctor_render false
 }
 
+doctor_host_versions() {
+  need_env
+  # shellcheck source=/dev/null
+  source ./doctor.sh
+  # shellcheck disable=SC2034 # doctor_add and doctor_render read these through dynamic scope.
+  local -a DOCTOR_ROWS=()
+  # shellcheck disable=SC2034
+  local DOCTOR_FAILED=0
+  doctor_check_host_versions
+  doctor_render "${1:-false}"
+}
+
 runtime_versions() {
   PREFLIGHT_FAILED=0
   preflight_runtime_versions

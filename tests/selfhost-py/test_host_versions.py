@@ -3,19 +3,19 @@ an operator must always be able to run `./chronicle update`. The launcher cases 
 step against compose_shim's fake `docker`; the update case runs the upgrade transaction."""
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import compose_shim
 
 ROOT = Path(__file__).resolve().parents[2]
 SERVER = '{{json .Server}}'
 KERNEL = '{{.KernelVersion}}'
-CURRENT = dict(engine='29.8.2', containerd='v2.2.10', runc='1.3.6', kernel='6.12.95')
+CURRENT = {'engine': '29.8.2', 'containerd': 'v2.2.10', 'runc': '1.3.6', 'kernel': '6.12.95'}
 
 
 def server(engine, containerd, runc):
@@ -38,7 +38,7 @@ class RuntimeVersionTests(unittest.TestCase):
                 versions[SERVER] = server(host['engine'], host['containerd'], host['runc'])
             environment = dict(os.environ, **compose_shim.install(root / 'bin', versions=versions))
             result = subprocess.run(['bash', str(ROOT / 'tests/selfhost-py/chronicle_harness.sh'), str(selfhost),
-                                     'runtime_versions'], env=environment, capture_output=True, text=True, timeout=60)
+                                     'runtime_versions'], env=environment, capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual(0, result.returncode, result.stderr)
         output = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout + result.stderr)
         return 'preflight-failed=1' in output, output
@@ -55,13 +55,13 @@ class RuntimeVersionTests(unittest.TestCase):
         self.assertNotIn('warning', output)
 
     def test_each_runtime_component_below_its_minimum_warns_and_never_fails(self):
-        for changes, named, cve in ((dict(engine='29.8.1'), 'Docker Engine 29.8.1', 'CVE-2026-92543'),
-                                    (dict(engine='27.5.1'), 'Docker Engine 27.5.1', 'CVE-2026-92543'),
-                                    (dict(containerd='1.7.28'), 'containerd 1.7.28', 'CVE-2026-95837'),
-                                    (dict(containerd='v2.3.6'), 'containerd v2.3.6', 'CVE-2026-95837'),
-                                    (dict(containerd='2.1.4'), 'containerd 2.1.4', 'CVE-2026-95837'),
-                                    (dict(runc='1.4.2'), 'runc 1.4.2', 'CVE-2026-41579'),
-                                    (dict(runc='1.1.12'), 'runc 1.1.12', 'CVE-2026-41579')):
+        for changes, named, cve in (({'engine': '29.8.1'}, 'Docker Engine 29.8.1', 'CVE-2026-92543'),
+                                    ({'engine': '27.5.1'}, 'Docker Engine 27.5.1', 'CVE-2026-92543'),
+                                    ({'containerd': '1.7.28'}, 'containerd 1.7.28', 'CVE-2026-95837'),
+                                    ({'containerd': 'v2.3.6'}, 'containerd v2.3.6', 'CVE-2026-95837'),
+                                    ({'containerd': '2.1.4'}, 'containerd 2.1.4', 'CVE-2026-95837'),
+                                    ({'runc': '1.4.2'}, 'runc 1.4.2', 'CVE-2026-41579'),
+                                    ({'runc': '1.1.12'}, 'runc 1.1.12', 'CVE-2026-41579')):
             with self.subTest(**changes):
                 failed, output = self.preflight(**changes)
                 self.assertFalse(failed, output)
@@ -129,3 +129,37 @@ class DocumentedMinimumTests(unittest.TestCase):
                 self.assertRegex(notes, r'(?<![\d.])' + re.escape(version) + r'(?![\d])')
         for cve in re.findall(r'CVE-\d{4}-\d+', host_versions.KERNEL_CVES):
             self.assertIn(cve, notes)
+
+
+class DoctorKernelTests(unittest.TestCase):
+    """`chronicle doctor` reports the kernel CVEs as a warn row, never a failure (the check path is
+    RuntimeVersionTests above; doctor had no test of its own until 2026-11-08)."""
+
+    def doctor(self, kernel):
+        from test_monitoring_startup import LauncherTests
+        launcher = LauncherTests()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            selfhost, environment = launcher.install(root, [])
+            versions = {KERNEL: kernel, SERVER: server(CURRENT['engine'], CURRENT['containerd'], CURRENT['runc'])}
+            environment.update(compose_shim.install(root / 'bin', versions=versions))
+            result = launcher.harness(selfhost, environment, 'doctor_host_versions', 'true')
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        report = json.loads(result.stdout.strip().splitlines()[-1])
+        return report, [row for row in report['checks'] if row['check'] == 'host-versions']
+
+    def test_a_vulnerable_kernel_is_a_warning_naming_both_cves(self):
+        for kernel in ('6.8.0-49-generic', '6.12.94', '7.1.2'):
+            with self.subTest(kernel=kernel):
+                report, rows = self.doctor(kernel)
+                self.assertEqual('ok', report['overall'])
+                kernel_rows = [row for row in rows if 'kernel' in row['likelyCause']]
+                self.assertEqual(1, len(kernel_rows), rows)
+                self.assertEqual('warn', kernel_rows[0]['status'])
+                for text in (kernel, 'CVE-2026-31431', 'CVE-2026-53362', 'backport'):
+                    self.assertIn(text, kernel_rows[0]['likelyCause'])
+
+    def test_a_fixed_kernel_is_ok(self):
+        report, rows = self.doctor('6.12.95')
+        self.assertEqual('ok', report['overall'])
+        self.assertEqual(['ok'], [row['status'] for row in rows if 'kernel' in row['likelyCause']])
