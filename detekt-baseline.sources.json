@@ -1826,10 +1826,10 @@
    "line": 381,
    "path": "chronicle/app/src/main/java/com/openlattice/chronicle/ui/SettingsHomeFragment.kt",
    "rule": "CyclomaticComplexMethod",
-   "sha256": "a6b7e24d806b3e76ce76dd3c61c89bcb7e14370cc294be057de8546a471f2388",
+   "sha256": "dee74797ee937635c01458712de9af337c5a03ebbedf11ca99345fd5bd3eed6a",
    "span": {
-    "endColumn": 10,
-    "endLine": 453,
+    "endColumn": 6,
+    "endLine": 489,
     "startColumn": 5,
     "startLine": 381
    }
@@ -1839,10 +1839,10 @@
    "line": 381,
    "path": "chronicle/app/src/main/java/com/openlattice/chronicle/ui/SettingsHomeFragment.kt",
    "rule": "LongMethod",
-   "sha256": "a6b7e24d806b3e76ce76dd3c61c89bcb7e14370cc294be057de8546a471f2388",
+   "sha256": "dee74797ee937635c01458712de9af337c5a03ebbedf11ca99345fd5bd3eed6a",
    "span": {
-    "endColumn": 10,
-    "endLine": 453,
+    "endColumn": 6,
+    "endLine": 489,
     "startColumn": 5,
     "startLine": 381
    }
@@ -4504,10 +4504,10 @@
    "line": 129,
    "path": "chronicle-server/src/test/kotlin/com/openlattice/chronicle/controllers/StudyControllerTest.kt",
    "rule": "LargeClass",
-   "sha256": "6e6e3dd3890d29b0e66b7718e2ff83cea5f4dc1ff9fec571d3bd2496b083f68a",
+   "sha256": "dd6055b3db07899b0e2d1fd9cffd8a60c1cea69e4ea9a61ca13c192e057efc97",
    "span": {
-    "endColumn": 110,
-    "endLine": 1281,
+    "endColumn": 2,
+    "endLine": 2126,
     "startColumn": 1,
     "startLine": 129
    }
