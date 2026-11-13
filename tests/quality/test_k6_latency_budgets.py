@@ -16,9 +16,11 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = sorted([ROOT / 'tests/load/chronicle-load-test.js', *ROOT.glob('tests/load/k6-*.js'),
@@ -28,6 +30,26 @@ BUILTIN_TIME_METRICS = {'http_req_duration', 'http_req_blocked', 'http_req_conne
                         'http_req_sending', 'http_req_waiting', 'http_req_receiving', 'iteration_duration',
                         'group_duration'}
 IMAGE = re.search(r'AUDIT_HELPER_IMAGE="([^"]+)"', (ROOT / 'docker/restore-chronicle.sh').read_text()).group(1)
+REGISTRY_DEADLINE_SECONDS = 180
+REGISTRY_RETRY_DELAYS = (2, 5, 10, 20, 30)
+
+
+def from_registry(*arguments):
+    """stdout of `docker <arguments>`, a command that asks the image registry. A request that fails is
+    repeated with backoff for REGISTRY_DEADLINE_SECONDS in all, and a registry that never answers
+    fails with what docker said. The registry's availability is not what these tests are about: the
+    engineering gate of 2026-11-12 failed on one `docker manifest inspect` of the pinned image that
+    returned exit status 1, and the same command answered a few minutes later."""
+    started, delays = time.monotonic(), iter(REGISTRY_RETRY_DELAYS)
+    while True:
+        result = subprocess.run(['docker', *arguments], check=False, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            return result.stdout
+        delay = next(delays, REGISTRY_RETRY_DELAYS[-1])
+        if time.monotonic() - started + delay >= REGISTRY_DEADLINE_SECONDS:
+            raise AssertionError(f'docker {" ".join(arguments)} still fails after {REGISTRY_DEADLINE_SECONDS} s '
+                                 f'(exit {result.returncode}): {result.stderr.strip()}')
+        time.sleep(delay)
 
 
 def time_metrics(script):
@@ -156,6 +178,9 @@ class LocalCiJobTests(unittest.TestCase):
 class PlatformModeTests(unittest.TestCase):
     def mode(self, image):
         name = f'chronicle-latency-mode-{uuid.uuid4().hex[:12]}'
+        # docker create pulls an image the local store lacks, once and with no second try.
+        if subprocess.run(['docker', 'image', 'inspect', image], check=False, capture_output=True, timeout=60).returncode:
+            from_registry('pull', '--quiet', image)
         subprocess.run(['docker', 'create', '--name', name, image, 'true'], check=True, capture_output=True, timeout=300)
         try:
             script = f'source {ROOT}/tests/load/latency-budget-mode.sh && k6_latency_budget_mode {name}'
@@ -170,8 +195,7 @@ class PlatformModeTests(unittest.TestCase):
         foreign = 'linux/arm64' if host == 'linux/amd64' else 'linux/amd64'
         # The pin is a multi-platform index; the classic image store keeps one platform per digest, so the
         # foreign platform is created from its own manifest digest.
-        index = json.loads(subprocess.run(['docker', 'manifest', 'inspect', IMAGE], check=True, capture_output=True,
-                                          text=True, timeout=120).stdout)
+        index = json.loads(from_registry('manifest', 'inspect', IMAGE))
         digest = next(entry['digest'] for entry in index['manifests']
                       if f"{entry['platform']['os']}/{entry['platform']['architecture']}" == foreign)
         self.assertEqual(self.mode(IMAGE), 'gate')
@@ -182,6 +206,29 @@ class PlatformModeTests(unittest.TestCase):
                   f'k6_latency_budget_mode chronicle-no-such-{uuid.uuid4().hex}')
         result = subprocess.run(['bash', '-c', script], check=False, capture_output=True, timeout=60)
         self.assertNotEqual(result.returncode, 0)
+
+
+class RegistryRequestTests(unittest.TestCase):
+    """from_registry, with docker and the clock replaced: no registry is asked."""
+
+    FAILED = subprocess.CompletedProcess([], 1, stdout='', stderr='toomanyrequests: retry-after: 2s\n')
+    ANSWERED = subprocess.CompletedProcess([], 0, stdout='{"manifests": []}', stderr='')
+
+    def test_a_request_that_fails_once_is_asked_again(self):
+        with patch.object(subprocess, 'run', side_effect=[self.FAILED, self.ANSWERED]) as run, \
+                patch.object(time, 'sleep') as sleep:
+            self.assertEqual('{"manifests": []}', from_registry('manifest', 'inspect', 'registry.invalid/image'))
+        self.assertEqual([['docker', 'manifest', 'inspect', 'registry.invalid/image']] * 2,
+                         [call.args[0] for call in run.call_args_list])
+        sleep.assert_called_once_with(REGISTRY_RETRY_DELAYS[0])
+
+    def test_a_registry_that_never_answers_fails_at_the_deadline_with_what_docker_said(self):
+        clock = iter(range(0, 100 * REGISTRY_DEADLINE_SECONDS, REGISTRY_DEADLINE_SECONDS // 2))
+        with patch.object(subprocess, 'run', return_value=self.FAILED) as run, patch.object(time, 'sleep'), \
+                patch.object(time, 'monotonic', side_effect=lambda: next(clock)):
+            with self.assertRaisesRegex(AssertionError, rf'still fails after {REGISTRY_DEADLINE_SECONDS} s \(exit 1\): toomanyrequests'):
+                from_registry('manifest', 'inspect', 'registry.invalid/image')
+        self.assertEqual(2, run.call_count)
 
 
 class SmokeWiringTests(unittest.TestCase):
