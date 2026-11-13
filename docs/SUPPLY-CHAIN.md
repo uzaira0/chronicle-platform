@@ -156,7 +156,9 @@ the user  ->  merges deps/auto onward, cuts and publishes releases
      no `GH_TOKEN`, `GHCR_TOKEN`, `SSH_AUTH_SOCK` or signing key. Everything else runs in the gate
      sandbox, each step on a fresh APFS clone of the candidate (nothing one step's dependency code
      writes reaches the next) with this checkout's `scripts/` and `tests/` mounted read-only over the
-     candidate's:
+     candidate's. A `scripts/` file the candidate changed only by swapping digest-pinned image
+     references carries the candidate's pins in that copy (`gate_scripts`), so a test comparing the JDK
+     builder in `scripts/sandbox/Dockerfile.gate` with `docker/Dockerfile.backend` sees both new digests:
      - `python`: the candidate's `requirements-dev.txt`, wheels only, every hash checked, into a
        directory the later steps mount read-only (registries);
      - `tools`: `local-ci.sh gate-tools` downloads every checksum-pinned security tool and grype's
@@ -174,7 +176,10 @@ the user  ->  merges deps/auto onward, cuts and publishes releases
        prints the database's age and fails (status 2) when the record is missing or older than
        `CHRONICLE_DEPCHECK_MAX_AGE_HOURS` (default 168);
      - `fuzz`: the fuzz job as linux/amd64 (Jazzer has no linux/aarch64 library), no network;
-     - `web`, when chronicle-web changed: `bun install` (registries) then `local-ci.sh web` (none);
+     - `web`, when chronicle-web changed: `bun install` (registries), the candidate's Playwright
+       Chromium headless shell into `/cache/ms-playwright` (`--network browsers`: registries plus
+       `scripts/sandbox/egress-allowlist-browsers.txt`, where storage.googleapis.com is admitted for
+       this command alone), then `local-ci.sh web` (none), whose browser tests use it;
   5. on green pushes `deps/auto` as a fast-forward (moved submodules first, then the root), records
      that commit as the trusted base, and posts the status; on red posts the failing gates. Logs are
      under `~/Library/Caches/chronicle-dependency-gate/logs/`.
@@ -360,9 +365,13 @@ their digests, and `scripts/check-runtime-images.py` checks them at publish.
   If `deps/auto` already exists and is not contained in the runner's checkout, review it and record
   it with `scripts/dependency-gate-runner.py --trust-base <ref>`; until then every candidate is gated
   together with everything on `deps/auto` since the last trusted commit.
-- Daily schedule: `scripts/launchd/install-dependency-intake.sh` writes
-  `~/Library/LaunchAgents/com.chronicle.dependency-intake.plist` (04:17 daily) and prints the
-  `launchctl bootstrap` command. It does not load the job; loading it is the user's step.
+- Daily schedule: `scripts/launchd/install-dependency-intake.sh [--ref REF]` writes
+  `~/Library/LaunchAgents/com.chronicle.dependency-intake.plist` (04:17 daily) for the runner checkout
+  `~/chronicle/dependency-intake`, which it creates as a detached worktree at REF when missing. That
+  checkout's code decides every gate, so it is never a task or release worktree, and it refuses a
+  checkout with a branch checked out. Moving the runner to newer policy is a reviewed
+  `git -C ~/chronicle/dependency-intake checkout --detach <commit>`. The script prints the
+  `launchctl bootstrap` command and does not load the job itself.
 
 ## What stays manual
 

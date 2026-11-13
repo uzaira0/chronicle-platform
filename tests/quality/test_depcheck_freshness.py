@@ -10,13 +10,17 @@ exits 2 when the record is missing or older than CHRONICLE_DEPCHECK_MAX_AGE_HOUR
 """
 import datetime as dt
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 STAMP = 'chronicle-nvd-updated-utc'
+# The gate runner's security step sets these for local-ci (dependency-gate-runner.py job_env); a test
+# that inherited them ran its update case as a cache-only run (renovate/eclipse-temurin-25-jdk, 2026-11-08).
+JOB_INPUTS = ('SKIP_NVD_UPDATE', 'CHRONICLE_DEPCHECK_MAX_AGE_HOURS', 'CHRONICLE_DEPCHECK_DATA_DIR')
 # The job with the JVM, the Gradle runs and the report copy replaced: only the database checks run.
 DRIVER = '''source "$1"
 require_jdk21() { :; }
@@ -29,7 +33,8 @@ job_gradle_depcheck
 
 class DepcheckFreshnessTests(unittest.TestCase):
     def run_job(self, data: Path, **env):
-        environment = dict(os.environ, CHRONICLE_DEPCHECK_DATA_DIR=str(data), NVD_API_KEY='placeholder-not-a-key',
+        inherited = {name: value for name, value in os.environ.items() if name not in JOB_INPUTS}
+        environment = dict(inherited, CHRONICLE_DEPCHECK_DATA_DIR=str(data), NVD_API_KEY='placeholder-not-a-key',
                            CHRONICLE_LOCAL_CI_REPORT_DIR=str(data.parent / 'reports'), **env)
         return subprocess.run(['bash', '-s', str(ROOT / 'scripts/local-ci.sh')], input=DRIVER, capture_output=True,
                               text=True, timeout=120, check=False, env=environment)
@@ -73,7 +78,9 @@ class DepcheckFreshnessTests(unittest.TestCase):
             self.assertIn('gradle dependencyCheckAll', result.stdout)
 
     def test_a_successful_update_records_its_time(self):
-        with tempfile.TemporaryDirectory() as folder:
+        # As in the gate sandbox: the environment around the test is a cache-only run.
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, SKIP_NVD_UPDATE='1',
+                                                                       CHRONICLE_DEPCHECK_MAX_AGE_HOURS='1'):
             data = self.database(folder, None)
             before = dt.datetime.now(dt.UTC).replace(microsecond=0)
             result = self.run_job(data)

@@ -35,6 +35,9 @@
 #                   forwards HTTPS CONNECT to the hosts in scripts/sandbox/egress-allowlist.txt and
 #                   refuses the rest. The container gets HTTPS_PROXY and the JVM proxy properties.
 #                   Installs, lockfile regeneration and the scanners' databases.
+#   browsers        registries plus the hosts in scripts/sandbox/egress-allowlist-browsers.txt: only the
+#                   gate runner's `playwright install chromium-headless-shell`, whose Chrome for Testing
+#                   builds redirect to storage.googleapis.com, a host no other step may reach.
 #
 # Caches live in the named volume chronicle-deps-sandbox-cache, which holds only downloaded packages
 # and tools. Exit status is the command's.
@@ -46,7 +49,7 @@ network=none
 platform=''
 mounts=()
 envs=(-e HOME=/home/bun -e CI=1 -e BUN_INSTALL_CACHE_DIR=/cache/bun -e GRADLE_USER_HOME=/cache/gradle
-      -e CHRONICLE_LOCAL_BIN_DIR=/cache/bin)
+      -e CHRONICLE_LOCAL_BIN_DIR=/cache/bin -e PLAYWRIGHT_BROWSERS_PATH=/cache/ms-playwright)
 base_image=''
 usage='usage: scripts/deps-sandbox.sh [--image deps|jdk|go|gate | --base-image REF@sha256:DIGEST] [--network none|registries] [--platform linux/amd64|linux/arm64] [--mount /HOST:/CONTAINER[:ro]]... [--env NAME=VALUE]... SOURCE -- COMMAND...'
 while [[ $# -gt 0 ]]; do
@@ -60,7 +63,7 @@ while [[ $# -gt 0 ]]; do
         echo 'deps-sandbox: --base-image takes a reference pinned by digest (REPOSITORY[:TAG]@sha256:DIGEST)' >&2; exit 2; }
       image=base; base_image=$2; shift 2 ;;
     --network)
-      [[ "${2:-}" =~ ^(none|registries)$ ]] || { echo 'deps-sandbox: --network takes none or registries' >&2; exit 2; }
+      [[ "${2:-}" =~ ^(none|registries|browsers)$ ]] || { echo 'deps-sandbox: --network takes none, registries or browsers' >&2; exit 2; }
       network=$2; shift 2 ;;
     --offline) network=none; shift ;;
     --platform)
@@ -161,7 +164,7 @@ id="chronicle-deps-$$-$RANDOM"
 proxy=''
 cleanup() {
   [[ -z "$proxy" ]] || docker rm -fv "$proxy" >/dev/null 2>&1 || true
-  if [[ "$network" == registries ]]; then
+  if [[ "$network" != none ]]; then
     docker network rm "$id-internal" "$id-egress" >/dev/null 2>&1 || true
   fi
 }
@@ -182,7 +185,13 @@ create_network() {
   return 1
 }
 network_args=(--network none)
-if [[ "$network" == registries ]]; then
+allowlists=(--allowlist /proxy/allowlist.txt)
+proxy_mounts=(-v "$root/scripts/sandbox/egress-allowlist.txt:/proxy/allowlist.txt:ro")
+if [[ "$network" == browsers ]]; then
+  allowlists+=(--allowlist /proxy/allowlist-browsers.txt)
+  proxy_mounts+=(-v "$root/scripts/sandbox/egress-allowlist-browsers.txt:/proxy/allowlist-browsers.txt:ro")
+fi
+if [[ "$network" != none ]]; then
   proxy_tag=$(platform='' build chronicle-deps-sandbox "$root/scripts/sandbox/Dockerfile.deps")
   create_network "$id-internal" 10.251.9.0/24 --internal
   create_network "$id-egress" 10.251.10.0/24
@@ -190,8 +199,8 @@ if [[ "$network" == registries ]]; then
   docker run -d --name "$proxy" --network "$id-egress" --cap-drop ALL --security-opt no-new-privileges \
     --read-only --pids-limit 256 --user 1000:1000 \
     -v "$root/scripts/sandbox/egress-proxy.py:/proxy/egress-proxy.py:ro" \
-    -v "$root/scripts/sandbox/egress-allowlist.txt:/proxy/allowlist.txt:ro" \
-    "$proxy_tag" python3 /proxy/egress-proxy.py --allowlist /proxy/allowlist.txt --port 3128 >/dev/null
+    "${proxy_mounts[@]}" \
+    "$proxy_tag" python3 /proxy/egress-proxy.py "${allowlists[@]}" --port 3128 >/dev/null
   docker network connect --alias egress-proxy "$id-internal" "$proxy"
   network_args=(--network "$id-internal")
   for variable in HTTPS_PROXY HTTP_PROXY https_proxy http_proxy; do envs+=(-e "$variable=http://egress-proxy:3128"); done

@@ -119,6 +119,22 @@ class SandboxTests(unittest.TestCase):
         self.assertIn('403', result.stdout + result.stderr)
 
 
+class EgressAllowlistTests(unittest.TestCase):
+    """egress-proxy.py admits the union of its --allowlist files; only --network browsers adds the second."""
+
+    def test_the_browser_hosts_are_admitted_only_with_their_list(self):
+        spec = importlib.util.spec_from_file_location('egress_proxy', ROOT / 'scripts/sandbox/egress-proxy.py')
+        proxy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(proxy)
+        base = str(ROOT / 'scripts/sandbox/egress-allowlist.txt')
+        browsers = str(ROOT / 'scripts/sandbox/egress-allowlist-browsers.txt')
+        self.assertFalse(proxy.allowed('storage.googleapis.com', proxy.load_allowlist(base)))
+        both = proxy.load_allowlist(base, browsers)
+        self.assertTrue(proxy.allowed('storage.googleapis.com', both))
+        self.assertTrue(proxy.allowed('registry.npmjs.org', both))
+        self.assertFalse(proxy.allowed('evil.example', both))
+
+
 class SandboxImageBuildTests(unittest.TestCase):
     """deps-sandbox.sh with a docker of the test's own whose image build fails."""
 
@@ -178,7 +194,8 @@ security_jobs=(probe)
             trusted = base / 'trusted'  # a runner checkout whose local-ci.sh is the probe
             for name in ('scripts/deps-sandbox.sh', 'scripts/sandbox/Dockerfile.deps', 'scripts/sandbox/Dockerfile.gate',
                          'scripts/sandbox/Dockerfile.jdk', 'scripts/sandbox/egress-proxy.py',
-                         'scripts/sandbox/egress-allowlist.txt', 'docker/Dockerfile.backend',
+                         'scripts/sandbox/egress-allowlist.txt', 'scripts/sandbox/egress-allowlist-browsers.txt',
+                         'docker/Dockerfile.backend',
                          'selfhost/Dockerfile.backup', 'toolchain-manifest.yaml',
                          # the sandbox images install OS packages through these (the os-packages context)
                          'selfhost/os-packages/apk-install-aged.sh', 'selfhost/os-packages/apt-install-aged.sh',

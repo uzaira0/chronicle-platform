@@ -7,7 +7,9 @@
 
 Trust: everything that decides a gate comes from this checkout (--root, the runner's own), never
 from the candidate. The age gate, the regeneration driver, the image gate and every script a
-sandboxed gate runs (scripts/ and tests/, mounted read-only) are this checkout's files. The candidate is data:
+sandboxed gate runs (scripts/ and tests/, mounted read-only) are this checkout's files; a scripts/ file
+whose only change is a swapped digest-pinned image reference gets the candidate's pins (gate_scripts).
+The candidate is data:
 it is cloned into a work directory, none of its code runs on the host, and a candidate that changes
 a gate input (PROTECTED below: scripts/, tests/, the policy and scanner files, the toolchain's gate
 tools, chronicle-web's bunfig.toml and the non-dependency fields of its package.json) fails before
@@ -37,7 +39,8 @@ For every renovate/* branch of the root repository and of chronicle-web-dev that
     jobs that query live databases (ONLINE_JOBS, through the allowlisting proxy); a Gradle download of
     every resolvable configuration; every other security job with no network, the ones that build or
     test last; the fuzz job as linux/amd64 with no network; when chronicle-web changed, `bun install`
-    (registries only) then `local-ci.sh web` (no network);
+    (registries only), the candidate's Playwright Chromium (--network browsers), then `local-ci.sh web`
+    (no network);
  5. on success pushes deps/auto as a fast-forward (moved submodules first, then the root), records
     it as the trusted base, and posts chronicle/dependency-gate on the Renovate commit.
 
@@ -348,6 +351,12 @@ def prepare(root: Path, tree: Path, ref: str, web_sha: str | None, log: Path) ->
         drop_refs(tree / WEB_PATH, log)
 
 
+def gitlinks(tree: Path) -> set[str]:
+    """Paths of the tree's gitlinks (mode 160000) at the index, initialised or not."""
+    return {line.split('\t', 1)[1] for line in out(['git', 'ls-files', '--stage'], tree).splitlines()
+            if line.startswith('160000 ')}
+
+
 def submodule_paths(tree: Path) -> list[str]:
     return [line.split()[1] for line in out(['git', 'submodule', 'status'], tree).splitlines()
             if not line.startswith('-')]
@@ -485,7 +494,10 @@ def touched_images(root: Path, tree: Path, paths: list[str]) -> list[str]:
         from chronicle_ops.images import SOURCE_IMAGES
     finally:
         sys.path.pop(0)
-    submodules = set(submodule_paths(tree))
+    # Every gitlink, initialised or not: archive_source includes a gitlink's tree only when the image names it,
+    # so a path under any other gitlink is never in a build context. Reading initialised submodules instead made
+    # the answer depend on the checkout (launch audit IN-X3: an uninitialised chronicle/ counted as root files).
+    submodules = gitlinks(tree)
     touched = []
     for image in SOURCE_IMAGES:
         context = os.path.normpath('selfhost/' + image.context)
@@ -587,12 +599,12 @@ class Step:
 
 
 def sandbox(root: Path, source: Path, command: list[str], network: str, env: dict[str, str] | None = None,
-            mounts: tuple[str, ...] = (), platform: str | None = None) -> list[str]:
-    """A command for the gate sandbox over source, with this checkout's scripts/ and tests/ (gate inputs, the
-    candidate may not change them) in place of the candidate's, so the jobs and the tests of the scripts
-    they run agree."""
+            mounts: tuple[str, ...] = (), platform: str | None = None, scripts: Path | None = None) -> list[str]:
+    """A command for the gate sandbox over source, with this checkout's scripts/ (or scripts, its copy from
+    gate_scripts) and tests/ (gate inputs, the candidate may not change them) in place of the candidate's,
+    so the jobs and the tests of the scripts they run agree."""
     args = ['bash', str(root / 'scripts/deps-sandbox.sh'), '--image', 'gate', '--network', network,
-            '--mount', f'{root / "scripts"}:/work/scripts:ro', '--mount', f'{root / "tests"}:/work/tests:ro']
+            '--mount', f'{scripts or root / "scripts"}:/work/scripts:ro', '--mount', f'{root / "tests"}:/work/tests:ro']
     if platform:
         args += ['--platform', platform]
     for mount in mounts:
@@ -610,6 +622,25 @@ def snapshot(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     clone = ['cp', '-cR'] if sys.platform == 'darwin' else ['cp', '-a', '--reflink=auto']
     subprocess.run([*clone, str(source), str(target)], check=True)
+
+
+def gate_scripts(root: Path, tree: Path, paths: list[str], work: Path) -> Path:
+    """This checkout's scripts/ for the sandbox, where each scripts/ file the candidate changed only by
+    swapping digest-pinned image references (all protected_changes lets through) carries the candidate's
+    pins. A sandboxed test that compares a pin in scripts/ with one outside it then sees the candidate's two:
+    on 2026-11-08 renovate/eclipse-temurin-25-jdk moved the JDK digest in docker/Dockerfile.backend and
+    scripts/sandbox/Dockerfile.gate together and failed against this checkout's Dockerfile.gate. Every
+    other file, and the sandbox image itself (built from this checkout), stays this checkout's."""
+    target = work / 'gate-scripts'
+    snapshot(root / 'scripts', target)
+    for path in paths:
+        if not path.startswith('scripts/'):
+            continue
+        ours, theirs = text_now(root, path), text_now(tree, path)
+        if ours is not None and theirs is not None and ours != theirs \
+                and IMAGE_PIN.sub('<image>', ours) == IMAGE_PIN.sub('<image>', theirs):
+            (target / path.removeprefix('scripts/')).write_text(theirs)
+    return target
 
 
 def nvd_data(work: Path) -> Path | None:
@@ -634,6 +665,7 @@ def gate_steps(root: Path, tree: Path, paths: list[str], logs: Path, work: Path,
     so nothing one step's dependency code writes reaches another step."""
     env = host_env(work, base)
     snap = work / 'sandbox'
+    box = functools.partial(sandbox, root, snap, scripts=gate_scripts(root, tree, paths, work))
     reports = logs / 'reports'
     reports.mkdir(parents=True, exist_ok=True)
     nvd = nvd_data(work)
@@ -665,18 +697,18 @@ def gate_steps(root: Path, tree: Path, paths: list[str], logs: Path, work: Path,
     steps = [Step('age', [['python3', str(root / 'scripts/check-dependency-age.py'), '--root', str(tree), '--base', base,
                            '--cache', str(work / 'age-cache.json'), '--report', str(logs / 'age-report.txt')]], env),
              Step('python', [
-                 sandbox(root, snap, ['uv', 'venv', '--quiet', '--python', '/usr/bin/python3', '/gate-python'], 'none',
+                 box(['uv', 'venv', '--quiet', '--python', '/usr/bin/python3', '/gate-python'], 'none',
                          mounts=(f'{python}:/gate-python',)),
-                 sandbox(root, snap, ['uv', 'pip', 'install', '--quiet', '--python', '/gate-python/bin/python',
+                 box(['uv', 'pip', 'install', '--quiet', '--python', '/gate-python/bin/python',
                                       '--require-hashes', '--only-binary', ':all:', '-r', 'requirements-dev.txt'],
                          'registries', {'UV_CACHE_DIR': '/cache/uv'}, (f'{python}:/gate-python',))], env),
-             Step('tools', [sandbox(root, snap, [*local_ci, 'gate-tools'], 'registries',
+             Step('tools', [box([*local_ci, 'gate-tools'], 'registries',
                                     dict(tool_env, GRYPE_DB_AUTO_UPDATE='true'), (f'{tools}:/gate-tools',))], env),
              Step('github', [['bash', str(root / 'scripts/deps-freshness.sh'), '--fetch-github', str(github)]],
                   dict(os.environ), cwd=root),
-             Step('toolchain', [sandbox(root, snap, ['bash', 'scripts/verify-toolchain.sh'], 'none',
+             Step('toolchain', [box(['bash', 'scripts/verify-toolchain.sh'], 'none',
                                         {'ROBUST_FETCH_DIR': '/robust-fetch'}, (python_ro, fetch_ro))], env),
-             Step('scan', [sandbox(root, snap, [*local_ci, *scan], 'registries',
+             Step('scan', [box([*local_ci, *scan], 'registries',
                                    dict(job_env, CHRONICLE_GITHUB_API_CACHE='/github-api',
                                         BEARER_DISABLE_VERSION_CHECK='true'),
                                    (f'{reports}:/reports', tools_ro, python_ro, fetch_ro,
@@ -684,21 +716,26 @@ def gate_steps(root: Path, tree: Path, paths: list[str], logs: Path, work: Path,
              # Downloads what the offline builds resolve: every resolvable configuration, as dependency
              # verification would record them (--dry-run writes only a .dryrun.xml in this step's copy). The
              # offline steps verify each artifact against the candidate's verification-metadata.xml.
-             Step('gradle', [sandbox(root, snap, ['./gradlew', '--no-daemon', '--console=plain',
+             Step('gradle', [box(['./gradlew', '--no-daemon', '--console=plain',
                                                   '--write-verification-metadata', 'sha256', '--dry-run', 'help'],
                                      'registries')], env),
-             Step('security', [sandbox(root, snap, [*local_ci, *offline], 'none',
+             Step('security', [box([*local_ci, *offline], 'none',
                                        dict(job_env, SKIP_NVD_UPDATE='1', CHRONICLE_DEPCHECK_DATA_DIR='/nvd'),
                                        (f'{reports}:/reports', tools_ro, python_ro, fetch_ro)
                                        + ((f'{nvd}:/nvd',) if nvd else ()))], env)]
     if fuzz:
         # Jazzer ships no linux/aarch64 native library.
-        steps.append(Step('fuzz', [sandbox(root, snap, [*local_ci, *fuzz], 'none', platform='linux/amd64')], env))
+        steps.append(Step('fuzz', [box([*local_ci, *fuzz], 'none', platform='linux/amd64')], env))
     if any(p.startswith(WEB_PATH + '/') for p in paths):
         steps.append(Step('web', [
-            sandbox(root, snap, ['bun', 'install', '--cwd', WEB_PATH, '--frozen-lockfile', '--ignore-scripts'],
+            box(['bun', 'install', '--cwd', WEB_PATH, '--frozen-lockfile', '--ignore-scripts'],
                     'registries'),
-            sandbox(root, snap, [*local_ci, 'web'], 'none',
+            # The browser tests launch Chromium: the candidate's Playwright revision of the headless shell,
+            # into /cache/ms-playwright (PLAYWRIGHT_BROWSERS_PATH, deps-sandbox.sh); its libraries are in
+            # Dockerfile.gate. An install like the one above, with the browser hosts added (--network browsers).
+            box(['bun', f'{WEB_PATH}/node_modules/playwright/cli.js', 'install', 'chromium-headless-shell'],
+                'browsers'),
+            box([*local_ci, 'web'], 'none',
                     dict(tool_env, CHRONICLE_WEB_AUDIT='0', CHRONICLE_LOCAL_CI_REPORT_DIR='/reports'),
                     (f'{reports}:/reports', tools_ro, python_ro, fetch_ro))],
             env))

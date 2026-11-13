@@ -755,6 +755,13 @@ reviewer = "intake-coverage session 2026-11-07 under the owner's approval in cha
 reason = "docker/hetzner/crowdsec/Dockerfile.hardened builds re2 2023-03-01 from the GitHub tag archive (sha256 pinned)."
 
 [[addition]]
+ecosystem = "deb"
+lockfile = "scripts/sandbox/Dockerfile.gate"
+revision = "d6e7fd064931fec25599c623d4874e00b6b23777"
+reviewer = "intake-coverage session 2026-11-08 under the owner's approval in chat (lane D: the dependency gate's web job must run its browser tests)"
+reason = "Playwright 1.64's debian13 Chromium runtime libraries plus fontconfig and fonts-liberation, and their dependencies, at the versions os-package-pins.py resolved from the 20261108T000000Z snapshot; the gate sandbox's web job launches Chromium headless shell for 11 browser tests."
+
+[[addition]]
 ecosystem = "go"
 name = "golang.org/x/net"
 reviewer = "release session 2026-11-13, merging deps/auto into the release line; not a new dependency: f1eb539a (2026-11-07) wrote this version into the RUN line of selfhost/Dockerfile.grafana, and release 2026.11.12 was built from it"

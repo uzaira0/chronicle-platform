@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HTTPS egress for the dependency sandbox (scripts/deps-sandbox.sh --network registries).
 
-    egress-proxy.py --allowlist FILE [--port 3128]
+    egress-proxy.py --allowlist FILE [--allowlist FILE ...] [--port 3128]
 
 The sandbox container sits on an internal Docker network with no gateway; this proxy is the only
 other member and also has a route out. It accepts `CONNECT host:443` for the host names listed in
@@ -21,9 +21,11 @@ HEAD_LIMIT = 16384
 TIMEOUT = 30
 
 
-def load_allowlist(path: str) -> frozenset[str]:
-    with open(path, encoding='utf-8') as handle:
-        names = {line.split('#', 1)[0].strip().lower() for line in handle}
+def load_allowlist(*paths: str) -> frozenset[str]:
+    names: set[str] = set()
+    for path in paths:
+        with open(path, encoding='utf-8') as handle:
+            names |= {line.split('#', 1)[0].strip().lower() for line in handle}
     return frozenset(name for name in names if name)
 
 
@@ -106,10 +108,10 @@ async def serve(allowlist: frozenset[str], port: int) -> None:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--allowlist', required=True)
+    parser.add_argument('--allowlist', required=True, action='append', help='repeat to admit the union')
     parser.add_argument('--port', type=int, default=3128)
     args = parser.parse_args(argv)
-    asyncio.run(serve(load_allowlist(args.allowlist), args.port))
+    asyncio.run(serve(load_allowlist(*args.allowlist), args.port))
     return 0
 
 

