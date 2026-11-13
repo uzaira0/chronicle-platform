@@ -7,13 +7,14 @@ FROM percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88
 USER 0
 
 # Fixed RHEL builds the pinned Percona image predates (same pins and drop conditions as Dockerfile.backup):
-# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214) and ca-certificates (CVE-2026-114406).
+# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214), ca-certificates (CVE-2026-114406) and
+# libxml2 (CVE-2026-74860, CVE-2026-86140; RHSA-2026:98468 names this build as the fix).
 # os-packages/dnf-upgrade-aged.sh: only these builds, aged; the base version stays once one has left the repositories.
 RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
     sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
       --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
         python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-9.el9_9.4 \
-        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8
+        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8 libxml2=2.9.13-18.el9_9.1
 
 # Unused base packages with HIGH findings, and make and binutils (no build runs here): BIND client tools, kernel headers,
 # emacs-filesystem, vim-filesystem,

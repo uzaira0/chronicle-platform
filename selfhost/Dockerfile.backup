@@ -46,7 +46,8 @@ USER 0
 WORKDIR /
 
 # Fixed builds of base packages the pinned Percona image predates (trivy gate in scripts/publish-images.sh):
-# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214) and ca-certificates (CVE-2026-114406).
+# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214), ca-certificates (CVE-2026-114406) and
+# libxml2 (CVE-2026-74860, CVE-2026-86140; RHSA-2026:98468 names this build as the fix).
 # Red Hat's builds from the UBI repositories (exact NEVRAs, so not the Oracle Linux rebuilds the base also
 # lists). Same pins in Dockerfile.postgres. Drop each once the pinned Percona base ships that build or newer.
 # os-packages/dnf-upgrade-aged.sh installs only these builds (aged by scripts/check-dependency-age.py) and
@@ -55,7 +56,7 @@ RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/s
     sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
       --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
         python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-9.el9_9.4 \
-        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8
+        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8 libxml2=2.9.13-18.el9_9.1
 
 # Base packages the backup never runs, removed instead of waived: BIND client tools (CVE-2026-19630,
 # CVE-2026-94300, CVE-2026-96888, CVE-2026-97313), kernel headers (CVE-2026-98614), emacs-filesystem

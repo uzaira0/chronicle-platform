@@ -217,7 +217,7 @@ bind-mounted into the `RUN` that uses them:
 |---|---|---|---|
 | `apk-install-aged.sh BRANCH [--add N...] [--pin N=V...] [--upgrade N=V...]` | backend, frontend, caddy, grafana runtime stages | `--pin`: each added package and each dependency the base lacks; `--upgrade`: newer versions of base packages | the APK index build time `t:` (`dl-cdn.alpinelinux.org/alpine/<branch>/{main,community}/x86_64/APKINDEX.tar.gz`) |
 | `apt-install-aged.sh DISTRO SNAPSHOT [--https] [--download] [--add N...] [--pin N=V...] [--upgrade N=V...]` | backend builder (Ubuntu), backup builder (Debian), fluentbit's Debian stage (`--download`); the dependency sandbox images `scripts/sandbox/Dockerfile.{deps,gate}` (Debian) and `Dockerfile.jdk` (Ubuntu) | the full resolved closure, exact versions | Debian: `first_seen` of the amd64 (or all) binary from `snapshot.debian.org/mr/binary/<pkg>/<ver>/binfiles?fileinfo=1`; Ubuntu: `date_published` from Launchpad `getPublishedBinaries` (amd64) |
-| `dnf-upgrade-aged.sh RELEASE --upgrade N=V-R...` | backup and postgres (Percona/UBI 9) | the five fixed RHEL builds, exact | UBI 9 `repodata/*-primary.xml.gz` `<time file= build=>`: the later of the two |
+| `dnf-upgrade-aged.sh RELEASE --upgrade N=V-R...` | backup and postgres (Percona/UBI 9) | the six fixed RHEL builds, exact | UBI 9 `repodata/*-primary.xml.gz` `<time file= build=>`: the later of the two |
 
 `scripts/check-dependency-age.py` reads these pins from every Dockerfile (module `scripts/os_packages.py`)
 as `apk:v3.24/<name>`, `deb:debian/<name>` / `deb:ubuntu/<name>` and `rpm:el9/<name>` entries and

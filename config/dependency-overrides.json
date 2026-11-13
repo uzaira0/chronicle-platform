@@ -239,6 +239,18 @@
       "CVE-2026-114406"
     ]
   },
+  "selfhost/Dockerfile.backup::libxml2": {
+    "pin": "libxml2-2.9.13-18.el9_9.1",
+    "reason": "The pinned Percona base ships libxml2 2.9.13-14.el9_8.5. Red Hat's RHSA-2026:98468 (2026-11-11) names 2.9.13-18.el9_9.1 as the fix for CVE-2026-74860 and CVE-2026-86140, and the image gate of 2026-11-13 reports both against the base build; the exact NEVRA selects the UBI build. UBI received it on 2026-10-22.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports libxml2-2.9.13-18.el9_9.1 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-13",
+    "review_after": "2026-12-13",
+    "source_commit": "ae72e184813faf52ddee3386eba25e687229801a",
+    "recorded_advisories": [
+      "CVE-2026-74860",
+      "CVE-2026-86140"
+    ]
+  },
   "selfhost/Dockerfile.postgres::python3": {
     "pin": "python3-3.9.25-7.el9_8.6",
     "reason": "The pinned Percona base predates Red Hat's fixed python3 RPM (CVE-2026-19445, CVE-2026-19553); the exact NEVRA selects the UBI build over the Oracle Linux rebuild.",
@@ -295,6 +307,18 @@
     "source_commit": "c2dadf2337db9f3d8c827588ffae0b6109117022",
     "recorded_advisories": [
       "CVE-2026-114406"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::libxml2": {
+    "pin": "libxml2-2.9.13-18.el9_9.1",
+    "reason": "The pinned Percona base ships libxml2 2.9.13-14.el9_8.5. Red Hat's RHSA-2026:98468 (2026-11-11) names 2.9.13-18.el9_9.1 as the fix for CVE-2026-74860 and CVE-2026-86140, and the image gate of 2026-11-13 reports both against the base build; the exact NEVRA selects the UBI build. UBI received it on 2026-10-22.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports libxml2-2.9.13-18.el9_9.1 or newer without dnf upgrade.",
+    "reviewed_on": "2026-11-13",
+    "review_after": "2026-12-13",
+    "source_commit": "ae72e184813faf52ddee3386eba25e687229801a",
+    "recorded_advisories": [
+      "CVE-2026-74860",
+      "CVE-2026-86140"
     ]
   },
   "selfhost/Dockerfile.caddy::patch:selfhost/caddy/go-jose-v3-rsa-bounds.patch": {

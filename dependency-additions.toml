@@ -772,3 +772,9 @@ ecosystem = "go"
 name = "golang.org/x/net"
 reviewer = "release session 2026-11-13, merging deps/auto into the release line; not a new dependency: f1eb539a (2026-11-07) wrote this version into the RUN line of selfhost/Dockerfile.grafana, and release 2026.11.12 was built from it"
 reason = "selfhost/Dockerfile.grafana replaces golang.org/x/net with v0.62.0 in the Grafana rebuild (CVE-2026-78661, the x/net/html tokenizer); the build checks go version -m. The merge moved the version into a `# renovate:` ARG, where the age gate reads it for the first time: first cached by index.golang.org on 2026-10-27, 16.5 days old on 2026-11-13, past the 7-day wait."
+
+[[addition]]
+ecosystem = "rpm"
+name = "el9/libxml2"
+reviewer = "release session 2026-11-13: Red Hat's own package from the UBI 9 baseos repository, already installed in the Percona base image (2.9.13-14.el9_8.5); no new package enters either image"
+reason = "selfhost/Dockerfile.postgres and selfhost/Dockerfile.backup upgrade libxml2 to 2.9.13-18.el9_9.1, the build RHSA-2026:98468 (2026-11-11) names as the fix for CVE-2026-74860 and CVE-2026-86140; the image gate's Trivy database of 2026-11-13 reports both against the base build. UBI received this build on 2026-10-22T09:35:34Z (baseos primary.xml), 21.9 days before this change, past the 7-day wait. Neither image has python3-libxml2."
