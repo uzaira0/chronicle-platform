@@ -55,6 +55,8 @@ cleanup() {
   source "$ROOT/tests/security/lib/selfhost-python.sh"
   remove_compose_project "$TOPOLOGY_PROJECT" -f "$CLIENT_COMPOSE" >/dev/null 2>&1 || true
   (cd "$STACK" && remove_compose_project "$PROJECT" >/dev/null 2>&1) || true
+  # Created by this script before the stack; gone already when Compose removed the project.
+  docker network rm "${PROJECT}_database-probe" >/dev/null 2>&1 || true
   printf 'status=%s\n' "$status" >"$RUN/result.txt"
   return "$status"
 }
@@ -179,6 +181,16 @@ from pathlib import Path
 lines=Path('.env').read_text().splitlines(); hashes=[x for x in lines if x.startswith('DASHBOARD_PASSWORD_HASH=')]
 Path('.env').write_text('\n'.join(x for x in lines if not x.startswith('DASHBOARD_PASSWORD_HASH='))+'\n'+hashes[-1]+'\n')
 PY
+# database-probe is the one network of this project that Docker would place from its default address
+# pools; the others carry subnets from .env. The release smoke's own stack runs beside this one and,
+# with monitoring, holds seven of those pools, so a host that runs other projects may have none left
+# (2026-11-12: "all predefined address pools have been fully subnetted"). Create it first on a chosen
+# subnet, under the name and the two labels Compose gives it: Compose then uses the network that
+# exists and removes it with the project (tests/quality/test_topology_probe_network.py).
+probe_subnet=$(python3 network-subnet.py select 10.251.11.0/24 "$PROJECT")
+docker network create --internal --subnet "$probe_subnet" \
+  --label "com.docker.compose.project=$PROJECT" --label com.docker.compose.network=database-probe \
+  "${PROJECT}_database-probe" >/dev/null
 docker compose up -d --wait --wait-timeout "${START_WAIT_TIMEOUT_SECONDS:-3600}"
 install -m 644 tls/internal-ca.crt "$TOPOLOGY_FIXTURE/lb/pool-ca.crt"
 clients up -d lb

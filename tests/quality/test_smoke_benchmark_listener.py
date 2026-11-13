@@ -8,6 +8,7 @@ both behaviours; the static test holds the smoke to that order."""
 import re
 import shutil
 import subprocess
+import sys
 import unittest
 import uuid
 from pathlib import Path
@@ -30,7 +31,8 @@ class BenchmarkListenerTests(unittest.TestCase):
         text = SMOKE.read_text()
         self.assertIn('"$BENCHMARK_EDGE_NETWORK"', published_networks(text))
         self.assertNotIn('"$(jq -er .network "$RUN_DIR/benchmark-listener.json")"', published_networks(text))
-        create = text.index('docker network create --label "chronicle.sat-r1.fixture=$PROJECT" "$BENCHMARK_EDGE_NETWORK"')
+        create = text.index('docker network create --subnet "$benchmark_edge_subnet" '
+                            '--label "chronicle.sat-r1.fixture=$PROJECT" "$BENCHMARK_EDGE_NETWORK"')
         connect = text.index('docker network connect "$(jq -er .network "$RUN_DIR/benchmark-listener.json")"')
         start = text.index('docker start "$BENCHMARK_LISTENER_CONTAINER"')
         self.assertLess(create, connect)
@@ -48,9 +50,13 @@ class BenchmarkListenerTests(unittest.TestCase):
         tag = 'chronicle-quality-publish-' + uuid.uuid4().hex[:10]
         def docker(*arguments, check=True):
             return subprocess.run(['docker', *arguments], capture_output=True, text=True, timeout=180, check=check)
+        def subnet(default, name):
+            # Chosen, not taken from Docker's default address pools (test_created_networks_name_a_subnet).
+            return subprocess.run([sys.executable, str(ROOT / 'selfhost/network-subnet.py'), 'select', default, name],
+                                  check=True, capture_output=True, text=True, timeout=60).stdout.strip()
         try:
-            docker('network', 'create', '--internal', tag + '-internal')
-            docker('network', 'create', tag + '-edge')
+            docker('network', 'create', '--subnet', subnet('10.251.6.0/24', tag + '-internal'), '--internal', tag + '-internal')
+            docker('network', 'create', '--subnet', subnet('10.251.7.0/24', tag + '-edge'), tag + '-edge')
             docker('run', '-d', '--name', tag + '-a', '--network', tag + '-internal', '--publish', '127.0.0.1::8080',
                    IMAGE, 'sleep', '120')
             refused = docker('port', tag + '-a', '8080/tcp', check=False)

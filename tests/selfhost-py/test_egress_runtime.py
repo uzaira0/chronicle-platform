@@ -11,6 +11,7 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -117,7 +118,10 @@ class CaddyStaplingTests(unittest.TestCase):
         cls.work = ROOT / 'build/operator-test-runs/ocsp' / cls.name
         cls.work.mkdir(parents=True)
         (cls.work / 'make.sh').write_text(CERTIFICATES)
-        cls.docker('network', 'create', cls.name)
+        # Chosen, not taken from Docker's default address pools (tests/quality/test_created_networks_name_a_subnet.py).
+        subnet = subprocess.run([sys.executable, str(ROOT / 'selfhost/network-subnet.py'), 'select', '10.251.8.0/24', cls.name],
+                                check=True, capture_output=True, text=True, timeout=60).stdout.strip()
+        cls.docker('network', 'create', '--subnet', subnet, cls.name)
         cls.docker('run', '--rm', '--network', 'none', '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{cls.work}:/work',
                    '--entrypoint', 'bash', cls.images['POSTGRES_IMAGE'], '/work/make.sh')
         cls.docker('run', '-d', '--name', cls.name + '-ocsp', '--network', cls.name, '--network-alias', 'ocsp.chronicle.test',

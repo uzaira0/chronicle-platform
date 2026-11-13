@@ -182,7 +182,9 @@ security_jobs=(probe)
                          'selfhost/Dockerfile.backup', 'toolchain-manifest.yaml',
                          # the sandbox images install OS packages through these (the os-packages context)
                          'selfhost/os-packages/apk-install-aged.sh', 'selfhost/os-packages/apt-install-aged.sh',
-                         'selfhost/os-packages/dnf-upgrade-aged.sh'):
+                         'selfhost/os-packages/dnf-upgrade-aged.sh',
+                         # chooses the subnets of the sandbox's two networks (--network registries)
+                         'selfhost/network-subnet.py'):
                 (trusted / name).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, trusted / name)
             (trusted / 'scripts/local-ci.sh').write_text(

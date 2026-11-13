@@ -1141,7 +1141,12 @@ BENCHMARK_LISTENER
 # published"). Create the listener on its own routed bridge, which carries the loopback-published
 # port, join it to the backend's network, then start it.
 BENCHMARK_EDGE_NETWORK="${PROJECT}-k6-edge"
-docker network create --label "chronicle.sat-r1.fixture=$PROJECT" "$BENCHMARK_EDGE_NETWORK" >/dev/null ||
+# Its subnet is chosen here, not taken from Docker's default address pools: the stack with monitoring
+# already takes seven networks from those pools, and a host that runs other projects may have no eighth
+# (2026-11-12: 7 of 30 free on the release Mac).
+benchmark_edge_subnet="$(python3 "$ROOT_DIR/selfhost/network-subnet.py" select 10.251.5.0/24 "$BENCHMARK_EDGE_NETWORK")" ||
+  fail 'could not choose a subnet for the benchmark listener network'
+docker network create --subnet "$benchmark_edge_subnet" --label "chronicle.sat-r1.fixture=$PROJECT" "$BENCHMARK_EDGE_NETWORK" >/dev/null ||
   fail 'could not create the benchmark listener network'
 # The release caddy binary carries cap_net_bind_service=ep; the kernel refuses to exec it
 # when that capability is outside the bounding set, so keep it as the web service does.

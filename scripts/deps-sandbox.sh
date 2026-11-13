@@ -166,11 +166,26 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+# create_network NAME DEFAULT_SUBNET [OPTION...] creates a Docker network on a chosen subnet
+# (selfhost/network-subnet.py select: DEFAULT_SUBNET when it overlaps no Docker network and no host
+# route, else the first free 10.253.N.0/24), not one from Docker's default address pools. A host
+# that runs many Compose projects has none of those left, and the sandbox must still start there.
+# Another sandbox can take the chosen subnet between the choice and the create, so both are tried again.
+create_network() {
+  local name=$1 default=$2 subnet error=''
+  shift 2
+  for _ in 1 2 3 4 5; do
+    subnet=$(python3 "$root/selfhost/network-subnet.py" select "$default" "$name") || break
+    error=$(docker network create --subnet "$subnet" "$@" "$name" 2>&1 >/dev/null) && return 0
+  done
+  echo "deps-sandbox: could not create the network $name${error:+: $error}" >&2
+  return 1
+}
 network_args=(--network none)
 if [[ "$network" == registries ]]; then
   proxy_tag=$(platform='' build chronicle-deps-sandbox "$root/scripts/sandbox/Dockerfile.deps")
-  docker network create --internal "$id-internal" >/dev/null
-  docker network create "$id-egress" >/dev/null
+  create_network "$id-internal" 10.251.9.0/24 --internal
+  create_network "$id-egress" 10.251.10.0/24
   proxy="$id-proxy"
   docker run -d --name "$proxy" --network "$id-egress" --cap-drop ALL --security-opt no-new-privileges \
     --read-only --pids-limit 256 --user 1000:1000 \
