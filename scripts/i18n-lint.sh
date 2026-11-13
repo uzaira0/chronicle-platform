@@ -2,11 +2,13 @@
 # Hardcoded-English guard across the monorepo. Exits non-zero on the first surface with findings.
 #   make i18n-lint            everything
 #   scripts/i18n-lint.sh web|android|server|ios   one surface
-# Needs: ast-grep (cargo install ast-grep), semgrep (pip install semgrep), jq, bun (web only).
+# Needs: semgrep (pip install semgrep), jq, bun (web only). ast-grep is the toolchain-manifest.yaml
+# gate_tools pin, installed into .local/bin by local-ci's ensure_ast_grep (checksum-verified): a
+# different ast-grep first on PATH (Homebrew's, cargo's) is never used.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 surfaces=("$@"); [ ${#surfaces[@]} -eq 0 ] && surfaces=(web android server ios)
-required_tools=(ast-grep jq)
+required_tools=(jq)
 for s in "${surfaces[@]}"; do
   if [[ "$s" == ios && -f chronicle-ios/lint/i18n/semgrep.yml ]]; then required_tools+=(semgrep); fi
 done
@@ -16,12 +18,9 @@ for tool in "${required_tools[@]}"; do
     exit 1
   fi
 done
-ast_grep_version=$(ast-grep --version) || { echo "i18n-lint: could not determine ast-grep version; minimum 0.45.2 required; run cargo install ast-grep --locked" >&2; exit 1; }
-ast_grep_version=${ast_grep_version##* }
-if [[ ! "$ast_grep_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! printf '%s\n' 0.45.2 "$ast_grep_version" | sort -V -C; then
-  echo "i18n-lint: found ast-grep $ast_grep_version; minimum 0.45.2 required; run cargo install ast-grep --locked" >&2
-  exit 1
-fi
+# shellcheck source=scripts/local-ci.sh
+source scripts/local-ci.sh
+ensure_ast_grep
 status=0
 for s in "${surfaces[@]}"; do
   echo "== i18n-lint: $s"

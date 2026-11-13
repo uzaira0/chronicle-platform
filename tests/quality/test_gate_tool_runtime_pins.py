@@ -139,7 +139,7 @@ download_asset() {
         return result, downloaded_asset, expected
 
     def test_wrong_global_ast_grep_installs_the_verified_local_pin(self):
-        result, downloaded, expected = self.run_tool('ast-grep', global_version='ast-grep 0.51.0', prime_global=True)
+        result, downloaded, expected = self.run_tool('ast-grep', global_version='ast-grep 0.42.1', prime_global=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertTrue(downloaded)
         self.assertIn('resolved:' + expected, result.stdout)

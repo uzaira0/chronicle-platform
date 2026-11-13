@@ -1,6 +1,7 @@
 """The iOS lint invocation receives existing source directories and refuses an empty target list."""
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -8,6 +9,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+PINNED_AST_GREP = re.search(r'^  ast-grep:\n    version: "([^"]+)"', (ROOT / "toolchain-manifest.yaml").read_text(),
+                            re.MULTILINE).group(1)
 
 
 class I18nLintShellTest(unittest.TestCase):
@@ -17,7 +20,11 @@ class I18nLintShellTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=scratch) as directory:
             root = Path(directory)
             (root / "scripts").mkdir()
-            shutil.copyfile(ROOT / "scripts/i18n-lint.sh", root / "scripts/i18n-lint.sh")
+            # i18n-lint takes its ast-grep from local-ci's ensure_ast_grep (the manifest pin).
+            for name in ("scripts/i18n-lint.sh", "scripts/local-ci.sh", "tests/security/lib/selfhost-python.sh",
+                         "toolchain-manifest.yaml"):
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, root / name)
             ios = root / "chronicle-ios"
             (ios / "lint/i18n").mkdir(parents=True)
             (ios / "lint/i18n/semgrep.yml").write_text("rules: []\n")
@@ -28,7 +35,7 @@ class I18nLintShellTest(unittest.TestCase):
             commands = root / "commands"
             commands.mkdir()
             for name, body in {
-                "ast-grep": 'printf "ast-grep 0.51.0\\n"\n',
+                "ast-grep": f'printf "ast-grep {PINNED_AST_GREP}\\n"\n',
                 "jq": "exit 0\n",
                 "semgrep": 'printf "%s\\n" "$@" > "$LINT_CALLS"\n',
             }.items():

@@ -5,6 +5,12 @@
 #   scripts/i18n-lint-mutation.sh [web|android|server|ios ...]
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+# The pinned ast-grep (toolchain-manifest.yaml gate_tools), never whatever is first on PATH. Sourcing local-ci
+# turns on errexit; this script reads exit codes itself, so it turns that back off.
+# shellcheck source=scripts/local-ci.sh
+source scripts/local-ci.sh
+ensure_ast_grep
+set +e
 surfaces=("$@"); [ ${#surfaces[@]} -eq 0 ] && surfaces=(web android server ios)
 probes=()
 cleanup() { for p in "${probes[@]:-}"; do [ -n "$p" ] && rm -f "$p"; done; }

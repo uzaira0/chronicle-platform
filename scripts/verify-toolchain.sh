@@ -92,6 +92,15 @@ else
   fail "semgrep not on PATH (manifest semgrep is $SEMGREP); uv tool install semgrep==$SEMGREP"
 fi
 
+# ── 1b3. ast-grep: one version for the gates, the web project and the hooks ─────
+# The detekt waiver hashes and the rule fixtures depend on how a version parses, so every ast-grep
+# that runs a rule is the manifest's gate_tools pin (2026-11-07: three versions were in use).
+if python3 "$ROOT_DIR/tests/quality/test_ast_grep_one_version.py" >/dev/null 2>&1; then
+  ok "ast-grep -> the gate_tools pin in local-ci, chronicle-web and the i18n hooks"
+else
+  fail "ast-grep version drift: python3 tests/quality/test_ast_grep_one_version.py"
+fi
+
 # ── 1c. Active JDK major ─────────────────────────────────────────────────────
 # The manifest declared jdk.build_runtime and nothing compared it to the JDK that actually
 # runs the build, so a JDK 21 shell passed every check while the manifest said 25.

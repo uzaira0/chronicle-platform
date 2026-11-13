@@ -107,12 +107,12 @@ gate_tools:
       linux-amd64: "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47"
       linux-arm64: "331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed"
   ast-grep:
-    version: "0.42.1"
+    version: "0.51.0"
     sha256:
-      darwin-amd64: "a038965bfd7fe44257c771cdf8918dc3467dd8ec0eef673b8b14f639b144cdbd"
-      darwin-arm64: "c3961d8e8a4ee0ce2d0d98c7beeb168bb331cdc766b53630118a7b6c4fd39015"
-      linux-amd64: "5de8b87cba67fc8dc3e239d54b6484802ad745a7ae3de76be4fe89661dc52657"
-      linux-arm64: "3ba383839044cf9817929435f5ce0027f91d06931e8efb32d942e58d73d92be5"
+      darwin-amd64: "8438fe549da59da28518c45bdaab5b851aabafe8fb4f8dc05c261a7649b4eca6"
+      darwin-arm64: "e18e13c27ed6c4b3ec4de00745b0755dee9dc26c035e226f4dd5d147dca99cc8"
+      linux-amd64: "a7eead5552d3a8daad70f5d50d935da44bd0c138e946b5b0a96b1d38169fa639"
+      linux-arm64: "73af0ebe5958acee012754a5b2826a186580ef83333092408a7a01096fc30b8b"
   pmd:
     version: "7.18.0"
     sha256:

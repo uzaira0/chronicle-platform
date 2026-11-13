@@ -163,6 +163,11 @@ def suppression_records(path, source):
             raise ValueError(path + ": grouped file suppression requires a standalone annotation")
         extent = node["range"]["byteOffset"]
         start, end = extent["start"], extent["end"]
+        # Recorded directives are the annotation name directly followed by its arguments. ast-grep 0.51
+        # keeps `@Suppress /* c */ (...)` as one node where 0.42.1 split it; both versions fail closed.
+        head = node["text"].split("(", 1)[0]
+        if "(" in node["text"] and head[head.rfind("Suppress") + len("Suppress"):].strip(" \t\r\n`"):
+            raise ValueError(path + ": cannot capture complete suppression arguments")
         if not node["text"].rstrip().endswith(")"):
             if start in complete:
                 continue

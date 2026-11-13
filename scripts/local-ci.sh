@@ -709,7 +709,7 @@ ensure_hadolint() {
 }
 
 ensure_ast_grep() {
-  local bin="$LOCAL_BIN_DIR/ast-grep" version="0.42.1" expected
+  local bin="$LOCAL_BIN_DIR/ast-grep" version="0.51.0" expected
   expected="ast-grep $version"
   if [[ -x "$bin" ]] && tool_has_version "$bin" "$expected"; then
     hash -r
@@ -915,6 +915,7 @@ require_semgrep_pin() {
 job_engineering() {
   local project
   run_job detekt
+  ensure_ast_grep
   require_cmd ruff "install Ruff"
   require_cmd shellcheck "install ShellCheck"
   python3 -m unittest discover -s "$ROOT_DIR/tests/quality" -p 'test_*.py' || return
@@ -1164,6 +1165,8 @@ job_dead_code() {
 job_security_layers() {
   # SCA is owned by web/bun-audit, license by license-compliance; live fixtures have dedicated jobs.
   local layer failed=()
+  # The sast and inventory layers run ast-grep from PATH; LOCAL_BIN_DIR is first on it.
+  ensure_ast_grep
   for layer in sast secrets iac deploy auth injection crypto collection compliance; do
     bash "$ROOT_DIR/tests/security/run-all-security.sh" "$layer" \
       "${LOCAL_REPORT_DIR:-$ROOT_DIR/tests/security/reports}/$layer" || failed+=("$layer")

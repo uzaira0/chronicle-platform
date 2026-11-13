@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("waiver_source", ROOT / "scripts/check-detekt-waiver-source.py")
 CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
+PINNED_AST_GREP = re.search(r'^  ast-grep:\n    version: "([^"]+)"', (ROOT / "toolchain-manifest.yaml").read_text(),
+                            re.MULTILINE).group(1)
 
 
 def report(rule, path, line, column, end_line, end_column):
@@ -126,7 +129,8 @@ class DetektWaiverSourceTest(unittest.TestCase):
         self.assertEqual(1, len(CHECK.suppression_inventory(self.root)))
 
     def test_pinned_parser_preserves_arguments_of_split_annotation_nodes(self):
-        # Existing Kotlin interface context makes ast-grep 0.42.1 split the annotation name from its arguments.
+        # Existing Kotlin interface context made ast-grep 0.42.1 split the annotation name from its arguments;
+        # the records must come out the same whichever way the pinned parser builds the node.
         source = (
             'public interface ParticipantStatsCache {\n'
             '    public fun get(studyId: UUID, participantId: String): ParticipantStats?\n'
@@ -325,7 +329,8 @@ class PinnedAstGrepTest(unittest.TestCase):
             CHECK.ast_nodes.cache_clear()
             try:
                 with patch.dict("os.environ", {"CHRONICLE_AST_GREP": str(fake)}):
-                    with self.assertRaisesRegex(ValueError, r"ast-grep 0\.39\.0; toolchain-manifest\.yaml pins 0\.42\.1"):
+                    pinned = re.escape(PINNED_AST_GREP)
+                    with self.assertRaisesRegex(ValueError, r"ast-grep 0\.39\.0; toolchain-manifest\.yaml pins " + pinned):
                         CHECK.ast_nodes("class Changed {}\n")
             finally:
                 CHECK.ast_grep_binary.cache_clear()
