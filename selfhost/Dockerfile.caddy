@@ -23,8 +23,13 @@ FROM caddy:2.11.9-builder-alpine@sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd7
 # go-jose v3 (via smallstep/certificates, the local-https CA) has no fixed release: build it from
 # v3.0.5 plus go-jose's own v4 fix a0111f82 (bound RSA modulus, check p*q == n) for CVE-2026-116587.
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+# v3 has no fixed release, and OSV names v4.0.0 (another module path) as the fix, so Renovate would open a
+# "vulnerability" branch to v4.0.0 that cannot build. `age-gate-only` keeps it out of Renovate; the age gate
+# still dates it.
+# age-gate-only: datasource=go depName=github.com/go-jose/go-jose/v3
+ARG GO_JOSE_V3_VERSION=v3.0.5
 COPY selfhost/caddy/go-jose-v3-rsa-bounds.patch /patches/
-RUN dir="$(go mod download -json github.com/go-jose/go-jose/v3@v3.0.5 | sed -n 's/^\t"Dir": "\(.*\)",$/\1/p')" && \
+RUN dir="$(go mod download -json "github.com/go-jose/go-jose/v3@${GO_JOSE_V3_VERSION}" | sed -n 's/^\t"Dir": "\(.*\)",$/\1/p')" && \
     cp -R "$dir" /go-jose-v3 && chmod -R u+w /go-jose-v3
 WORKDIR /go-jose-v3
 RUN git apply /patches/go-jose-v3-rsa-bounds.patch && CGO_ENABLED=0 go test ./...

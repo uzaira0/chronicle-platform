@@ -132,7 +132,7 @@ class SandboxDockerfileTests(unittest.TestCase):
             text = (ROOT / 'scripts/sandbox' / name).read_text()
             sums = {arch: re.search(r'yq_sum=([0-9a-f]{64})', block).group(1)
                     for arch, block in re.findall(r'\b(arm64|amd64)\)(.*?);;', text, re.DOTALL)}
-            return re.findall(r'mikefarah/yq/releases/download/(v[\d.]+)/', text), sums
+            return re.findall(r'depName=mikefarah/yq\nARG YQ_TAG=(v[\d.]+)\n', text), sums
         deps, gate = yq('Dockerfile.deps'), yq('Dockerfile.gate')
         self.assertEqual(['v4.54.1'], deps[0])
         self.assertEqual(deps[0], gate[0])
@@ -187,7 +187,8 @@ class ParserTests(unittest.TestCase):
         self.assertIsNone(os_packages.helper_calls(text.replace('ARG BASE=alpine', 'ARG OTHER=alpine'))[0].stage_from)
 
     def test_entries_mark_upgrades(self):
-        entries = gate.parse_dockerfile(self.DOCKERFILE, 'Dockerfile')
+        entries, unknown = gate.parse_dockerfile(self.DOCKERFILE, 'Dockerfile')
+        self.assertEqual(set(), unknown)
         os_entries = {(e.ecosystem, e.name, e.version, e.path) for e in entries if e.ecosystem != 'oci'}
         self.assertEqual({('apk', 'v3.24/gettext', '1.0-r0', 'Dockerfile'),
                           ('apk', 'v3.24/libintl', '1.0-r0', 'Dockerfile'),

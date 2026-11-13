@@ -19,6 +19,11 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # same debianutils version shipped by the upstream image, statically, so its
 # glibc requirement does not depend on the builder's newer Debian release.
 # xz-utils only at an exact version older than the dependency wait (os-packages/apt-install-aged.sh).
+# The source version follows the upstream image, so renovate.json never proposes it; the age gate dates it
+# by snapshot.debian.org's first_seen of the source files. A change refreshes the sha256 with it.
+# renovate: datasource=custom.debian-source depName=debianutils
+ARG DEBIANUTILS_VERSION=5.23.2
+ARG DEBIANUTILS_SHA256=79e524b7526dba2ec5c409d0ee52ebec135815cf5b2907375d444122e0594b69
 RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
     sh /usr/local/sbin/apt-install-aged.sh debian 20261112T000000Z \
       --add xz-utils \
@@ -26,10 +31,10 @@ RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/s
     && mkdir -p /tmp/debianutils /out \
     && curl --fail --show-error --location --retry 4 --retry-all-errors \
         -o /tmp/debianutils.tar.xz \
-        https://deb.debian.org/debian/pool/main/d/debianutils/debianutils_5.23.2.tar.xz \
-    && echo '79e524b7526dba2ec5c409d0ee52ebec135815cf5b2907375d444122e0594b69  /tmp/debianutils.tar.xz' | sha256sum -c - \
+        "https://deb.debian.org/debian/pool/main/d/debianutils/debianutils_${DEBIANUTILS_VERSION}.tar.xz" \
+    && echo "${DEBIANUTILS_SHA256}  /tmp/debianutils.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/debianutils.tar.xz -C /tmp/debianutils --strip-components=1 \
-    && gcc -O2 -static -DHAVE_GETOPT_H -DPACKAGE_VERSION='"5.23.2"' \
+    && gcc -O2 -static -DHAVE_GETOPT_H -DPACKAGE_VERSION="\"${DEBIANUTILS_VERSION}\"" \
         -o /out/run-parts /tmp/debianutils/run-parts.c
 
 # Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.

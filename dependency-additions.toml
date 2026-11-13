@@ -3,7 +3,7 @@
 # committed lockfile, by that file at the revision that was reviewed (only the names the file held at
 # `revision` are admitted; a name added later needs its own row). Entries stay: this is the record of
 # who let each name in and why.
-# Fields: ecosystem (npm, npm-source, maven, go, pypi, oci, github-release, gradle-dist, apk, deb, rpm), name OR lockfile
+# Fields: ecosystem (npm, npm-source, maven, go, pypi, oci, github-release, gradle-dist, apk, deb, deb-source, rpm), name OR lockfile
 # (with revision = the reviewed commit), reviewer, reason. An npm package from anywhere but the npm
 # registry (git, github, a tarball URL, another registry, link:, a path outside the repository) is
 # ecosystem "npm-source" with source = the exact bun.lock source, after someone has read that source.
@@ -681,3 +681,81 @@ ecosystem = "deb"
 name = "debian/unzip"
 reviewer = "release-blockers session 2026-11-06 under the owner's approval in chat (dependency sandbox OS rows); archive, version and image checked as the reason says"
 reason = "Dependency sandbox only (scripts/sandbox/Dockerfile.deps and Dockerfile.gate; not a release image), named in --add. Pinned at 6.0-29+deb13u1 by selfhost/os-packages/apt-install-aged.sh since 0d32e7dd; the gate image installed it unpinned (apt-get) before that. Debian 13 trixie main at snapshot 20261106T000000Z (pool/main/u/unzip/unzip_6.0-29+deb13u1_amd64.deb), InRelease verified with the base image's debian-archive-keyring; the current sandbox image's dpkg holds this version."
+
+[[addition]]
+ecosystem = "deb-source"
+name = "debianutils"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "selfhost/Dockerfile.backup builds run-parts from the debianutils 5.23.2 source tarball (deb.debian.org pool, sha256 pinned), the version the upstream backup image ships."
+
+[[addition]]
+ecosystem = "github-release"
+name = "VictoriaMetrics/victorialogs-datasource"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "selfhost/Dockerfile.grafana fetches this release (grafana.com plugin victoriametrics-logs-datasource 0.33.1, sha256 pinned)."
+
+[[addition]]
+ecosystem = "github-release"
+name = "grafana/grafana"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "selfhost/Dockerfile.grafana clones tag v13.2.5 (commit checked) to rebuild the server with go-jose raised; the same release as the grafana/grafana image."
+
+[[addition]]
+ecosystem = "go"
+name = "github.com/go-jose/go-jose/v4"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "selfhost/Dockerfile.grafana replaces go-jose v4 with this version in the Grafana rebuild; the build checks go version -m."
+
+[[addition]]
+ecosystem = "go"
+name = "github.com/go-jose/go-jose/v3"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "selfhost/Dockerfile.caddy downloads v3.0.5 and builds it with the RSA bounds patch (go.mod replaces v3 with that copy)."
+
+[[addition]]
+ecosystem = "github-release"
+name = "gitleaks/gitleaks"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "scripts/sandbox/Dockerfile.gate fetches the v8.30.1 release binary (per-architecture sha256 pinned)."
+
+[[addition]]
+ecosystem = "github-release"
+name = "mikefarah/yq"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "scripts/sandbox/Dockerfile.gate and Dockerfile.deps fetch the v4.54.1 release binary (per-architecture sha256 pinned)."
+
+[[addition]]
+ecosystem = "github-release"
+name = "koalaman/shellcheck"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "scripts/sandbox/Dockerfile.gate fetches the v0.11.0 release archive (per-architecture sha256 pinned)."
+
+[[addition]]
+ecosystem = "github-release"
+name = "astral-sh/uv"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "scripts/sandbox/Dockerfile.gate fetches the 0.9.5 release archive (per-architecture sha256 pinned)."
+
+[[addition]]
+ecosystem = "pypi"
+name = "ruff"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "scripts/sandbox/Dockerfile.gate installs ruff==0.17.2 with uv (exclude-newer 7 days) next to semgrep."
+
+[[addition]]
+ecosystem = "github-release"
+name = "curl/curl"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "docker/hetzner/percona/Dockerfile builds curl 8.21.0 from the curl.se tarball (sha256 pinned) for the Hetzner Percona image."
+
+[[addition]]
+ecosystem = "github-release"
+name = "google/re2"
+reviewer = "intake-coverage session 2026-11-07 under the owner's approval in chat (lane D: every pin visible to Renovate and the age gate); not a new dependency: the version was already written into the RUN line named in reason"
+reason = "docker/hetzner/crowdsec/Dockerfile.hardened builds re2 2023-03-01 from the GitHub tag archive (sha256 pinned)."
+
+[[addition]]
+ecosystem = "go"
+name = "golang.org/x/net"
+reviewer = "release session 2026-11-13, merging deps/auto into the release line; not a new dependency: f1eb539a (2026-11-07) wrote this version into the RUN line of selfhost/Dockerfile.grafana, and release 2026.11.12 was built from it"
+reason = "selfhost/Dockerfile.grafana replaces golang.org/x/net with v0.62.0 in the Grafana rebuild (CVE-2026-78661, the x/net/html tokenizer); the build checks go version -m. The merge moved the version into a `# renovate:` ARG, where the age gate reads it for the first time: first cached by index.golang.org on 2026-10-27, 16.5 days old on 2026-11-13, past the 7-day wait."

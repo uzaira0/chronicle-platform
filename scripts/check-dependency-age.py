@@ -27,9 +27,10 @@ exception can admit a MAL- hit. A malicious version being removed does not block
     check-dependency-age.py --print-policy     # the waits as JSON; every other copy is tested against it
 
 Files read: bun.lock, gradle.lockfile, gradle/verification-metadata.xml, go.sum, requirements*.txt,
-gradle-wrapper.properties, Dockerfile* FROM lines and OS-package pins (scripts/os_packages.py: Alpine,
-Debian/Ubuntu and RPM packages installed through selfhost/os-packages/), compose `image:` lines and
-toolchain-manifest.yaml.
+gradle-wrapper.properties, Dockerfile* FROM lines, OS-package pins (scripts/os_packages.py: Alpine,
+Debian/Ubuntu and RPM packages installed through selfhost/os-packages/) and `# renovate:` ARG/ENV pins
+(the versions RUN lines fetch: GitHub releases, Go modules, PyPI, Debian source packages), compose `image:`
+lines and toolchain-manifest.yaml. An annotation naming another datasource fails closed.
 A changed toolchain-manifest key with no known publish-time source fails closed.
 
 Publish times come from the registries themselves (npm `time`, Maven Central's index timestamp or
@@ -122,7 +123,7 @@ class LookupError_(RuntimeError):
 
 @dataclasses.dataclass(frozen=True, order=True)
 class Entry:
-    ecosystem: str  # npm, npm-source, maven, go, pypi, oci, gradle-dist, github-release, asset-digest, apk, deb, rpm
+    ecosystem: str  # npm, npm-source, maven, go, pypi, oci, gradle-dist, github-release, asset-digest, apk, deb, deb-source, rpm
     name: str
     version: str
     path: str = dataclasses.field(compare=False, default='')
@@ -225,9 +226,43 @@ def normalise_repository(repository: str) -> str:
     return repository
 
 
-def parse_dockerfile(text: str, path: str) -> set[Entry]:
+# A version a RUN line fetches lives in an ARG (or ENV) under a Renovate annotation, the same text
+# renovate.json's Dockerfile custom manager reads (tests/quality/test_dockerfile_pins.py holds the two equal):
+#     # renovate: datasource=github-releases depName=gitleaks/gitleaks
+#     ARG GITLEAKS_TAG=v8.30.1
+# `# age-gate-only:` in place of `# renovate:` marks a pin Renovate must not propose (selfhost/Dockerfile.caddy
+# go-jose v3: no fixed release, and OSV's fix is v4, another module); this gate reads both.
+ANNOTATED_ARG = re.compile(r'# (?P<marker>renovate|age-gate-only): datasource=(?P<datasource>\S+) depName=(?P<depName>\S+)'
+                           r'(?: versioning=(?P<versioning>\S+))?\n(?:ARG|ENV) [A-Z0-9_]+=(?P<currentValue>[^\s"]+)')
+# Renovate datasource -> the age gate's ecosystem for that registry. Anything else fails closed (unknown).
+ANNOTATION_ECOSYSTEMS = {'github-releases': 'github-release', 'go': 'go', 'pypi': 'pypi',
+                         'custom.debian-source': 'deb-source'}
+
+
+@dataclasses.dataclass(frozen=True)
+class Annotation:
+    datasource: str
+    dep_name: str
+    value: str
+    renovate: bool = True  # False for `# age-gate-only:`
+
+
+def dockerfile_annotations(text: str) -> list[Annotation]:
+    return [Annotation(m['datasource'], m['depName'], m['currentValue'], m['marker'] == 'renovate')
+            for m in ANNOTATED_ARG.finditer(text)]
+
+
+def parse_dockerfile(text: str, path: str) -> tuple[set[Entry], set[str]]:
     images = {entry for ref in FROM_LINE.findall(text) if (entry := image_entry(ref, path))}
-    return images | os_packages.parse_dockerfile(text, path, Entry)
+    found, unknown = images | os_packages.parse_dockerfile(text, path, Entry), set()
+    for annotation in dockerfile_annotations(text):
+        ecosystem = ANNOTATION_ECOSYSTEMS.get(annotation.datasource)
+        if ecosystem is None:
+            unknown.add(f'{annotation.datasource}:{annotation.dep_name}={annotation.value}')
+            continue
+        name = annotation.dep_name.lower().replace('_', '-') if ecosystem == 'pypi' else annotation.dep_name
+        found.add(Entry(ecosystem, name, annotation.value, path))
+    return found, unknown
 
 
 SHELL_IMAGE = re.compile(r'''["'=\s]((?:[a-z0-9.-]+(?::\d+)?/)?[a-z0-9._/-]+:[\w.-]+@sha256:[a-f0-9]{64})''')
@@ -319,7 +354,7 @@ def parse_file(name: str, text: str, path: str) -> tuple[set[Entry], set[str]]:
     if name == 'toolchain-manifest.yaml':
         return manifest_entries(flatten_simple_yaml(text), path)
     if name.startswith('Dockerfile'):
-        return parse_dockerfile(text, path), set()
+        return parse_dockerfile(text, path)
     if re.match(r'.*\.ya?ml$', name):
         return parse_compose(text, path), set()
     if name.endswith('.sh'):
@@ -692,6 +727,17 @@ class Lookups:
             return os_packages.deb_time(entry, self.get_json)
         except LookupError as error:
             raise LookupError_(str(error)) from error
+
+    def _time_deb_source(self, entry: Entry) -> tuple[dt.datetime, str]:
+        """A Debian source package version: snapshot.debian.org's earliest first_seen of its source files."""
+        name, version = (urllib.parse.quote(part, safe='') for part in (entry.name, entry.version))
+        document = self.get_json([f'https://snapshot.debian.org/mr/package/{name}/{version}/srcfiles?fileinfo=1'],
+                                 min_bytes=20)
+        seen = [info['first_seen'] for infos in document.get('fileinfo', {}).values() for info in infos
+                if info.get('first_seen')]
+        if not seen:
+            raise LookupError_(f'snapshot.debian.org has no source files of {entry.name} {entry.version}')
+        return min(os_packages.parse_compact_time(value) for value in seen), 'snapshot.debian.org first_seen'
 
     def _time_rpm(self, entry: Entry) -> tuple[dt.datetime, str]:
         try:

@@ -36,6 +36,8 @@
   "skipArtifactsUpdate": true,
   "rebaseWhen": "behind-base-branch",
 
+  "ignoreDeps": ["github.com/go-jose/go-jose/v3"],
+
   "ignorePaths": [
     "**/node_modules/**",
     "**/build/**",
@@ -138,12 +140,29 @@
     },
     {
       "customType": "regex",
-      "description": "Digest-pinned image constants in shell scripts (scripts/flyway-migrate.sh)",
-      "managerFilePatterns": ["/(^|/)scripts/flyway-migrate\\.sh$/"],
-      "matchStrings": ["FLYWAY_IMAGE=\"(?<depName>[^\":]+):(?<currentValue>[^\"@]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""],
+      "description": "Digest-pinned image constants in shell scripts (scripts/flyway-migrate.sh FLYWAY_IMAGE, scripts/renovate-run.sh RENOVATE_IMAGE)",
+      "managerFilePatterns": ["/(^|/)scripts/[^/]+\\.sh$/"],
+      "matchStrings": ["[A-Z_]+_IMAGE=[\"'](?<depName>[^\"':]+):(?<currentValue>[^\"'@]+)@(?<currentDigest>sha256:[a-f0-9]{64})[\"']"],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Versions RUN lines fetch, as `# renovate: datasource=... depName=...` over an ARG or ENV (docs/SUPPLY-CHAIN.md; scripts/check-dependency-age.py reads the same text, tests/quality/test_dockerfile_pins.py holds the two equal)",
+      "managerFilePatterns": ["/(^|/)Dockerfile[^/]*$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n(?:ARG|ENV) [A-Z0-9_]+=(?<currentValue>[^\\s\"]+)"
+      ],
+      "depTypeTemplate": "dockerfile_pin"
     }
   ],
+
+  "customDatasources": {
+    "debian-source": {
+      "description": "Debian source package versions from snapshot.debian.org. It carries no release time, so timestamp-required never proposes one; the age gate dates a changed pin by first_seen",
+      "defaultRegistryUrlTemplate": "https://snapshot.debian.org/mr/package/{{packageName}}/",
+      "transformTemplates": ["{\"releases\": result.{\"version\": version}}"]
+    }
+  },
 
   "packageRules": [
     {
@@ -158,7 +177,19 @@
       "addLabels": ["manual-digests"]
     },
     {
-      "description": "go-jose v3 is replaced by a patched local copy (selfhost/Dockerfile.caddy); OSV proposes v4, a different module path",
+      "description": "A version RUN lines fetch sits next to a checksum, commit or buildstamp that is refreshed by hand with it; the image build fails until it is",
+      "matchDepTypes": ["dockerfile_pin"],
+      "automerge": false,
+      "addLabels": ["manual-digests"]
+    },
+    {
+      "description": "debianutils is built at the version the upstream backup image ships (selfhost/Dockerfile.backup); it moves with that upstream commit",
+      "matchDatasources": ["custom.debian-source"],
+      "matchPackageNames": ["debianutils"],
+      "enabled": false
+    },
+    {
+      "description": "go-jose v3 is replaced by a patched local copy (selfhost/Dockerfile.caddy); OSV proposes v4, a different module path. enabled:false does not stop Renovate's vulnerability branches (2026-11-08: renovate/go-github.com-go-jose-go-jose-v3-vulnerability rewrote caddy/module/go.mod to v4.0.0), so ignoreDeps above drops the module at extraction",
       "matchPackageNames": ["github.com/go-jose/go-jose/v3"],
       "enabled": false
     },

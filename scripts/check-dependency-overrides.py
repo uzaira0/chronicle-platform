@@ -64,8 +64,9 @@ def inventory(root):
         found["selfhost/Dockerfile.caddy::" + module] = pin
     for patch in re.findall(r'^COPY\s+(selfhost/caddy/\S+\.patch)\s', caddy, re.MULTILINE):
         found["selfhost/Dockerfile.caddy::patch:" + patch] = "sha256:" + hashlib.sha256((root / patch).read_bytes()).hexdigest()
-    grafana = (root / "selfhost/Dockerfile.grafana").read_text()
-    for module, pin in re.findall(r'go\s+work\s+edit\s+-replace=(\S+)=\S+@(\S+)', grafana):
+    # The replace may be quoted and take its version from an ARG (selfhost/Dockerfile.grafana since 2026-11-07).
+    grafana = os_packages.expand_stage_args((root / "selfhost/Dockerfile.grafana").read_text())
+    for module, pin in re.findall(r'go\s+work\s+edit\s+-replace=["\']?([^\s"\'=]+)=[^\s"\'@]+@([^\s"\']+)', grafana):
         found["selfhost/Dockerfile.grafana::" + module] = pin
     # Every build the Percona-based images upgrade (selfhost/os-packages/dnf-upgrade-aged.sh --upgrade
     # NAME=VERSION-RELEASE), keyed by package name, recorded as the NEVRA NAME-VERSION-RELEASE.

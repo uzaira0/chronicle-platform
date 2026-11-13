@@ -13,6 +13,7 @@ WORKDIR /go/src/crowdsec
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
+# renovate: datasource=github-releases depName=google/re2 versioning=loose
 ENV RE2_VERSION=2023-03-01
 ARG RE2_ARCHIVE_SHA256=7a9a4824958586980926a300b4717202485c4b4115ac031822e29aa4ef207e48
 RUN apk add --no-cache git g++ gcc libc-dev make bash gettext binutils-gold coreutils pkgconfig \

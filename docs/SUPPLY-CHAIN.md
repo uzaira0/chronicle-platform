@@ -48,6 +48,29 @@ table, `renovate.json`, `chronicle-web/bunfig.toml`, `dependency-exceptions.toml
 publish and local-ci comments, `supply-chain-guardrails.sh`) is parsed by
 `tests/quality/test_check_dependency_age.py` and must agree.
 
+## Versions that RUN lines fetch
+
+A Dockerfile that downloads a release, clones a tag, fetches `module@version` or installs `name==version`
+keeps that version in an `ARG` (or `ENV`) under a Renovate annotation, never inside the RUN line:
+
+    # renovate: datasource=github-releases depName=gitleaks/gitleaks
+    ARG GITLEAKS_TAG=v8.30.1
+    RUN curl ... "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_TAG}/gitleaks_${GITLEAKS_TAG#v}_linux_${arch}.tar.gz"
+
+The value is the datasource's own version or tag (`v8.30.1` for a `v`-tagged GitHub release, `curl-8_21_0`
+for curl, with `versioning=regex:...`). renovate.json's Dockerfile custom manager proposes new versions
+(depType `dockerfile_pin`, labelled `manual-digests`: the checksum, commit or buildstamp beside the ARG is
+refreshed by hand, and `sha256sum -c` or the commit check fails the image build until it is).
+`scripts/check-dependency-age.py` reads the same annotations and dates each version by its registry:
+`github-releases` by GitHub `published_at`, `go` by index.golang.org, `pypi` by PyPI upload time and
+`custom.debian-source` by snapshot.debian.org's first `first_seen` of the source files. An annotation
+naming any other datasource fails the gate closed. `# age-gate-only:` in place of `# renovate:` keeps a pin
+from Renovate and still ages it: go-jose v3 in `selfhost/Dockerfile.caddy` has no fixed release, and
+Renovate's OSV alert proposes v4.0.0, a different module path that cannot build there (seen in the
+2026-11-07 dry run). `tests/quality/test_dockerfile_pins.py` fails on a
+version written into a RUN line and holds Renovate's reading and the gate's reading of every Dockerfile
+equal.
+
 ## New package names
 
 A name that was not in a lockfile or pin file before needs a reviewed entry in
@@ -346,6 +369,10 @@ their digests, and `scripts/check-runtime-images.py` checks them at publish.
 - Gate tools pinned by digest in `scripts/local-ci.sh` (`depType gate_tool`): Renovate labels them
   `manual-digests` and does not automerge, because the checksum table needs the new release's
   digests.
+- Versions RUN lines fetch (`depType dockerfile_pin`, above): Renovate labels them `manual-digests`;
+  the checksum beside each is refreshed by hand. debianutils in `selfhost/Dockerfile.backup` follows
+  the upstream backup image and is disabled in `renovate.json`; go-jose v3 has no fixed release and is
+  `age-gate-only`. The age gate still dates both.
 - The Android app repository (`chronicle-dev`) is not in the Renovate run.
 - Postgres/Percona major versions are disabled in `renovate.json`: they need a data migration.
 - A version forced by a Gradle override (`config/dependency-overrides.json`: jackson, netty, log4j,

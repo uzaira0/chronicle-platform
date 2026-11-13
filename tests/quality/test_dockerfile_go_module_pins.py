@@ -23,7 +23,11 @@ RESOLVES = (
     (re.compile(r"-mod=mod\b"), "-mod=mod"),
 )
 GO_BUILD = re.compile(r"\bgo\s+(?:build|install)\b")
-PINNED_CLONE = re.compile(r"\bgit\s+clone\b.*\brev-parse\s+HEAD\b.*=\s*[0-9a-f]{40}\b", re.S)
+PINNED_CLONE = re.compile(r"\bgit\s+clone\b.*\brev-parse\s+HEAD\b.*=\s*[\"']?[0-9a-f]{40}\b", re.DOTALL)
+
+# scripts/os_packages.py resolves ARG defaults with Docker's stage scoping.
+sys.path.insert(0, str(ROOT / "scripts"))
+from os_packages import expand_stage_args
 
 
 def logical_lines(text):
@@ -44,7 +48,7 @@ def findings(text, go_sums):
     """go_sums: paths of repository go.sum files, relative to the image's build context."""
     found = []
     stage_has_go_sum = False
-    for line in logical_lines(text):
+    for line in logical_lines(expand_stage_args(text)):
         keyword = line.split()[0].upper()
         if keyword == "FROM":
             stage_has_go_sum = False
@@ -106,6 +110,20 @@ class DockerfileGoModulePinTest(unittest.TestCase):
         self.assertEqual(1, len(findings("FROM golang\nRUN git clone --branch v1 https://x/y /src\n"
                                          "RUN go build ./cmd/y\n", set())))
         self.assertEqual([], findings("FROM golang\nRUN go version -m /bin/x && go mod download -json a/b@v1\n", set()))
+
+    def test_a_clone_checked_against_an_arg_commit_counts_as_pinned(self):
+        # Since 2026-11-07 Dockerfile.grafana keeps its tag and commit in Renovate-annotated ARGs.
+        clone = ("RUN git clone --depth 1 --branch \"${TAG}\" https://x/y /src && \\\n"
+                 "    test \"$(git -C /src rev-parse HEAD)\" = \"${COMMIT}\"\nRUN go build ./cmd/y\n")
+        commit = "a" * 40
+        self.assertEqual([], findings(f"FROM golang\nARG TAG=v1\nARG COMMIT={commit}\n{clone}", set()))
+        # Not a full commit, an ARG of an earlier stage, an ARG declared after the check: not pinned.
+        self.assertEqual(1, len(findings(f"FROM golang\nARG TAG=v1\nARG COMMIT=v1\n{clone}", set())))
+        self.assertEqual(1, len(findings(f"FROM golang AS a\nARG COMMIT={commit}\nFROM golang\n{clone}", set())))
+        self.assertEqual(1, len(findings(f"FROM golang\n{clone}ARG COMMIT={commit}\n", set())))
+        # A global ARG reaches a stage only when the stage redeclares it.
+        self.assertEqual(1, len(findings(f"ARG COMMIT={commit}\nFROM golang\n{clone}", set())))
+        self.assertEqual([], findings(f"ARG COMMIT={commit}\nFROM golang\nARG COMMIT\n{clone}", set()))
 
     def test_selfhost_dockerfiles_pin_their_go_modules(self):
         contexts = build_contexts()

@@ -106,6 +106,28 @@ def arg_default(text: str, reference: str | None) -> str | None:
     return default.group(1) if default else None
 
 
+def expand_stage_args(text: str) -> str:
+    """The Dockerfile with each `${NAME}` or `$NAME` after an `ARG NAME=value` in the same stage replaced by
+    that default, as Docker scopes ARGs: a stage sees its own ARGs from their line on, and an ARG declared
+    before the first FROM only where the stage redeclares it as `ARG NAME`. Other references stay as they are."""
+    lines, scope, global_args, in_stage = [], {}, {}, False
+    for line in text.splitlines(keepends=True):
+        if re.match(r'\s*FROM\s', line, re.IGNORECASE):
+            lines.append(line)
+            scope, in_stage = {}, True
+            continue
+        lines.append(re.sub(r'\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))',
+                            lambda match, scope=scope: scope.get(match[1] or match[2], match[0]), line))
+        declared = re.match(r'\s*ARG\s+([A-Za-z_]\w*)(?:=(\S+))?\s*$', line, re.IGNORECASE)
+        if declared:
+            name, default = declared[1], declared[2]
+            if default is not None:
+                (scope if in_stage else global_args)[name] = default.strip('"\'')
+            elif in_stage and name in global_args:
+                scope[name] = global_args[name]
+    return ''.join(lines)
+
+
 def split_pin(word: str) -> tuple[str, str]:
     name, _, version = word.partition('=')
     if not name or not version:

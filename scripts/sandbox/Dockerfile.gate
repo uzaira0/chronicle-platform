@@ -24,7 +24,19 @@ FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG TARGETARCH
 ARG SEMGREP_VERSION
+# Tool releases this image fetches. Renovate proposes each (custom manager in renovate.json, label
+# manual-digests): the per-architecture sha256 values below are refreshed by hand with the tag, and until they
+# are, sha256sum -c fails the build. yq is the same release as Dockerfile.deps (tests/quality/test_os_package_pins.py).
+# renovate: datasource=pypi depName=ruff
 ARG RUFF_VERSION=0.17.2
+# renovate: datasource=github-releases depName=gitleaks/gitleaks
+ARG GITLEAKS_TAG=v8.30.1
+# renovate: datasource=github-releases depName=mikefarah/yq
+ARG YQ_TAG=v4.54.1
+# renovate: datasource=github-releases depName=koalaman/shellcheck
+ARG SHELLCHECK_TAG=v0.11.0
+# renovate: datasource=github-releases depName=astral-sh/uv
+ARG UV_TAG=0.9.5
 
 COPY --from=jdk /opt/java/openjdk /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk \
@@ -69,13 +81,13 @@ RUN set -eu; mkdir -p /opt/gate/bin; \
     esac; \
     fetch() { curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 -o "$1" "$2"; \
               echo "$3  $1" | sha256sum -c -; }; \
-    fetch gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_${gl}.tar.gz" "$gl_sum"; \
+    fetch gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_TAG}/gitleaks_${GITLEAKS_TAG#v}_linux_${gl}.tar.gz" "$gl_sum"; \
     tar -xzf gitleaks.tgz -C /opt/gate/bin gitleaks; \
-    fetch /opt/gate/bin/yq "https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_${yq}" "$yq_sum"; \
+    fetch /opt/gate/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_TAG}/yq_linux_${yq}" "$yq_sum"; \
     chmod 0755 /opt/gate/bin/yq; \
-    fetch shellcheck.txz "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.${sc}.tar.xz" "$sc_sum"; \
-    tar -xJf shellcheck.txz --strip-components=1 -C /opt/gate/bin shellcheck-v0.11.0/shellcheck; \
-    fetch uv.tgz "https://github.com/astral-sh/uv/releases/download/0.9.5/uv-${uv}-unknown-linux-gnu.tar.gz" "$uv_sum"; \
+    fetch shellcheck.txz "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_TAG}/shellcheck-${SHELLCHECK_TAG}.linux.${sc}.tar.xz" "$sc_sum"; \
+    tar -xJf shellcheck.txz --strip-components=1 -C /opt/gate/bin "shellcheck-${SHELLCHECK_TAG}/shellcheck"; \
+    fetch uv.tgz "https://github.com/astral-sh/uv/releases/download/${UV_TAG}/uv-${uv}-unknown-linux-gnu.tar.gz" "$uv_sum"; \
     tar -xzf uv.tgz --strip-components=1 -C /opt/gate/bin "uv-${uv}-unknown-linux-gnu/uv"; \
     test -n "$SEMGREP_VERSION"; \
     UV_CACHE_DIR=/tmp/gate/uv /opt/gate/bin/uv venv --quiet --python /usr/bin/python3 --system-site-packages /opt/gate/venv; \

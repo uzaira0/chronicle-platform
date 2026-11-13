@@ -61,6 +61,21 @@ class PatchOverrideReviewTests(unittest.TestCase):
         with mock.patch.object(self.module.subprocess, "run", return_value=mock.Mock(stdout="")):
             return self.module.inventory(root)
 
+    def test_grafana_replace_reads_its_arg_version(self):
+        # Since 2026-11-07 Dockerfile.grafana quotes the replace and takes the version from an annotated ARG.
+        with tempfile.TemporaryDirectory(dir=self.work_root) as directory:
+            root, _, _ = self.fixture(directory)
+            key = "selfhost/Dockerfile.grafana::github.com/go-jose/go-jose/v4"
+            grafana = root / "selfhost/Dockerfile.grafana"
+            replace = 'RUN go work edit -replace="github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@${V}" && go build ./x\n'
+            for text, pin in (("FROM golang\nARG V=v4.1.8\n" + replace, "v4.1.8"),
+                              ("FROM golang\nRUN go work edit -replace=github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.8\n", "v4.1.8"),
+                              ("FROM golang\n" + replace, "${V}")):
+                with self.subTest(text=text):
+                    grafana.write_text(text)
+                    found = {name: value for name, value in self.inventory(root).items() if "Dockerfile.grafana" in name}
+                    self.assertEqual({key: pin}, found)
+
     def test_patch_bytes_have_the_same_dated_removal_review(self):
         with tempfile.TemporaryDirectory(dir=self.work_root) as directory:
             root, _, patch = self.fixture(directory)

@@ -325,6 +325,21 @@ class LookupTests(unittest.TestCase):
             raise answer
         return answer if isinstance(answer, bytes) else json.dumps(answer).encode()
 
+    # -- Debian source packages (selfhost/Dockerfile.backup debianutils)
+    def test_a_debian_source_version_is_dated_by_its_first_seen_source_file(self):
+        self.answers = [{'fileinfo': {'a' * 40: [{'name': 'debianutils_5.23.2.dsc', 'first_seen': '20250731T023101Z'},
+                                                  {'name': 'debianutils_5.23.2.dsc', 'first_seen': '20250730T204322Z'}],
+                                      'b' * 40: [{'name': 'debianutils_5.23.2.tar.xz', 'first_seen': '20250730T204322Z'}]}}]
+        stamp, source = self.lookups.published(gate.Entry('deb-source', 'debianutils', '5.23.2'))
+        self.assertEqual('2025-07-30T20:43:22+00:00', stamp.isoformat())
+        self.assertEqual('snapshot.debian.org first_seen', source)
+        self.assertEqual('https://snapshot.debian.org/mr/package/debianutils/5.23.2/srcfiles?fileinfo=1', self.requests[0][0])
+
+    def test_a_debian_source_version_snapshot_does_not_know_is_indeterminate(self):
+        self.answers = [{'fileinfo': {}}]
+        with self.assertRaises(gate.LookupError_):
+            self.lookups.published(gate.Entry('deb-source', 'debianutils', '9.9'))
+
     # -- OSV pagination
     def test_osv_pages_are_followed_until_every_query_is_exhausted(self):
         first, second = gate.Entry('npm', 'a', '1.0.0'), gate.Entry('npm', 'b', '1.0.0')
@@ -512,6 +527,22 @@ class ParserTests(unittest.TestCase):
         entries, unknown = gate.manifest_entries(flat, 'toolchain-manifest.yaml')
         self.assertEqual(set(), unknown)
         self.assertIn(('github-release', 'anchore/grype', 'v0.1.0'), {(e.ecosystem, e.name, e.version) for e in entries})
+
+    def test_dockerfile_annotations_become_entries_and_unknown_datasources_fail_closed(self):
+        text = ('FROM alpine:3@sha256:' + 'c' * 64 + '\n'
+                '# renovate: datasource=github-releases depName=gitleaks/gitleaks\nARG GITLEAKS_TAG=v8.30.1\n'
+                '# renovate: datasource=go depName=github.com/go-jose/go-jose/v4\nARG GO_JOSE_VERSION=v4.1.8\n'
+                '# renovate: datasource=pypi depName=Ruff_Tool\nARG RUFF_VERSION=0.17.2\n'
+                '# renovate: datasource=custom.debian-source depName=debianutils\nARG DEBIANUTILS_VERSION=5.23.2\n'
+                '# renovate: datasource=github-releases depName=curl/curl versioning=regex:^curl-(?<major>\\d+)$\n'
+                'ARG CURL_TAG=curl-8_21_0\n'
+                '# renovate: datasource=npm depName=left-pad\nENV LEFT_PAD=1.3.0\n')
+        entries, unknown = gate.parse_file('Dockerfile.x', text, 'Dockerfile.x')
+        self.assertEqual({('oci', 'docker.io/library/alpine'), ('github-release', 'gitleaks/gitleaks'),
+                          ('go', 'github.com/go-jose/go-jose/v4'), ('pypi', 'ruff-tool'), ('deb-source', 'debianutils'),
+                          ('github-release', 'curl/curl')}, {(e.ecosystem, e.name) for e in entries})
+        self.assertIn(('github-release', 'curl/curl', 'curl-8_21_0'), {(e.ecosystem, e.name, e.version) for e in entries})
+        self.assertEqual({'npm:left-pad=1.3.0'}, unknown)
 
 
 class PolicyNumberTests(unittest.TestCase):

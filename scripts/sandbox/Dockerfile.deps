@@ -37,6 +37,8 @@ RUN --mount=type=bind,from=os-packages,source=apt-install-aged.sh,target=/usr/lo
 
 # yq is mikefarah's (Debian's yq package is a different program), the same release Dockerfile.gate fetches,
 # checked against the sha256 its project publishes.
+# renovate: datasource=github-releases depName=mikefarah/yq
+ARG YQ_TAG=v4.54.1
 ARG TARGETARCH
 RUN set -eu; \
     case "$TARGETARCH" in \
@@ -45,7 +47,7 @@ RUN set -eu; \
       *) echo "unsupported TARGETARCH $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 -o /usr/local/bin/yq \
-      "https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_${yq}"; \
+      "https://github.com/mikefarah/yq/releases/download/${YQ_TAG}/yq_linux_${yq}"; \
     echo "$yq_sum  /usr/local/bin/yq" | sha256sum -c -; \
     chmod 0755 /usr/local/bin/yq; \
     yq --version

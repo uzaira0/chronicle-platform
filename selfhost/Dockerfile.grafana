@@ -1,9 +1,15 @@
 # Install the pinned datasource at build time; cold starts need only registry egress.
 FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a AS plugin
 SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+# The plugin's GitHub release tag; grafana.com serves the same version without the v. Renovate proposes a new
+# tag (custom manager in renovate.json); the zip's sha256 is refreshed by hand with it (label manual-digests),
+# and until it is, sha256sum -c fails the build.
+# renovate: datasource=github-releases depName=VictoriaMetrics/victorialogs-datasource
+ARG VL_PLUGIN_TAG=v0.33.1
+ARG VL_PLUGIN_SHA256=73e7ce379ae9a9ce6fdb978e5d6d43f67029b4c3e4d970f1ca8f7f4617f331c5
 # Fetched and verified in one step (a failed checksum fails the build before unzip runs).
-RUN wget -q -O /plugin.zip https://grafana.com/api/plugins/victoriametrics-logs-datasource/versions/0.33.1/download && \
-    echo "73e7ce379ae9a9ce6fdb978e5d6d43f67029b4c3e4d970f1ca8f7f4617f331c5  /plugin.zip" | sha256sum -c - && \
+RUN wget -q -O /plugin.zip "https://grafana.com/api/plugins/victoriametrics-logs-datasource/versions/${VL_PLUGIN_TAG#v}/download" && \
+    echo "${VL_PLUGIN_SHA256}  /plugin.zip" | sha256sum -c - && \
     unzip -q /plugin.zip -d /plugins && \
     # The release image is linux/amd64 (scripts/publish-images.sh); the plugin zip carries backends for
     # every platform. Keep only the one Grafana loads here, so the image ships no unused Go binaries.
@@ -20,17 +26,27 @@ RUN wget -q -O /plugin.zip https://grafana.com/api/plugins/victoriametrics-logs-
 # Drop this stage once a Grafana release image links go-jose 4.1.6 and x/net 0.62.0 or newer.
 FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS server
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN git clone --quiet --depth 1 --branch v13.2.5 https://github.com/grafana/grafana /src && \
-    test "$(git -C /src rev-parse HEAD)" = ce471d869a4810cd83c987dd3521c4b67689dbb6
+# The source tag moves with the grafana/grafana image below (renovate.json groups grafana/**). The tag's commit
+# (git ls-remote) and the release binary's buildstamp are refreshed by hand with it (label manual-digests).
+# renovate: datasource=github-releases depName=grafana/grafana
+ARG GRAFANA_SOURCE_TAG=v13.2.5
+ARG GRAFANA_SOURCE_COMMIT=ce471d869a4810cd83c987dd3521c4b67689dbb6
+ARG GRAFANA_BUILDSTAMP=1793032020
+# renovate: datasource=go depName=github.com/go-jose/go-jose/v4
+ARG GO_JOSE_V4_VERSION=v4.1.8
+# renovate: datasource=go depName=golang.org/x/net
+ARG GOLANG_X_NET_VERSION=v0.62.0
+RUN git clone --quiet --depth 1 --branch "${GRAFANA_SOURCE_TAG}" https://github.com/grafana/grafana /src && \
+    test "$(git -C /src rev-parse HEAD)" = "${GRAFANA_SOURCE_COMMIT}"
 WORKDIR /src
-RUN go work edit -replace=github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.8 && \
-    go work edit -replace=golang.org/x/net=golang.org/x/net@v0.62.0 && \
+RUN go work edit -replace="github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@${GO_JOSE_V4_VERSION}" && \
+    go work edit -replace="golang.org/x/net=golang.org/x/net@${GOLANG_X_NET_VERSION}" && \
     CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath \
-        -ldflags "-X main.version=13.2.5 -X main.commit=ce471d869a4810cd83c987dd3521c4b67689dbb6 -X main.buildBranch=HEAD -X main.buildstamp=1793032020" \
+        -ldflags "-X main.version=${GRAFANA_SOURCE_TAG#v} -X main.commit=${GRAFANA_SOURCE_COMMIT} -X main.buildBranch=HEAD -X main.buildstamp=${GRAFANA_BUILDSTAMP}" \
         -o /out/grafana ./pkg/cmd/grafana && \
     go version -m /out/grafana > /out/buildinfo && \
-    grep -q 'go-jose/v4	v4.1.8' /out/buildinfo && \
-    grep -q 'golang.org/x/net	v0.62.0' /out/buildinfo && \
+    grep -q "$(printf 'go-jose/v4\t%s' "${GO_JOSE_V4_VERSION}")" /out/buildinfo && \
+    grep -q "$(printf 'golang.org/x/net\t%s' "${GOLANG_X_NET_VERSION}")" /out/buildinfo && \
     grep -q 'getkin/kin-openapi	v0.151.0' /out/buildinfo && \
     grep -q 'andybalholm/brotli	v1.2.7' /out/buildinfo
 

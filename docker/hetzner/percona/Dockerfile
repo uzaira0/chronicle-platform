@@ -16,12 +16,18 @@ RUN microdnf --disablerepo='*' \
 
 WORKDIR /tmp/curl-source
 
-RUN curl --proto '=https' --tlsv1.2 --fail --show-error --location \
-        --retry 3 --output /tmp/curl-8.21.0.tar.xz \
-        https://curl.se/download/curl-8.21.0.tar.xz \
-    && echo 'aa1b66a70eace83dc624508745646c08ae561de512ab403adffb93ac87fc72e6  /tmp/curl-8.21.0.tar.xz' \
+# curl's GitHub release tag (curl-8_21_0 is 8.21.0). Renovate proposes a new tag; the tarball sha256 is
+# refreshed by hand with it (label manual-digests), and until it is, sha256sum -c fails the build.
+# renovate: datasource=github-releases depName=curl/curl versioning=regex:^curl-(?<major>\d+)_(?<minor>\d+)_(?<patch>\d+)$
+ARG CURL_TAG=curl-8_21_0
+ARG CURL_SHA256=aa1b66a70eace83dc624508745646c08ae561de512ab403adffb93ac87fc72e6
+RUN version="$(printf '%s' "${CURL_TAG#curl-}" | tr _ .)" \
+    && curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+        --retry 3 --output "/tmp/curl-${version}.tar.xz" \
+        "https://curl.se/download/curl-${version}.tar.xz" \
+    && echo "${CURL_SHA256}  /tmp/curl-${version}.tar.xz" \
         | sha256sum -c - \
-    && tar -xJf /tmp/curl-8.21.0.tar.xz --strip-components=1 \
+    && tar -xJf "/tmp/curl-${version}.tar.xz" --strip-components=1 \
     && ./configure \
         --prefix=/opt/curl \
         --libdir=/opt/curl/lib64 \
@@ -54,8 +60,8 @@ RUN curl --proto '=https' --tlsv1.2 --fail --show-error --location \
         --disable-websockets \
     && make -j"$(nproc)" \
     && make install \
-    && test "$(/opt/curl/bin/curl --version | awk 'NR == 1 { print $2 }')" = '8.21.0' \
-    && rm -f /tmp/curl-8.21.0.tar.xz
+    && test "$(/opt/curl/bin/curl --version | awk 'NR == 1 { print $2 }')" = "${version}" \
+    && rm -f "/tmp/curl-${version}.tar.xz"
 
 USER 26
 
