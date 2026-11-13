@@ -8,7 +8,9 @@ installed server asks (api.github.com and the releases feed) to a loopback serve
 recorded feed, so the release-list request of 2026.11.2's own updater follows a real HTTP redirect.
 
 The release is 9999.1.1, above every real release, so the supported installed releases are the
-real ones: 2026.11.2's updater comes from its git tag in this repository."""
+real ones, every release selfhost/published-migrations.json records: each one's updater comes from
+its git tag in this repository. 2026.11.2 asks for the release list under the repository's old
+name and 2026.11.12 under its own, so a promotion asks both addresses."""
 
 import datetime
 import http.server
@@ -38,6 +40,11 @@ INSTALLED = '2026.11.2'
 # the rename of 2026-11-10. GitHub answers it with a redirect to the repository by its id.
 OLD_LIST = '/repos/uzaira0/methodic/releases'
 BY_ID_LIST = '/repositories/1355605219/releases'
+# The first release published under the repository's own name. It and the releases after it look
+# there (update.py API_RELEASES_URL at the tag), and GitHub answers that address itself: 200 with
+# no redirect (asked without credentials on 2026-11-12).
+RENAMED = '2026.11.12'
+NEW_LIST = '/repos/uzaira0/chronicle-platform/releases'
 LAYOUT = ('selfhost/Dockerfile.postgres', 'selfhost/docker-compose.yml')
 
 CURL = '''#!{python}
@@ -73,11 +80,15 @@ def git(directory, *arguments):
 
 
 class GitHubApi:
-    """What api.github.com answers for the old release-list address, by mode:
+    """What api.github.com answers for the release-list addresses installed releases ask, by mode.
+    Three modes say what became of the old name (gone, another repository, empty repository): in
+    them the repository's own name (NEW_LIST) still answers with this repository's published
+    releases. The other modes are about GitHub as a whole and hold for every address.
 
-    intact              a redirect to the repository's own list: this repository's published releases
-    cached              the same redirect, to the list as it was before the newest release was published
-    gone                404
+    intact              the old name redirects to the repository's own list: this repository's
+                        published releases, which its own name answers too
+    cached              the same, with the list as it was before the newest release was published
+    gone                the old name answers 404
     another repository  the old name itself answers, with releases that are not this repository's
     empty repository    the old name itself answers, with no release
     rate limited        403, x-ratelimit-remaining 0: what the 61st request of an hour without
@@ -101,6 +112,7 @@ class GitHubApi:
 
     def __init__(self, published):
         self.mode, self.requests = 'intact', []
+        self.published = published  # this repository's published releases, read at every request
         api = self
         foreign = [dict(row, id=row['id'] + 1, tag_name='0.' + str(index)) for index, row in enumerate(published[:3])]
 
@@ -108,7 +120,7 @@ class GitHubApi:
             def do_GET(self):
                 path = urlsplit(self.path).path
                 api.requests.append(self.path)
-                mode = api.mode
+                mode, published = api.mode, api.published
                 if mode == 'recovers':
                     mode = 'unreachable' if len(api.requests) == 1 else 'intact'
                 if mode == 'unreachable':
@@ -121,8 +133,8 @@ class GitHubApi:
                     self.end_headers()
                     return
                 headers = {}
-                if mode in ('intact', 'cached') and path == BY_ID_LIST:
-                    status, body = 200, json.dumps(published if mode == 'intact' else published[1:]).encode()
+                if (mode in ('intact', 'cached') and path == BY_ID_LIST) or (mode not in api.REFUSALS and path == NEW_LIST):
+                    status, body = 200, json.dumps(published[1:] if mode == 'cached' else published).encode()
                 elif mode == 'another repository' and path == OLD_LIST:
                     status, body = 200, json.dumps(foreign).encode()
                 elif mode == 'empty repository' and path == OLD_LIST:
@@ -171,17 +183,30 @@ class Promotion:
         self.environment = self.make_candidate()
 
     def make_checkout(self):
-        """A repository with the installed release's tag, then this tree's scripts and operator
-        package as its HEAD; `public` holds HEAD as the release tag and the checkout does not."""
+        """A repository with the tag of every release the ledger records, each holding what this
+        repository's own tag holds of that release; then this tree's scripts and operator package
+        as its HEAD; `public` holds HEAD as the release tag and the checkout does not."""
         self.checkout.mkdir()
         git(self.checkout, 'init', '-q')
-        installed = subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=tar', INSTALLED, 'selfhost/chronicle_ops', *LAYOUT],
-                                   capture_output=True, check=True, timeout=60).stdout
-        with tarfile.open(fileobj=io.BytesIO(installed)) as members:
-            members.extractall(self.checkout, filter='data')
-        git(self.checkout, 'add', '-A')
-        git(self.checkout, 'commit', '-q', '-m', 'fixture: ' + INSTALLED)
-        git(self.checkout, 'tag', INSTALLED)
+        # The checkout gets this tree's ledger below, and the release builder reads every release
+        # in it from refs/tags/<version> (require_database_volume_continuity). With only the
+        # installed release's tag, five tests here failed once a second release was recorded
+        # (2026.11.12, published 2026-11-12): "published release 2026.11.12 has no git tag here".
+        recorded = json.loads((ROOT / 'selfhost/published-migrations.json').read_text())
+        assert {INSTALLED, RENAMED} <= set(recorded)
+        for version in recorded:
+            sources = subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=tar', f'refs/tags/{version}',
+                                      'selfhost/chronicle_ops', *LAYOUT], capture_output=True, timeout=60)
+            if sources.returncode:
+                raise AssertionError(f'the ledger records {version} and this repository has no tag for it; fetch it: git fetch '
+                                     f'--no-tags public refs/tags/{version}:refs/tags/{version} '
+                                     f'({sources.stderr.decode(errors="replace").strip()})')
+            shutil.rmtree(self.checkout / 'selfhost', ignore_errors=True)
+            with tarfile.open(fileobj=io.BytesIO(sources.stdout)) as members:
+                members.extractall(self.checkout, filter='data')
+            git(self.checkout, 'add', '-A')
+            git(self.checkout, 'commit', '-q', '--allow-empty', '-m', 'fixture: ' + version)
+            git(self.checkout, 'tag', version)
         shutil.rmtree(self.checkout / 'selfhost')
         ignore = shutil.ignore_patterns('__pycache__')
         shutil.copytree(ROOT / 'selfhost/chronicle_ops', self.checkout / 'selfhost/chronicle_ops', ignore=ignore)
@@ -308,22 +333,29 @@ class InstalledReleaseListTests(PromotionFixture):
     """Servers on 2026.11.2 find releases only at https://api.github.com/repos/uzaira0/methodic/releases.
     The repository has had another name since 2026-11-10 and GitHub redirects the old one, for as
     long as no repository takes it. Promotion asks that address once, as 2026.11.2's own updater
-    asks it, and publishes only when the answer is this repository's published releases."""
+    asks it, and publishes only when the answer is this repository's published releases. Servers
+    on 2026.11.12 ask for the repository under its own name; promotion asks that address the same
+    way, and what becomes of the old name does not change its answer."""
 
     LIST_URL = f'https://api.github.com{OLD_LIST}?per_page=100'
+    NEW_URL = f'https://api.github.com{NEW_LIST}?per_page=100'
 
     def test_an_intact_redirect_publishes(self):
         promotion = self.promotion()
         result = promotion.promote('intact')
         output = result.stdout + result.stderr
         self.assertEqual(0, result.returncode, output)
-        self.assertIn(f"{INSTALLED} release list ({self.LIST_URL}): answers with this repository's published releases",
-                      result.stdout.splitlines())
-        self.assertIn(f'{INSTALLED}: selects {VERSION}', result.stdout.splitlines())
+        for installed, url in ((INSTALLED, self.LIST_URL), (RENAMED, self.NEW_URL)):
+            self.assertIn(f"{installed} release list ({url}): answers with this repository's published releases",
+                          result.stdout.splitlines())
+            self.assertIn(f'{installed}: selects {VERSION}', result.stdout.splitlines())
         self.assertTrue(promotion.promoted)
-        # One request to the address 2026.11.2's own code builds, redirected and followed for real.
-        self.assertEqual([self.LIST_URL], promotion.asked())
-        self.assertEqual([OLD_LIST + '?per_page=100', BY_ID_LIST + '?per_page=100'], promotion.api.requests)
+        # One request to each address, built by the code of the release that asks it; the old
+        # name's is redirected and followed for real.
+        self.assertCountEqual([self.LIST_URL, self.NEW_URL], promotion.asked())
+        requests = promotion.api.requests
+        self.assertCountEqual([OLD_LIST + '?per_page=100', BY_ID_LIST + '?per_page=100', NEW_LIST + '?per_page=100'], requests)
+        self.assertEqual(requests.index(OLD_LIST + '?per_page=100') + 1, requests.index(BY_ID_LIST + '?per_page=100'))
 
     def test_an_address_that_no_longer_answers_or_answers_with_another_repository_publishes_nothing(self):
         promotion = self.promotion()
@@ -335,6 +367,9 @@ class InstalledReleaseListTests(PromotionFixture):
                 self.assertNotEqual(0, result.returncode, output)
                 row = next(line for line in result.stdout.splitlines() if line.startswith(f'{INSTALLED} release list ('))
                 self.assertIn(f'FAILS: {self.LIST_URL} {reason}', row)
+                # Only the servers that ask the old name are cut off.
+                self.assertIn(f"{RENAMED} release list ({self.NEW_URL}): answers with this repository's published releases",
+                              result.stdout.splitlines())
                 self.assertIn('nothing was published', result.stderr)
                 self.assertIn("The public repository's former name", result.stderr)
                 self.assertFalse(promotion.promoted)
@@ -498,15 +533,16 @@ class UnansweredReleaseListTests(PromotionFixture):
     def test_a_failed_connection_is_retried_inside_the_deadline_then_named_and_publishes_nothing(self):
         promotion, row = self.refused('unreachable', CHRONICLE_TRANSFER_TIMEOUT_SECONDS='6')
         self.assertIn(f'FAILS: {self.LIST_URL} was not reached: curl: (52) Empty reply from server', row)
-        self.assertGreaterEqual(len(promotion.api.requests), 2)
+        self.assertGreaterEqual(len([request for request in promotion.api.requests if request.startswith(OLD_LIST)]), 2)
 
     def test_a_list_cached_before_another_publish_does_not_stop_the_promotion(self):
         promotion = self.promotion()
         result = promotion.promote('cached')
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertTrue(promotion.promoted)
-        row = next(line for line in result.stdout.splitlines() if line.startswith(f'{INSTALLED} release list ('))
-        self.assertIn("answers with 13 of this repository's 14 published releases", row)
+        for installed in (INSTALLED, RENAMED):
+            row = next(line for line in result.stdout.splitlines() if line.startswith(f'{installed} release list ('))
+            self.assertIn("answers with 13 of this repository's 14 published releases", row)
 
 
 class PublicationLedgerTests(PromotionFixture):
@@ -784,7 +820,8 @@ class PromotionRecoveryTests(PromotionFixture):
         promotion writes it, and says nothing about the file that was not there before."""
         promotion = self.promotion()
         promotion.ledger.unlink()
-        result = promotion.promote('empty repository', RELEASE_CATALOG=json.dumps([[promotion.catalog[0][0]]]))
+        promotion.api.published = []  # under either name, as in the catalog below: the draft alone
+        result = promotion.promote(RELEASE_CATALOG=json.dumps([[promotion.catalog[0][0]]]))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual({VERSION: promotion.migrations}, self.recorded(promotion))
         self.assertNotIn('No such file', result.stderr)
