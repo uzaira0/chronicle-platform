@@ -20,7 +20,7 @@
 # are Playwright 1.64's debian13 list for Chromium, plus fontconfig and Liberation fonts for layout. The
 # browser itself is the candidate's Playwright revision, installed by the gate runner's web step into
 # /cache/ms-playwright (PLAYWRIGHT_BROWSERS_PATH, deps-sandbox.sh).
-ARG JDK_IMAGE=eclipse-temurin:25-jdk@sha256:2d5d5e9b533342a565907c84f47a2ec298c40cde7b13a3ca85d4950fa456a641
+ARG JDK_IMAGE=eclipse-temurin:25-jdk@sha256:83f4a7fc27df94dcc7b8de04d14cbbba8da14406f921e966969c3b09000aa507
 FROM ${JDK_IMAGE} AS jdk
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4

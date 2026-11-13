@@ -1,5 +1,5 @@
 # Backend build stage
-FROM eclipse-temurin:25-jdk@sha256:2d5d5e9b533342a565907c84f47a2ec298c40cde7b13a3ca85d4950fa456a641 AS builder
+FROM eclipse-temurin:25-jdk@sha256:83f4a7fc27df94dcc7b8de04d14cbbba8da14406f921e966969c3b09000aa507 AS builder
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ WORKDIR /app
 # exact versions older than the dependency wait (selfhost/os-packages/apt-install-aged.sh; the pins are
 # refreshed by scripts/os-package-pins.py and aged by scripts/check-dependency-age.py).
 RUN --mount=type=bind,source=selfhost/os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
-    sh /usr/local/sbin/apt-install-aged.sh ubuntu 20261023T000000Z \
+    sh /usr/local/sbin/apt-install-aged.sh ubuntu 20261109T000000Z \
       --add curl unzip dos2unix git \
       --pin curl=8.18.0-1ubuntu2.8 dos2unix=7.5.4-1 git-man=1:2.53.0-1ubuntu1.1 git=1:2.53.0-1ubuntu1.1 \
         libcurl3t64-gnutls=8.18.0-1ubuntu2.8 libcurl4t64=8.18.0-1ubuntu2.8 liberror-perl=0.17030-1 \
