@@ -17,7 +17,8 @@
 # With --download the pinned packages are downloaded into the working directory, not installed.
 # With --https the snapshot is fetched over HTTPS, through HTTPS_PROXY when that is set: the dependency
 # sandbox's egress proxy (scripts/sandbox/egress-proxy.py) forwards only CONNECT to port 443, and
-# scripts/os-package-pins.py resolves through it (the caller provides /etc/ssl/certs/ca-certificates.crt).
+# scripts/os-package-pins.py resolves through it. The caller provides /etc/ssl/certs/ca-certificates.crt
+# and apt is told to read it: apt verifies with OpenSSL's default store, which a slim base image lacks.
 #
 # snapshot.ubuntu.com serves every Ubuntu architecture under /ubuntu/SNAPSHOT/ (its InRelease lists arm64,
 # armhf, ppc64el, riscv64 and s390x beside amd64; there is no /ubuntu-ports/ path, which answers 401), so
@@ -70,6 +71,11 @@ case "$distro" in
 esac
 if [ -n "$https" ] && [ -n "${HTTPS_PROXY:-}" ]; then
   printf 'Acquire::https::Proxy "%s";\n' "$HTTPS_PROXY" > /etc/apt/apt.conf.d/90apt-install-aged-proxy
+fi
+# debian:13-slim has no /usr/lib/ssl (the openssl package's links to /etc/ssl), so apt's default store is
+# empty there and a mounted bundle is never read: every snapshot source fails "certificate verify failed".
+if [ -n "$https" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  echo 'Acquire::https::CAInfo "/etc/ssl/certs/ca-certificates.crt";' > /etc/apt/apt.conf.d/90apt-install-aged-ca
 fi
 # The snapshot copy of every configured source. --resolve uses it alone, so nothing newer than
 # SNAPSHOT can be resolved; installs keep the live sources too.

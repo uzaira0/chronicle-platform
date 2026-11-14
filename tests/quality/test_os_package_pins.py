@@ -503,6 +503,29 @@ class AptHelperTests(unittest.TestCase):
         self.assertTrue(all(uri.startswith('https://snapshot.debian.org/archive/') for uri in uris), uris)
         self.assertIn('Acquire::https::Proxy "http://egress-proxy:3128";', result.stdout)
 
+    def test_https_names_the_ca_bundle_the_caller_mounts(self):
+        # apt verifies TLS with OpenSSL's default store, and debian:13-slim has none (no /usr/lib/ssl): on
+        # 2026-11-14 scripts/os-package-pins.py could not resolve this stage ("certificate verify failed" on
+        # every snapshot source) although its CA bundle was mounted, until apt was told to read that file.
+        base = re.search(r'^FROM (debian:13-slim@sha256:[0-9a-f]{64}) AS', (ROOT / 'selfhost/Dockerfile.fluentbit').read_text(),
+                         re.MULTILINE).group(1)
+        helper = ROOT / 'selfhost/os-packages/apt-install-aged.sh'
+        probe = ('sh /h.sh debian 20261023T000000Z --https --resolve curl >/dev/null 2>&1; '
+                 'cat /etc/apt/apt.conf.d/90apt-install-aged-ca')
+        with tempfile.TemporaryDirectory() as folder:
+            bundle = Path(folder) / 'ca-certificates.crt'
+            bundle.write_text('')
+            mounted = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '-v', f'{helper}:/h.sh:ro',
+                                      '-v', f'{bundle}:/etc/ssl/certs/ca-certificates.crt:ro', base, 'sh', '-c', probe],
+                                     capture_output=True, text=True, timeout=600, check=False)
+            absent = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '-v', f'{helper}:/h.sh:ro',
+                                     base, 'sh', '-c', probe], capture_output=True, text=True, timeout=600, check=False)
+        self.assertEqual(0, mounted.returncode, mounted.stderr)
+        self.assertEqual('Acquire::https::CAInfo "/etc/ssl/certs/ca-certificates.crt";\n', mounted.stdout)
+        # Without a bundle nothing is written: apt must not be pointed at a file that is not there.
+        self.assertNotEqual(0, absent.returncode)
+        self.assertIn('90apt-install-aged-ca', absent.stderr)
+
     def ubuntu_ports(self, script: str, network: str = 'none') -> subprocess.CompletedProcess:
         """A shell line in the backend builder's Ubuntu base as linux/arm64, whose sources are ubuntu-ports."""
         base = re.search(r'^FROM (eclipse-temurin:\S+@sha256:[0-9a-f]{64}) AS builder$',
