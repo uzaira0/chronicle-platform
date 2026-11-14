@@ -136,39 +136,6 @@ vulnerabilities:
       (docs/SUPPLY-CHAIN.md), so its wait ends 2026-11-13 18:26 UTC, not 2026-11-09 as the last recheck said.
       Neither image is built in this repository, so installing 1.4-r0 means deriving both images through
       selfhost/os-packages/apk-install-aged.sh; this short end date keeps that decision in view.
-  - id: CVE-2026-76844
-    purls:
-      - "pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1?arch=amd64&distro=debian-13.7&epoch=1"
-    expired_at: 2026-11-27
-    owner: uzaira0
-    rechecked: 2026-11-08
-    statement: >-
-      zlib1g in the pinned fluent-bit 5.1.3 runtime image. The overflow is in the gzip
-      file-writing API (gz_write after a failed write(), then another gz* write). No ELF file in the image
-      imports any gz* function (llvm-nm of fluent-bit, libcurl, libcrypto, libssh2 and librtmp, the only
-      libz users): fluent-bit uses only the deflate/inflate stream API. The image is distroless and runs
-      as 100:101 with all capabilities dropped. Drop when the fluent-bit image carries a fixed zlib.
-      Rechecked 2026-11-06: fluent-bit 5.1.5 is the newest release and adds libcurl findings, so 5.1.3 stays.
-      Rechecked 2026-11-08: Debian fixed it in DSA-6613-1 (zlib 1:1.3.dfsg+really1.3.1-1+deb13u1, trixie-security; snapshot.debian.org
-      first_seen of the amd64 binary 2026-11-07 07:53 UTC). zlib1g would be a new --pin name in
-      selfhost/Dockerfile.fluentbit (new names wait 7 days, plus a dependency-additions.toml entry), so the
-      rebuild can take it from 2026-11-14 07:53 UTC; drop this entry in that change.
-  - id: CVE-2026-85091
-    purls:
-      - "pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1?arch=amd64&distro=debian-13.7&epoch=1"
-    expired_at: 2026-11-27
-    owner: uzaira0
-    rechecked: 2026-11-08
-    statement: >-
-      Same zlib1g in fluent-bit 5.1.3. The overflow is in gz_vacate(), reached by
-      gzprintf()/gzvprintf() on a non-blocking gzwrite() stream (the advisory names zlib 1.3.1.2 to 1.3.2;
-      Debian ships 1.3.1). No ELF file in the image imports gzprintf, gzvprintf or any other gz* function.
-      Drop when the fluent-bit image carries a fixed zlib.
-      Rechecked 2026-11-06: fluent-bit 5.1.5 is the newest release and adds libcurl findings, so 5.1.3 stays.
-      Rechecked 2026-11-08: Debian fixed it in DSA-6613-1 (zlib 1:1.3.dfsg+really1.3.1-1+deb13u1, trixie-security; snapshot.debian.org
-      first_seen of the amd64 binary 2026-11-07 07:53 UTC). zlib1g would be a new --pin name in
-      selfhost/Dockerfile.fluentbit (new names wait 7 days, plus a dependency-additions.toml entry), so the
-      rebuild can take it from 2026-11-14 07:53 UTC; drop this entry in that change.
   - id: CVE-2026-8458
     purls:
       - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u7?arch=amd64&distro=debian-13.7"

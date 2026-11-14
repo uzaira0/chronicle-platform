@@ -1,10 +1,11 @@
-# Fluent Bit 5.1.3 (monitoring overlay) with Debian's security builds of libbrotli1 and libcurl4t64.
+# Fluent Bit 5.1.3 (monitoring overlay) with Debian's security builds of libbrotli1, libcurl4t64 and zlib1g.
 # The pinned vendor image ships libbrotli1 1.1.0-2+b7 (CVE-2026-111497, CRITICAL; trivy gate in
-# scripts/publish-images.sh) and libcurl4t64 8.14.1-2+deb13u5 (CVE-2026-8286, CVE-2026-8927,
-# CVE-2026-92392; fixed in deb13u7); 5.1.5 adds libcurl findings. The image is distroless, so the fixed
-# trixie-security packages are unpacked in a Debian 13 stage and their libraries and dpkg status records
-# replace the old ones. Drop a package once a Fluent Bit release carries libbrotli1 1.1.0-2+deb13u1 or
-# libcurl4t64 8.14.1-2+deb13u7.
+# scripts/publish-images.sh), libcurl4t64 8.14.1-2+deb13u5 (CVE-2026-8286, CVE-2026-8927,
+# CVE-2026-92392; fixed in deb13u7) and zlib1g 1:1.3.dfsg+really1.3.1-1+b1 (CVE-2026-76844,
+# CVE-2026-85091; fixed by DSA-6613-1 in 1:1.3.dfsg+really1.3.1-1+deb13u1); 5.1.5 adds libcurl findings.
+# The image is distroless, so the fixed trixie-security packages are unpacked in a Debian 13 stage and
+# their libraries and dpkg status records replace the old ones. Drop a package once a Fluent Bit release
+# carries libbrotli1 1.1.0-2+deb13u1, libcurl4t64 8.14.1-2+deb13u7 or zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1.
 #checkov:skip=CKV_DOCKER_2: selfhost/overlays/monitoring.yml probes /api/v1/health; the distroless image has no shell for a HEALTHCHECK.
 FROM debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS brotli
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -12,15 +13,19 @@ WORKDIR /pkg
 # The .deb files are matched by package name, not architecture, so a source checkout on arm64 builds too.
 # The exact builds below, older than the dependency wait, from the live mirror or, once replaced there,
 # from the snapshot (os-packages/apt-install-aged.sh; scripts/os-package-pins.py refreshes the pins).
+# Of the three, the vendor image holds a file list only for zlib1g (status.d/zlib1g.md5sums, from its
+# distroless base), so the new package's list replaces that one.
 RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
-    sh /usr/local/sbin/apt-install-aged.sh debian 20261106T000000Z --download \
-      --pin libbrotli1=1.1.0-2+deb13u1 libcurl4t64=8.14.1-2+deb13u7 && \
+    sh /usr/local/sbin/apt-install-aged.sh debian 20261114T000000Z --download \
+      --pin libbrotli1=1.1.0-2+deb13u1 libcurl4t64=8.14.1-2+deb13u7 zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 && \
     mkdir -p /out/var/lib/dpkg/status.d && \
-    for package in libbrotli1 libcurl4t64; do \
+    for package in libbrotli1 libcurl4t64 zlib1g; do \
       deb="$(echo "${package}"_*.deb)" && test -f "$deb" && \
       dpkg-deb -x "$deb" /out && \
       dpkg-deb -f "$deb" > "/out/var/lib/dpkg/status.d/$package" || exit 1; \
-    done
+    done && \
+    dpkg-deb -e "$(echo zlib1g_*.deb)" /pkg/zlib1g-control && \
+    cp /pkg/zlib1g-control/md5sums /out/var/lib/dpkg/status.d/zlib1g.md5sums
 
 FROM fluent/fluent-bit:5.1.3@sha256:c5542543523c9678398dd78d927c05e8425ec15b038f226b67b3b019b1a70845
 # /usr/lib/<multiarch triplet>/ for the build architecture (x86_64-linux-gnu in releases).
@@ -29,5 +34,8 @@ COPY --from=brotli /out/usr/share/doc/libbrotli1/ /usr/share/doc/libbrotli1/
 COPY --from=brotli /out/var/lib/dpkg/status.d/libbrotli1 /var/lib/dpkg/status.d/libbrotli1
 COPY --from=brotli /out/usr/share/doc/libcurl4t64/ /usr/share/doc/libcurl4t64/
 COPY --from=brotli /out/var/lib/dpkg/status.d/libcurl4t64 /var/lib/dpkg/status.d/libcurl4t64
+COPY --from=brotli /out/usr/share/doc/zlib1g/ /usr/share/doc/zlib1g/
+COPY --from=brotli /out/var/lib/dpkg/status.d/zlib1g /var/lib/dpkg/status.d/zlib1g
+COPY --from=brotli /out/var/lib/dpkg/status.d/zlib1g.md5sums /var/lib/dpkg/status.d/zlib1g.md5sums
 # Same user as selfhost/overlays/monitoring.yml, so the image is never root by default.
 USER 100:101

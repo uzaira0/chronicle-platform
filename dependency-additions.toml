@@ -156,6 +156,12 @@ reason = "Already installed unpinned in selfhost/Dockerfile.fluentbit (apk add/a
 
 [[addition]]
 ecosystem = "deb"
+name = "debian/zlib1g"
+reviewer = "main session 2026-11-14 under the plan's lane A (docs/SUPPLY-CHAIN.md, OS packages): official Debian trixie-security package (DSA-6613-1); the name is the package the pinned fluent-bit 5.1.3 image already ships (var/lib/dpkg/status.d/zlib1g)"
+reason = "Already in the fluent-bit vendor image at 1:1.3.dfsg+really1.3.1-1+b1 (CVE-2026-76844, CVE-2026-85091); selfhost/Dockerfile.fluentbit now replaces it with 1:1.3.dfsg+really1.3.1-1+deb13u1, first seen on snapshot.debian.org 2026-11-07 07:53 UTC and pinned after its 7 days."
+
+[[addition]]
+ecosystem = "deb"
 name = "debian/xz-utils"
 reviewer = "main session 2026-11-06 under the owner's blanket approval: official distro repository package, already shipped unpinned in the release image named in reason; name checked against the distro package list"
 reason = "Already installed unpinned in selfhost/Dockerfile.backup (apk add/apt-get install or as a dependency); now pinned at 5.4.1-1+deb12u2 by selfhost/os-packages."

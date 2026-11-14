@@ -54,7 +54,7 @@ class PostgresLoggingTests(PgTdeFixture):
         self.assertNotIn('SELECT', json.dumps(event))
 
     def parse_log(self, line):
-        # The vendor parent of Dockerfile.fluentbit, which changes only libbrotli1.
+        # The vendor parent of Dockerfile.fluentbit, which replaces only three Debian libraries.
         image = yaml.safe_load((ROOT / 'toolchain-manifest.yaml').read_text())['selfhost_images']['fluent_bit']
         config_root = Path(os.environ.get('SELFHOST_MONITORING_TEST_DIR', ROOT / 'selfhost/monitoring'))
         config = self.work / 'fluent-bit.conf'
