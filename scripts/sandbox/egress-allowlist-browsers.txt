@@ -1,7 +1,8 @@
 # Added to egress-allowlist.txt only for deps-sandbox.sh --network browsers: the gate runner's
 # `playwright install chromium-headless-shell` in its web step. Playwright's CDN and its Microsoft fallback,
 # and storage.googleapis.com, where the CDN redirects Chrome for Testing builds. storage.googleapis.com
-# serves every public Google Cloud Storage bucket, so no other step gets it.
+# serves every public Google Cloud Storage bucket, so the only other step that gets it is `go mod tidy`
+# in the unmodified Go image (egress-allowlist-gomodules.txt), which runs no dependency code.
 cdn.playwright.dev
 playwright.download.prss.microsoft.com
 storage.googleapis.com

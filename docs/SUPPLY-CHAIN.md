@@ -181,7 +181,7 @@ the user  ->  merges deps/auto onward, cuts and publishes releases
      - `web`, when chronicle-web changed: `bun install` (registries), the candidate's Playwright
        Chromium headless shell into `/cache/ms-playwright` (`--network browsers`: registries plus
        `scripts/sandbox/egress-allowlist-browsers.txt`, where storage.googleapis.com is admitted for
-       this command alone), then `local-ci.sh web` (none), whose browser tests use it;
+       this command), then `local-ci.sh web` (none), whose browser tests use it;
   5. on green pushes `deps/auto` as a fast-forward (moved submodules first, then the root), records
      that commit as the trusted base, and posts the status; on red posts the failing gates. Logs are
      under `~/Library/Caches/chronicle-dependency-gate/logs/`.
@@ -299,7 +299,7 @@ names that look like credentials or proxies and `--mount`s of the Docker socket,
 Gradle), `go` (the backup image's Go builder, for `go mod tidy`) and `gate`
 (`scripts/sandbox/Dockerfile.gate`: the backend JDK, Bun, semgrep, ruff, shellcheck, gitleaks, yq,
 each release binary checked against its published sha256). `--platform linux/amd64` builds and runs
-an image for that platform instead of the host's. Network is one of two:
+an image for that platform instead of the host's. Network is one of four:
 
 - `none` (the default): no network at all. Tests, builds, the offline security jobs,
   `verify-toolchain.sh`, `local-ci.sh web`.
@@ -314,6 +314,17 @@ an image for that platform instead of the host's. Network is one of two:
   publishing token could send the source tree it was given to its own account). Installs, lockfile
   regeneration and Gradle's download execute build plugins with this network; that is the remaining
   exposure, bounded by the age gate on every plugin. Builds and tests have no network.
+- `browsers`: `registries` plus `scripts/sandbox/egress-allowlist-browsers.txt` (Playwright's CDN, its
+  Microsoft fallback, and storage.googleapis.com, where the CDN redirects). Only the gate runner's
+  `playwright install chromium-headless-shell`.
+- `gomodules`: `registries` plus `scripts/sandbox/egress-allowlist-gomodules.txt`
+  (storage.googleapis.com, where proxy.golang.org redirects the zip of a large module), accepted only
+  with `--image go`. Only `deps-regenerate.py`'s Go step: `go mod tidy`, and the module download for a
+  directory that a `go.mod` `replace` points at (`selfhost/caddy/module` replaces go-jose v3 with
+  `/go-jose-v3`; the step makes it from `selfhost/Dockerfile.caddy`'s version and patch and mounts it
+  read-only). The Go toolchain downloads modules and checks them against sum.golang.org and runs
+  none of their code. storage.googleapis.com serves every public bucket, which is why no image that
+  installs or runs dependency code gets it apart from the `browsers` step.
 
 `tests/quality/test_build_isolation.py` proves this by running it: a canary planted in the host
 environment and home directory never reaches a sandboxed gate step, a sandbox on `none` reaches

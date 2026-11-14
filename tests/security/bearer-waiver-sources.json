@@ -326,11 +326,11 @@
   "rule": "python_lang_os_command_injection",
   "file": "scripts/deps-regenerate.py",
   "above": [
-   "args = ['bash', str(SANDBOX), '--image', image, '--network', network, str(copy), '--', *command]",
+   "args = sandbox_command(source, command, image, network, mounts)",
    "print('+ ' + ' '.join(args), flush=True)"
   ],
   "statement": [
-   "ok = subprocess.run(args, check=False).returncode == 0"
+   "return subprocess.run(args, check=False).returncode == 0"
   ]
  },
  "55af5552566a4de582ed359e3fb80f6b_2": {

@@ -18,7 +18,12 @@ line, so the candidate the gate runner tests is complete:
   - chronicle-web/bun.lock: `bun install --ignore-scripts` when package.json and the lock disagree;
   - Gradle lockfiles and gradle/verification-metadata.xml: `--write-locks --write-verification-metadata
     sha256` over every included project, when a Gradle input changed against --base;
-  - go.mod/go.sum of each Go module (GO_MODULES): `go mod tidy` when either changed against --base;
+  - go.mod/go.sum of each Go module (GO_MODULES): `go mod tidy` when either changed against --base. A
+    go.mod that replaces a module with an absolute directory (selfhost/caddy/module: /go-jose-v3, which
+    only selfhost/Dockerfile.caddy's build makes) gets that directory in the sandbox, made from the
+    Dockerfile's own version and patch (GO_REPLACEMENTS). The Go step runs with --network gomodules:
+    proxy.golang.org redirects the zip of a large module to storage.googleapis.com, which only the Go
+    image may reach (scripts/sandbox/egress-allowlist-gomodules.txt);
   - OS-package pins (selfhost/os-packages/ helper calls) of each Dockerfile whose FROM lines changed
     against --base: scripts/os-package-pins.py --write. It reads base image package databases with
     docker create/cp (nothing in the image runs) and resolves apt pins by running the base image's
@@ -38,6 +43,7 @@ Prints each file it changed. Exit 0 when done, 1 when a step failed.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -50,6 +56,35 @@ from pathlib import Path
 SANDBOX = Path(__file__).resolve().parent / 'deps-sandbox.sh'
 JVM_SUBMODULES = ('chronicle-server', 'chronicle-api', 'rhizome', 'rhizome-client')
 GO_MODULES = ('selfhost/caddy/module', 'selfhost/backup-image/go-cron')
+
+
+@dataclasses.dataclass(frozen=True)
+class GoReplacement:
+    """How an image build makes the directory a go.mod `replace M => /directory` points at."""
+    module: str        # the replaced module
+    dockerfile: str    # the Dockerfile that makes the directory
+    version_arg: str   # its ARG holding the module version it downloads
+    patch: str         # the patch it applies to that version
+
+
+# go mod tidy reads a replacement's go.mod and sources, and the sandbox has only the module's own directory.
+# Keyed by (Go module, replacement directory); tests/quality/test_deps_regenerate.py fails when a go.mod in
+# GO_MODULES gains an absolute replacement that is not listed here.
+GO_REPLACEMENTS = {
+    ('selfhost/caddy/module', '/go-jose-v3'): GoReplacement(
+        'github.com/go-jose/go-jose/v3', 'selfhost/Dockerfile.caddy', 'GO_JOSE_V3_VERSION',
+        'selfhost/caddy/go-jose-v3-rsa-bounds.patch'),
+}
+ABSOLUTE_REPLACE = re.compile(r'^replace\s+(\S+)\s+=>\s+(/\S+)\s*$', re.MULTILINE)
+# Runs in the sandbox over a directory holding replacement.patch; $1 is module@version. The same three steps
+# as selfhost/Dockerfile.caddy: download the module, copy it out of the read-only module cache, apply the patch.
+GO_REPLACEMENT_SCRIPT = r'''dir=$(go mod download -json "$1" | sed -n 's/^\t"Dir": "\(.*\)",$/\1/p')
+test -n "$dir"
+cp -R "$dir" /work/tree
+chmod -R u+w /work/tree
+cd /work/tree
+git apply /work/replacement.patch
+'''
 OS_PINS = Path(__file__).resolve().parent / 'os-package-pins.py'
 # Relative to the tree copy the sandbox runs Gradle in.
 POM_INIT = 'scripts/deps-regenerate-poms.init.gradle'
@@ -192,15 +227,27 @@ def take_back(copy: Path, target: Path, outputs: tuple[str, ...], changed: list[
     return ok
 
 
+def sandbox_command(source: Path, command: list[str], image: str, network: str, mounts: tuple[str, ...] = ()) -> list[str]:
+    """The deps-sandbox.sh call that runs command over source; each mount is /host:/container[:ro]."""
+    args = ['bash', str(SANDBOX), '--image', image, '--network', network]
+    for mount in mounts:
+        args += ['--mount', mount]
+    return [*args, str(source), '--', *command]
+
+
+def run_sandbox(source: Path, command: list[str], image: str, network: str, mounts: tuple[str, ...] = ()) -> bool:
+    args = sandbox_command(source, command, image, network, mounts)
+    print('+ ' + ' '.join(args), flush=True)
+    return subprocess.run(args, check=False).returncode == 0
+
+
 def sandbox(root: Path, scratch: Path, subdir: str, command: list[str], outputs: tuple[str, ...], changed: list[str],
-            image: str = 'deps', network: str = 'registries') -> bool:
+            image: str = 'deps', network: str = 'registries', mounts: tuple[str, ...] = ()) -> bool:
     """Run command in the sandbox over a copy of root/subdir and take back only outputs (relative to subdir)."""
     target = root / subdir if subdir else root
     copy = scratch / (subdir.replace('/', '_') or 'root')
     copy_tree(target, copy)
-    args = ['bash', str(SANDBOX), '--image', image, '--network', network, str(copy), '--', *command]
-    print('+ ' + ' '.join(args), flush=True)
-    ok = subprocess.run(args, check=False).returncode == 0
+    ok = run_sandbox(copy, command, image, network, mounts)
     return take_back(copy, target, outputs, changed, root) and ok
 
 
@@ -272,6 +319,43 @@ def regenerate_gradle(root: Path, scratch: Path, changed: list[str]) -> bool:
                    outputs, changed, image='jdk')
 
 
+def remove_tree(path: Path) -> None:
+    """Remove a directory a sandboxed step filled; a copy of the Go module cache has read-only directories."""
+    if not path.exists():
+        return
+    for current, directories, _files in os.walk(path):
+        for name in directories:
+            os.chmod(os.path.join(current, name), stat.S_IRWXU)
+    shutil.rmtree(path)
+
+
+def go_replacement_mounts(root: Path, scratch: Path, module: str) -> tuple[str, ...] | None:
+    """The sandbox mounts for the absolute `replace` directories of module's go.mod; None when one cannot be made."""
+    mounts = []
+    for replaced, directory in ABSOLUTE_REPLACE.findall((root / module / 'go.mod').read_text()):
+        source = GO_REPLACEMENTS.get((module, directory))
+        if source is None or source.module != replaced:
+            print(f'deps-regenerate: {module}/go.mod replaces {replaced} with {directory}, and GO_REPLACEMENTS '
+                  'does not say how that directory is made', file=sys.stderr)
+            return None
+        version = re.search(rf'^ARG {re.escape(source.version_arg)}=(\S+)$', (root / source.dockerfile).read_text(), re.MULTILINE)
+        if version is None:
+            print(f'deps-regenerate: {source.dockerfile} has no ARG {source.version_arg}', file=sys.stderr)
+            return None
+        work = scratch / f"{module.replace('/', '_')}_replace_{directory.strip('/').replace('/', '_')}"
+        remove_tree(work)
+        work.mkdir(parents=True)
+        shutil.copyfile(root / source.patch, work / 'replacement.patch')
+        made = run_sandbox(work, ['sh', '-ec', GO_REPLACEMENT_SCRIPT, 'sh', f'{replaced}@{version.group(1)}'],
+                           image='go', network='gomodules')
+        if not made or not (work / 'tree' / 'go.mod').is_file():
+            print(f'deps-regenerate: could not make {directory} for {module} from {replaced}@{version.group(1)}',
+                  file=sys.stderr)
+            return None
+        mounts.append(f'{work}/tree:{directory}:ro')
+    return tuple(mounts)
+
+
 def tidy_go(root: Path, scratch: Path, base: str | None, changed: list[str]) -> bool:
     """go mod tidy for each Go module whose go.mod or go.sum changed (Renovate edits go.mod only)."""
     ok = True
@@ -280,7 +364,12 @@ def tidy_go(root: Path, scratch: Path, base: str | None, changed: list[str]) -> 
             continue
         if not changed_against(root, base, re.compile(rf'^{re.escape(module)}/go\.(mod|sum)$')):
             continue
-        ok = sandbox(root, scratch, module, ['go', 'mod', 'tidy'], ('go.mod', 'go.sum'), changed, image='go') and ok
+        mounts = go_replacement_mounts(root, scratch, module)
+        if mounts is None:
+            ok = False
+            continue
+        ok = sandbox(root, scratch, module, ['go', 'mod', 'tidy'], ('go.mod', 'go.sum'), changed, image='go',
+                     network='gomodules', mounts=mounts) and ok
     return ok
 
 

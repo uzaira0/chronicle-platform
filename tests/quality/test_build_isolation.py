@@ -101,6 +101,19 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn('--base-image takes a reference pinned by digest', result.stderr)
 
+    def test_the_go_module_network_is_for_the_go_image_only(self):
+        """--network gomodules admits storage.googleapis.com, which serves every public bucket. Only the
+        unmodified Go builder image may have it: the Go toolchain downloads modules and runs none of their code."""
+        for image in ('deps', 'jdk', 'gate'):
+            with self.subTest(image=image):
+                result = self.run_sandbox('true', extra=('--image', image, '--network', 'gomodules'))
+                self.assertEqual(2, result.returncode)
+                self.assertIn('--network gomodules takes --image go only', result.stderr)
+        digest = 'debian:13-slim@sha256:' + 'a' * 64
+        result = self.run_sandbox('true', extra=('--base-image', digest, '--network', 'gomodules'))
+        self.assertEqual(2, result.returncode)
+        self.assertIn('--network gomodules takes --image go only', result.stderr)
+
     def test_no_network_reaches_nothing_and_registries_reach_only_the_allowlist_through_the_proxy(self):
         # No internet needed: every probe here must fail, and the proxy's refusal is local.
         probe = ('for u in https://example.com/ https://1.1.1.1/; do '
@@ -120,7 +133,8 @@ class SandboxTests(unittest.TestCase):
 
 
 class EgressAllowlistTests(unittest.TestCase):
-    """egress-proxy.py admits the union of its --allowlist files; only --network browsers adds the second."""
+    """egress-proxy.py admits the union of its --allowlist files; --network browsers and --network gomodules
+    each add one more list."""
 
     def test_the_browser_hosts_are_admitted_only_with_their_list(self):
         spec = importlib.util.spec_from_file_location('egress_proxy', ROOT / 'scripts/sandbox/egress-proxy.py')
@@ -133,6 +147,24 @@ class EgressAllowlistTests(unittest.TestCase):
         self.assertTrue(proxy.allowed('storage.googleapis.com', both))
         self.assertTrue(proxy.allowed('registry.npmjs.org', both))
         self.assertFalse(proxy.allowed('evil.example', both))
+
+    def test_the_go_module_host_is_admitted_only_with_its_list(self):
+        """2026-11-13: proxy.golang.org answers a large module's zip with a redirect to storage.googleapis.com, so
+        `go mod tidy` for selfhost/caddy/module could not finish with the registries list alone."""
+        spec = importlib.util.spec_from_file_location('egress_proxy', ROOT / 'scripts/sandbox/egress-proxy.py')
+        proxy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(proxy)
+        base = str(ROOT / 'scripts/sandbox/egress-allowlist.txt')
+        modules = ROOT / 'scripts/sandbox/egress-allowlist-gomodules.txt'
+        hosts = [line for line in modules.read_text().split('\n') if line and not line.startswith('#')]
+        self.assertEqual(['storage.googleapis.com'], hosts)
+        both = proxy.load_allowlist(base, str(modules))
+        self.assertTrue(proxy.allowed('storage.googleapis.com', both))
+        self.assertTrue(proxy.allowed('proxy.golang.org', both))
+        self.assertFalse(proxy.allowed('cdn.playwright.dev', both))
+        self.assertFalse(proxy.allowed('evil.example', both))
+        sandbox = (ROOT / 'scripts/deps-sandbox.sh').read_text()
+        self.assertEqual(2, sandbox.count('egress-allowlist-gomodules.txt'), 'mounted once, described once')
 
 
 class SandboxImageBuildTests(unittest.TestCase):

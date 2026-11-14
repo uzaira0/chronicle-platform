@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('deps_regenerate', ROOT / 'scripts/deps-regenerate.py')
 regen = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = regen  # deps-regenerate.py defines a dataclass, which looks its module up here
 spec.loader.exec_module(regen)
 
 FILES = (
@@ -152,6 +154,95 @@ class TakeBackTests(unittest.TestCase):
     def test_the_sandbox_script_is_this_scripts_own(self):
         self.assertEqual(Path(regen.__file__).resolve().parent / 'deps-sandbox.sh', regen.SANDBOX)
         self.assertTrue(os.path.isfile(regen.SANDBOX))
+
+
+class GoReplacementTests(unittest.TestCase):
+    """2026-11-13: selfhost/caddy/module/go.mod replaces go-jose v3 with /go-jose-v3, a directory that only
+    selfhost/Dockerfile.caddy's build makes. `go mod tidy` in the sandbox stopped at "reading /go-jose-v3/go.mod:
+    no such file or directory", so no version in that go.mod could be raised through this script (met raising
+    OpenTelemetry for GHSA-q7gw-24fr-5p69). The Go step gives the sandbox each such directory, made the way the
+    image build makes it."""
+
+    def test_every_absolute_replacement_in_a_go_module_has_a_source(self):
+        found = 0
+        for module in regen.GO_MODULES:
+            for replaced, directory in regen.ABSOLUTE_REPLACE.findall((ROOT / module / 'go.mod').read_text()):
+                found += 1
+                self.assertIn((module, directory), regen.GO_REPLACEMENTS,
+                              f'{module}/go.mod replaces {replaced} with {directory}; go mod tidy cannot run without it')
+                source = regen.GO_REPLACEMENTS[(module, directory)]
+                self.assertEqual(replaced, source.module)
+                dockerfile = (ROOT / source.dockerfile).read_text()
+                self.assertRegex(dockerfile, rf'(?m)^ARG {source.version_arg}=v[0-9]')
+                self.assertIn(f'{source.module}@${{{source.version_arg}}}', dockerfile)
+                self.assertIn(Path(source.patch).name, dockerfile)
+                self.assertTrue((ROOT / source.patch).is_file())
+        self.assertGreaterEqual(found, 1, 'selfhost/caddy/module/go.mod no longer replaces go-jose v3: drop GO_REPLACEMENTS')
+
+    def test_tidy_runs_with_the_replacement_directory_made_from_the_dockerfiles_version_and_patch(self):
+        prepared, tidied = [], []
+
+        def run_sandbox(source, command, image, network, mounts=()):
+            prepared.append((Path(source), command, image, network))
+            self.assertEqual((Path(source) / 'replacement.patch').read_bytes(),
+                             (ROOT / 'selfhost/caddy/go-jose-v3-rsa-bounds.patch').read_bytes())
+            (Path(source) / 'tree').mkdir()
+            (Path(source) / 'tree/go.mod').write_text('module github.com/go-jose/go-jose/v3\n')
+            return True
+
+        saved = regen.run_sandbox, regen.sandbox, regen.changed_against
+        regen.run_sandbox = run_sandbox
+        regen.sandbox = lambda root, scratch, subdir, command, outputs, changed, **kw: tidied.append((subdir, command, kw)) or True
+        regen.changed_against = lambda root, base, pattern: True
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                self.assertTrue(regen.tidy_go(ROOT, Path(scratch), 'HEAD', []))
+                (source, command, image, network), = prepared
+                version = re.search(r'(?m)^ARG GO_JOSE_V3_VERSION=(\S+)$', (ROOT / 'selfhost/Dockerfile.caddy').read_text()).group(1)
+                self.assertEqual(f'github.com/go-jose/go-jose/v3@{version}', command[-1])
+                self.assertEqual(('go', 'gomodules'), (image, network))
+                by_module = {subdir: (command, kw) for subdir, command, kw in tidied}
+                self.assertEqual(set(regen.GO_MODULES), set(by_module))
+                command, kw = by_module['selfhost/caddy/module']
+                self.assertEqual(['go', 'mod', 'tidy'], command)
+                self.assertEqual((f'{source}/tree:/go-jose-v3:ro',), tuple(kw.get('mounts', ())))
+                self.assertEqual(('go', 'gomodules'), (kw.get('image'), kw.get('network')))
+                self.assertFalse(by_module['selfhost/backup-image/go-cron'][1].get('mounts'))
+        finally:
+            regen.run_sandbox, regen.sandbox, regen.changed_against = saved
+
+    def test_a_replacement_that_could_not_be_made_fails_the_step_before_tidy(self):
+        tidied = []
+        saved = regen.run_sandbox, regen.sandbox, regen.changed_against
+        regen.run_sandbox = lambda source, command, image, network, mounts=(): False
+        regen.sandbox = lambda root, scratch, subdir, command, outputs, changed, **kw: tidied.append(subdir) or True
+        regen.changed_against = lambda root, base, pattern: True
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                self.assertFalse(regen.tidy_go(ROOT, Path(scratch), 'HEAD', []))
+        finally:
+            regen.run_sandbox, regen.sandbox, regen.changed_against = saved
+        self.assertNotIn('selfhost/caddy/module', tidied)
+
+    def test_only_the_go_step_asks_for_the_go_module_network(self):
+        """storage.googleapis.com is every public bucket; the one caller of that network is the Go step, which
+        runs `go mod tidy` and a module download, never module code."""
+        users = sorted(path.relative_to(ROOT).as_posix()
+                       for pattern in ('scripts/*.py', 'scripts/*.sh', 'scripts/sandbox/*', 'selfhost/*.sh', 'selfhost/*.py')
+                       for path in ROOT.glob(pattern)
+                       if path.is_file() and b'gomodules' in path.read_bytes())
+        # The browsers list only names the other list in its comment.
+        self.assertEqual(['scripts/deps-regenerate.py', 'scripts/deps-sandbox.sh',
+                          'scripts/sandbox/egress-allowlist-browsers.txt',
+                          'scripts/sandbox/egress-allowlist-gomodules.txt'], users)
+        source = (ROOT / 'scripts/deps-regenerate.py').read_text()
+        self.assertEqual(2, source.count("network='gomodules'"), 'the replacement download and go mod tidy')
+
+    def test_the_sandbox_command_carries_each_mount(self):
+        args = regen.sandbox_command(Path('/x/copy'), ['go', 'mod', 'tidy'], 'go', 'registries', ('/x/tree:/go-jose-v3:ro',))
+        self.assertEqual(['--mount', '/x/tree:/go-jose-v3:ro'], args[args.index('--mount'):args.index('--mount') + 2])
+        self.assertEqual(['/x/copy', '--', 'go', 'mod', 'tidy'], args[-5:])
+        self.assertLess(args.index('--mount'), args.index('/x/copy'))
 
 
 class GradleVerificationPomTests(unittest.TestCase):

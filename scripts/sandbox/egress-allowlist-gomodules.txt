@@ -1,0 +1,9 @@
+# Added to egress-allowlist.txt only for deps-sandbox.sh --network gomodules, which takes --image go only:
+# scripts/deps-regenerate.py's Go step (`go mod tidy`, and the module download for a go.mod replacement
+# directory). proxy.golang.org answers the zip of a large module with a redirect to a signed
+# storage.googleapis.com URL (in selfhost/caddy/module: cloudflare/circl, klauspost/compress and
+# google.golang.org/api), so with the registries list alone go mod tidy cannot finish for that module.
+# storage.googleapis.com serves every public Google Cloud Storage bucket. The step that gets it runs the Go
+# toolchain of the digest-pinned golang image over go.mod and go.sum, executes no module code, holds no
+# credential, and checks every download against sum.golang.org.
+storage.googleapis.com

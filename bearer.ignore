@@ -205,7 +205,7 @@
   },
   "55af5552566a4de582ed359e3fb80f6b_1": {
     "author": "chronicle",
-    "comment": "scripts/deps-regenerate.py sandbox(): deps-sandbox.sh with fixed bun/gradlew/go commands. False positive: subprocess receives an argv list (no shell); every argument is a fixed command or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
+    "comment": "scripts/deps-regenerate.py run_sandbox(): deps-sandbox.sh with fixed bun/gradlew/go commands. False positive: subprocess receives an argv list (no shell); every argument is a fixed command, a mount for a directory named in GO_REPLACEMENTS, a module version read from a Dockerfile of this checkout, or a git ref/sha/path from this checkout or the GitHub API, never participant or network-supplied text.",
     "false_positive": true,
     "ignored_at": "2026-11-06T00:00:00Z"
   },

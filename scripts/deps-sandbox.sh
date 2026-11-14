@@ -2,7 +2,7 @@
 # Run a command over a source tree inside the dependency sandbox.
 #
 #   scripts/deps-sandbox.sh [--image deps|jdk|go|gate | --base-image REPOSITORY[:TAG]@sha256:DIGEST]
-#                           [--network none|registries] [--platform linux/amd64|linux/arm64]
+#                           [--network none|registries|browsers|gomodules] [--platform linux/amd64|linux/arm64]
 #                           [--mount /HOST:/CONTAINER[:ro]]... [--env NAME=VALUE]... SOURCE -- COMMAND...
 #
 # Images:
@@ -37,7 +37,13 @@
 #                   Installs, lockfile regeneration and the scanners' databases.
 #   browsers        registries plus the hosts in scripts/sandbox/egress-allowlist-browsers.txt: only the
 #                   gate runner's `playwright install chromium-headless-shell`, whose Chrome for Testing
-#                   builds redirect to storage.googleapis.com, a host no other step may reach.
+#                   builds redirect to storage.googleapis.com.
+#   gomodules       registries plus scripts/sandbox/egress-allowlist-gomodules.txt (storage.googleapis.com,
+#                   where proxy.golang.org redirects the zip of a large module), and only with --image go:
+#                   scripts/deps-regenerate.py's `go mod tidy`. The Go toolchain downloads modules and checks
+#                   them against sum.golang.org; it runs none of their code. storage.googleapis.com serves
+#                   every public bucket, so no image that installs or runs dependency code gets it apart
+#                   from the browsers step above.
 #
 # Caches live in the named volume chronicle-deps-sandbox-cache, which holds only downloaded packages
 # and tools. Exit status is the command's.
@@ -51,7 +57,7 @@ mounts=()
 envs=(-e HOME=/home/bun -e CI=1 -e BUN_INSTALL_CACHE_DIR=/cache/bun -e GRADLE_USER_HOME=/cache/gradle
       -e CHRONICLE_LOCAL_BIN_DIR=/cache/bin -e PLAYWRIGHT_BROWSERS_PATH=/cache/ms-playwright)
 base_image=''
-usage='usage: scripts/deps-sandbox.sh [--image deps|jdk|go|gate | --base-image REF@sha256:DIGEST] [--network none|registries] [--platform linux/amd64|linux/arm64] [--mount /HOST:/CONTAINER[:ro]]... [--env NAME=VALUE]... SOURCE -- COMMAND...'
+usage='usage: scripts/deps-sandbox.sh [--image deps|jdk|go|gate | --base-image REF@sha256:DIGEST] [--network none|registries|browsers|gomodules] [--platform linux/amd64|linux/arm64] [--mount /HOST:/CONTAINER[:ro]]... [--env NAME=VALUE]... SOURCE -- COMMAND...'
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --image)
@@ -63,7 +69,7 @@ while [[ $# -gt 0 ]]; do
         echo 'deps-sandbox: --base-image takes a reference pinned by digest (REPOSITORY[:TAG]@sha256:DIGEST)' >&2; exit 2; }
       image=base; base_image=$2; shift 2 ;;
     --network)
-      [[ "${2:-}" =~ ^(none|registries|browsers)$ ]] || { echo 'deps-sandbox: --network takes none, registries or browsers' >&2; exit 2; }
+      [[ "${2:-}" =~ ^(none|registries|browsers|gomodules)$ ]] || { echo 'deps-sandbox: --network takes none, registries, browsers or gomodules' >&2; exit 2; }
       network=$2; shift 2 ;;
     --offline) network=none; shift ;;
     --platform)
@@ -90,6 +96,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "${source_dir:-}" && -d "$source_dir" && $# -gt 0 ]] || { echo "$usage" >&2; exit 2; }
 source_dir=$(cd "$source_dir" && pwd -P)
+[[ "$network" != gomodules || "$image" == go ]] || { echo 'deps-sandbox: --network gomodules takes --image go only' >&2; exit 2; }
 
 # Build an image from a Dockerfile in scripts/sandbox, tagged by the hash of its inputs (the Dockerfile,
 # the OS-package helpers it mounts from the os-packages context, the build arguments) so an edited
@@ -190,6 +197,10 @@ proxy_mounts=(-v "$root/scripts/sandbox/egress-allowlist.txt:/proxy/allowlist.tx
 if [[ "$network" == browsers ]]; then
   allowlists+=(--allowlist /proxy/allowlist-browsers.txt)
   proxy_mounts+=(-v "$root/scripts/sandbox/egress-allowlist-browsers.txt:/proxy/allowlist-browsers.txt:ro")
+fi
+if [[ "$network" == gomodules ]]; then
+  allowlists+=(--allowlist /proxy/allowlist-gomodules.txt)
+  proxy_mounts+=(-v "$root/scripts/sandbox/egress-allowlist-gomodules.txt:/proxy/allowlist-gomodules.txt:ro")
 fi
 if [[ "$network" != none ]]; then
   proxy_tag=$(platform='' build chronicle-deps-sandbox "$root/scripts/sandbox/Dockerfile.deps")
