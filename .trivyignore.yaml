@@ -979,7 +979,7 @@ vulnerabilities:
       - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
     expired_at: 2026-11-29
     owner: uzaira0
-    rechecked: 2026-11-13
+    rechecked: 2026-11-14
     statement: >-
       libpq5 17.11-0+deb13u1 in the fluent-bit image (the vendor image's own package). Upstream: "PostgreSQL
       parallel RECORD typmod use-after-free executes arbitrary code" (core server; fixed in 17.12, released
@@ -992,6 +992,13 @@ vulnerabilities:
       selfhost/monitoring/fluent-bit.conf configures one output, http. Drop when the image carries libpq5
       17.12: a Fluent Bit release with it, or the trixie-security build pinned in Dockerfile.fluentbit once it
       has passed the dependency wait.
+      Rechecked 2026-11-14: Debian fixed it in DSA-6625-1 (libpq5 17.12-0+deb13u1, trixie-security;
+      snapshot.debian.org first_seen of the amd64 binary 2026-11-13 09:59 UTC). libpq5 would be a new --pin
+      name in selfhost/Dockerfile.fluentbit (new names wait 7 days, plus a dependency-additions.toml entry),
+      so the rebuild can take it from 2026-11-20 09:59 UTC; that change drops all 34 libpq5 entries (the scan
+      of 2026-11-14 names 17.12-0+deb13u1 as the fixed version of each). Four more entries were removed on
+      2026-11-14: Debian now marks postgresql-17 as not affected by CVE-2026-116313, CVE-2026-116318,
+      CVE-2026-116329 and CVE-2026-120144, and the scan no longer lists them.
   - id: CVE-2026-6467
     purls:
       - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -1003,19 +1010,6 @@ vulnerabilities:
       Same image and same check as CVE-2026-116304: libpq5 there is the client library alone, used by nothing
       but fluent-bit's pgsql output, which fluent-bit.conf does not configure. The flaw is in the server (the
       postgres backend), and the image has no PostgreSQL server. Drop with CVE-2026-116304.
-  - id: CVE-2026-116313
-    purls:
-      - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-25
-    owner: uzaira0
-    rechecked: 2026-11-13
-    statement: >-
-      "PostgreSQL "vacuumdb --missing-stats-only" lets a database owner execute code as the vacuumdb user"
-      (client; fixed in 18.7). Upstream lists only major version 18 as affected; Debian tracks it against
-      postgresql-17 all the same. Same image and same check as CVE-2026-116304: libpq5 there is the client
-      library alone, used by nothing but fluent-bit's pgsql output, which fluent-bit.conf does not configure.
-      The flaw is in the vacuumdb program, which Debian ships in postgresql-client-17; the image has no
-      PostgreSQL client program. Drop with CVE-2026-116304.
   - id: CVE-2026-116314
     purls:
       - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -1040,19 +1034,6 @@ vulnerabilities:
       is the client library alone, used by nothing but fluent-bit's pgsql output, which fluent-bit.conf does
       not configure. The flaw is in the server (the postgres backend), and the image has no PostgreSQL server.
       Drop with CVE-2026-116304.
-  - id: CVE-2026-116318
-    purls:
-      - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-25
-    owner: uzaira0
-    rechecked: 2026-11-13
-    statement: >-
-      "PostgreSQL pg_dump not-null constraint name allows SQL injection" (client; fixed in 18.7). Upstream
-      lists only major version 18 as affected; Debian tracks it against postgresql-17 all the same. Same image
-      and same check as CVE-2026-116304: libpq5 there is the client library alone, used by nothing but
-      fluent-bit's pgsql output, which fluent-bit.conf does not configure. The flaw is in the pg_dump program,
-      which Debian ships in postgresql-client-17; the image has no PostgreSQL client program. Drop with
-      CVE-2026-116304.
   - id: CVE-2026-116325
     purls:
       - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -1144,18 +1125,6 @@ vulnerabilities:
       in 17.12). Same image and same check as CVE-2026-116304: libpq5 there is the client library alone, used
       by nothing but fluent-bit's pgsql output, which fluent-bit.conf does not configure. The flaw is in the
       server (the postgres backend), and the image has no PostgreSQL server. Drop with CVE-2026-116304.
-  - id: CVE-2026-116329
-    purls:
-      - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-28
-    owner: uzaira0
-    rechecked: 2026-11-13
-    statement: >-
-      "PostgreSQL statistics import type confusion executes arbitrary code" (core server; fixed in 18.7).
-      Upstream lists only major version 18 as affected; Debian tracks it against postgresql-17 all the same.
-      Same image and same check as CVE-2026-116304: libpq5 there is the client library alone, used by nothing
-      but fluent-bit's pgsql output, which fluent-bit.conf does not configure. The flaw is in the server (the
-      postgres backend), and the image has no PostgreSQL server. Drop with CVE-2026-116304.
   - id: CVE-2026-116331
     purls:
       - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -1198,18 +1167,6 @@ vulnerabilities:
     statement: >-
       "PostgreSQL dropped-column type confusion executes arbitrary code" (core server; fixed in 17.12). Same
       image and same check as CVE-2026-116304: libpq5 there is the client library alone, used by nothing but
-      fluent-bit's pgsql output, which fluent-bit.conf does not configure. The flaw is in the server (the
-      postgres backend), and the image has no PostgreSQL server. Drop with CVE-2026-116304.
-  - id: CVE-2026-120144
-    purls:
-      - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-28
-    owner: uzaira0
-    rechecked: 2026-11-13
-    statement: >-
-      "PostgreSQL type-cache invalidation gap executes arbitrary code" (core server; fixed in 18.7). Upstream
-      lists only major version 18 as affected; Debian tracks it against postgresql-17 all the same. Same image
-      and same check as CVE-2026-116304: libpq5 there is the client library alone, used by nothing but
       fluent-bit's pgsql output, which fluent-bit.conf does not configure. The flaw is in the server (the
       postgres backend), and the image has no PostgreSQL server. Drop with CVE-2026-116304.
   - id: CVE-2026-120148
