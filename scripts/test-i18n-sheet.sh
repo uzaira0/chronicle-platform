@@ -11,12 +11,22 @@ translated=(
   chronicle/app/src/main/res/values-es/consent_copy.xml
   chronicle/app/src/googleServices/res/values-es/strings.xml
   chronicle/app/src/googleServices/res/values-es/consent_copy.xml
+  chronicle/app/src/research/res/values-es/strings.xml
+  chronicle/app/src/research/res/values-es/platform_policy.xml
+  chronicle/app/src/amazon/res/values-es/strings.xml
+  chronicle/app/src/debug/res/values-es/strings.xml
   chronicle-web/src/modern/i18n/es/translation.json
   chronicle-server/src/main/resources/messages_es.properties
   docs/i18n-source-es.tsv
 )
+# build.gradle names the flavors, build types and extra res folders each variant merges.
 sources=(
   "${translated[@]}"
+  chronicle/app/build.gradle
+  chronicle/app/src/research/res/values/strings.xml
+  chronicle/app/src/research/res/values/platform_policy.xml
+  chronicle/app/src/amazon/res/values/strings.xml
+  chronicle/app/src/debug/res/values/strings.xml
   chronicle/app/src/main/res/values/strings.xml
   chronicle/app/src/main/res/values/consent_copy.xml
   chronicle/app/src/googleServices/res/values/strings.xml
@@ -137,7 +147,9 @@ workbook.close()
 PY
 
 # The import recorded the English of the four rows it changed, so nothing is stale or unstamped.
-python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es >/dev/null
+# (check still fails: the workbook left every other Android line untranslated.)
+check_out=$(python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es || true)
+grep -q " 0 stale, 0 unstamped, 0 orphan records; [1-9][0-9]* untranslated" <<<"$check_out"
 echo "PASS: import stamped the rows it changed"
 
 outputs=(
@@ -145,6 +157,10 @@ outputs=(
   "$sheet_tmp/chronicle/app/src/main/res/values-es/consent_copy.xml"
   "$sheet_tmp/chronicle/app/src/googleServices/res/values-es/strings.xml"
   "$sheet_tmp/chronicle/app/src/googleServices/res/values-es/consent_copy.xml"
+  "$sheet_tmp/chronicle/app/src/research/res/values-es/strings.xml"
+  "$sheet_tmp/chronicle/app/src/research/res/values-es/platform_policy.xml"
+  "$sheet_tmp/chronicle/app/src/amazon/res/values-es/strings.xml"
+  "$sheet_tmp/chronicle/app/src/debug/res/values-es/strings.xml"
   "$sheet_tmp/chronicle-web/src/modern/i18n/es/translation.json"
   "$sheet_tmp/chronicle-server/src/main/resources/messages_es.properties"
   "$sheet_tmp/docs/i18n-source-es.tsv"
@@ -169,7 +185,9 @@ english = json.loads(path.read_text(encoding="utf-8"))
 english["common"]["try_again"] = "Retry now"
 path.write_text(json.dumps(english, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
-if python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es >/dev/null; then
+check_out=$(python3 scripts/i18n-sheet.py check --root "$sheet_tmp" --lang es || true)
+if ! grep -q "^stale: chronicle-web/src/modern/i18n/es/translation.json common.try_again$" <<<"$check_out" \
+    || ! grep -q " 1 stale," <<<"$check_out"; then
   echo "FAIL: check accepted a Spanish line whose English changed" >&2
   exit 1
 fi

@@ -5,7 +5,13 @@ which English text each translation was made from.
 `docs/i18n-source-<lang>.tsv` records, for every translated line, a hash of the English it
 translates. `check` fails when the English has changed since (the translation is stale) or a
 translated line has no record; `stamp` records the current English for lines a person has
-reviewed; `import` stamps the rows whose translation it changes."""
+reviewed; `import` stamps the rows whose translation it changes.
+
+Android tables come from every source set some build variant merges (main, each product flavor
+and its extra `res.srcDir` folders, each build type), read from chronicle/app/build.gradle. `check`
+also fails when a variant would show a string's English to a user of the language, or a
+translation made for other English (a flavor overriding main's English while only main has the
+translation)."""
 
 import argparse
 import hashlib
@@ -16,12 +22,11 @@ import xml.etree.ElementTree as ET
 from copy import deepcopy
 from pathlib import Path
 
-ANDROID_FLAVORS = (("android-play", "main"), ("android-research", "googleServices"))
-ANDROID = [
-    (surface, Path(f"chronicle/app/src/{flavor}/res/values/{name}.xml"))
-    for surface, flavor in ANDROID_FLAVORS
-    for name in ("strings", "consent_copy")
-]
+APP = Path("chronicle/app")
+# Workbook surface per source set folder; any other folder X is "android-X". main and
+# googleServices keep the names earlier workbooks and docs/i18n-provenance-*.tsv use.
+ANDROID_SURFACES = {"main": "android-play", "googleServices": "android-research",
+                    "research": "android-research-flavor"}
 WEB = Path("chronicle-web/src/modern/i18n/en/translation.json")
 SERVER = Path("chronicle-server/src/main/resources/messages.properties")
 HEADERS = ("surface", "file", "key", "english", "spanish", "notes")
@@ -50,6 +55,84 @@ def items(element):
         return [(name, element)]
     return [(f"{name}[{item.get('quantity') if element.tag == 'plurals' else index}]", item)
             for index, item in enumerate(element.findall("item"))]
+
+
+def gradle_children(text, header):
+    """Names of the `name { ... }` blocks directly inside the Groovy block `header { ... }`."""
+    start = text.index(header + " {") + len(header) + 2
+    depth, names = 1, []
+    for match in re.finditer(r"(\w+)\s*\{|\{|\}", text[start:]):
+        if match[0] == "}":
+            depth -= 1
+            if depth == 0:
+                return names
+        else:
+            if depth == 1 and match[1]:
+                names.append(match[1])
+            depth += 1
+    raise ValueError(f"{APP / 'build.gradle'}: unterminated {header} block")
+
+
+def android_variants(root):
+    """Every build variant's resource folders, one list per source set from lowest to highest
+    merge priority (main, flavor, build type, flavor+build type), read from the app's
+    build.gradle: product flavors, build types and extra `res.srcDir` folders."""
+    gradle = (root / APP / "build.gradle").read_text(encoding="utf-8")
+    extra = {}
+    res_dirs = re.findall(r"^\s*(\w+)\.res\.srcDirs?\s*\(?\s*['\"]([^'\"]+)['\"]", gradle, re.MULTILINE)
+    for source_set, folder in res_dirs:
+        extra.setdefault(source_set, []).append(APP / folder)
+    variants = {}
+    for flavor in gradle_children(gradle, "productFlavors"):
+        for build_type in gradle_children(gradle, "buildTypes"):
+            names = ("main", flavor, build_type, flavor + build_type[0].upper() + build_type[1:])
+            variants[f"{flavor}{build_type[0].upper()}{build_type[1:]}"] = [
+                [APP / "src" / name / "res", *extra.get(name, [])] for name in names]
+    return variants
+
+
+def android_res_folders(root):
+    """Every existing res folder some variant merges, main first."""
+    folders = []
+    for source_sets in android_variants(root).values():
+        for res in (res for folders_of_set in source_sets for res in folders_of_set):
+            if res not in folders and (root / res).is_dir():
+                folders.append(res)
+    return folders
+
+
+def android_files(root):
+    """(surface, English file) for every `values/*.xml` holding translatable strings."""
+    files = []
+    for res in android_res_folders(root):
+        for path in sorted((root / res / "values").glob("*.xml")):
+            if resources(ET.parse(path).getroot()):
+                files.append((ANDROID_SURFACES.get(res.parent.name, f"android-{res.parent.name}"),
+                              path.relative_to(root)))
+    return files
+
+
+def android_coverage(root, lang):
+    """(untranslated, shadowed) English lines, as (English file, resource name, variants), that
+    some variant shows to `lang` users in English (no `values-<lang>` defines the name) or in a
+    translation of other English (the `values-<lang>` that wins comes from a lower-priority
+    source set than the English, e.g. main's Spanish under a flavor's own English text)."""
+    found = {"untranslated": {}, "shadowed": {}}
+    for variant, source_sets in android_variants(root).items():
+        english, translated = {}, {}
+        for priority, folders in enumerate(source_sets):
+            for res in folders:
+                for folder, table in ((res / "values", english), (res / f"values-{lang}", translated)):
+                    for path in sorted((root / folder).glob("*.xml")):
+                        for element in resources(ET.parse(path).getroot()):
+                            table[element.get("name")] = (priority, path.relative_to(root).as_posix())
+        for name, (priority, path) in english.items():
+            kind = ("untranslated" if name not in translated
+                    else "shadowed" if translated[name][0] < priority else None)
+            if kind:
+                found[kind].setdefault((path, name), []).append(variant)
+    return tuple(sorted((*line, variants) for line, variants in found[kind].items())
+                 for kind in ("untranslated", "shadowed"))
 
 
 def flatten(value, path=()):
@@ -105,7 +188,7 @@ def properties_line(key, value):
 def catalog(root, lang):
     rows = {}
     trees = {}
-    for surface, path in ANDROID:
+    for surface, path in android_files(root):
         tree = ET.parse(root / path).getroot()
         trees[path] = tree
         translated = root / target_path(path, lang)
@@ -146,8 +229,8 @@ def versioned_android(root, lang):
                 if (match := re.fullmatch(rf"{re.escape(prefix)}-v(\d+)", path.name))}
 
     lines = {}
-    for _, flavor in ANDROID_FLAVORS:
-        res = root / f"chronicle/app/src/{flavor}/res"
+    for res in android_res_folders(root):
+        res = root / res
         english_levels = levels(res, "values")
         for level, folder in sorted(levels(res, f"values-{lang}").items()):
             english_folders = [english_levels[k] for k in sorted(english_levels, reverse=True) if k <= level]
@@ -220,9 +303,19 @@ def check_sources(root, lang):
             print(f"{label}: {file} {key}\n  English now: {english}\n  {lang} now:     {translated}")
     for file, key in orphans:
         print(f"orphan record: {file} {key} (the line no longer exists)")
+    untranslated, shadowed = android_coverage(root, lang)
+    for file, key, variants in untranslated:
+        print(f"untranslated: {file} {key}\n  {', '.join(variants)} show this English to {lang} users")
+    for file, key, variants in shadowed:
+        print(f"shadowed: {file} {key}\n  {', '.join(variants)} show {lang} users a {lang} line made for "
+              f"other English; add it to {target_path(Path(file), lang).as_posix()}")
     print(f"{len(lines)} translated lines: {len(stale)} stale, {len(unstamped)} unstamped, "
-          f"{len(orphans)} orphan records")
-    if stale or unstamped or orphans:
+          f"{len(orphans)} orphan records; {len(untranslated)} untranslated and {len(shadowed)} "
+          "shadowed Android lines")
+    if untranslated or shadowed:
+        print(f"Translate each untranslated or shadowed Android line into the {lang} folder of the source set "
+              "that defines its English, then stamp it.")
+    if stale or unstamped or orphans or untranslated or shadowed:
         print(f"Update each listed {lang} line (or confirm it still fits the English), then run\n"
               f"  python3 scripts/i18n-sheet.py stamp --lang {lang} KEY ...\n"
               "A translator workbook import stamps the rows whose translation it changes.")
@@ -280,7 +373,7 @@ def export_sheet(root, lang, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output)
     workbook.close()
-    for surface in ("android-play", "android-research", "web", "server"):
+    for surface in dict.fromkeys(identity[0] for identity in rows):
         print(f"{surface}: {sum(identity[0] == surface for identity in rows)} rows")
     print(f"Exported {len(rows)} rows to {output}")
 
@@ -403,7 +496,7 @@ def import_sheet(root, lang, source):
     rows, trees, english = catalog(root, lang)
     translations = read_sheet(source, rows)
     outputs = {}
-    for surface, path in ANDROID:
+    for surface, path in android_files(root):
         output = ET.Element("resources")
         for element in resources(trees[path]):
             entries = items(element)
@@ -416,6 +509,8 @@ def import_sheet(root, lang, source):
             for (_, original), value in zip(entries, values):
                 item = translated if element.tag == "string" else ET.SubElement(translated, "item", original.attrib)
                 item.text = value.replace("'", r"\'").replace('"', r'\"')
+        if not len(output) and not (root / target_path(path, lang)).exists():
+            continue  # Nothing translated in this file yet: no empty values-<lang> table.
         ET.indent(output, space="    ")
         outputs[root / target_path(path, lang)] = ET.tostring(output, encoding="unicode", xml_declaration=True) + "\n"
     web_path = root / target_path(WEB, lang)

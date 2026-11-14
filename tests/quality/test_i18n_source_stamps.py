@@ -16,8 +16,12 @@ WEB_EN = "chronicle-web/src/modern/i18n/en/translation.json"
 WEB_ES = "chronicle-web/src/modern/i18n/es/translation.json"
 SERVER_ES = "chronicle-server/src/main/resources/messages_es.properties"
 COPIED = [
+    "chronicle/app/build.gradle",
     "chronicle/app/src/main/res",
     "chronicle/app/src/googleServices/res",
+    "chronicle/app/src/research/res",
+    "chronicle/app/src/amazon/res",
+    "chronicle/app/src/debug/res",
     WEB_EN,
     WEB_ES,
     "chronicle-server/src/main/resources/messages.properties",

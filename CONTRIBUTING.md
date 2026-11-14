@@ -39,8 +39,10 @@ messages. Experiments, reverts, and operational detail stay private.
 5. Changing English that already has a translation makes that translation stale:
    `docs/i18n-source-<code>.tsv` records the English each translated line was made from, and
    `make i18n-source-check LANG=es` (also run by `scripts/local-ci.sh fast`) lists the lines
-   whose English has changed. Send them to the translators; a workbook import
-   (`make i18n-sheet-import`) records the new English for the rows it changes. When the
+   whose English has changed, and the Android strings some build flavor would show untranslated
+   (including a flavor's own English that only main's translation covers). Send them to the
+   translators; a workbook import (`make i18n-sheet-import`) records the new English for the
+   rows it changes. When the
    translation still fits (a capitalisation change, say), confirm it with
    `make i18n-source-stamp LANG=es KEYS="<key> ..."`.
 

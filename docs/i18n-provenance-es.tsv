@@ -638,3 +638,12 @@ server	chronicle-server/src/main/resources/messages.properties	error.webhook.twi
 play-listing	chronicle/store/play/listing.es-419.md	app_name	drafted in BAND wording, owner-approved 2026-11-05	BAND review
 play-listing	chronicle/store/play/listing.es-419.md	short_description	drafted in BAND wording, owner-approved 2026-11-05	BAND review
 play-listing	chronicle/store/play/listing.es-419.md	full_description	drafted in BAND wording, owner-approved 2026-11-05	BAND review
+android-research-flavor	chronicle/app/src/research/res/values/strings.xml	platform_privacy_policy_title	drafted in BAND wording, 2026-11-08 flavor gap	BAND review
+android-research-flavor	chronicle/app/src/research/res/values/strings.xml	open_public_privacy_policy	drafted in BAND wording, 2026-11-08 flavor gap	BAND review
+android-research-flavor	chronicle/app/src/research/res/values/strings.xml	interaction_accessibility_service_label	drafted in BAND wording, 2026-11-08 flavor gap	BAND review
+android-research-flavor	chronicle/app/src/research/res/values/strings.xml	interaction_accessibility_service_description	drafted in BAND wording, 2026-11-08 flavor gap	consent/legal: BAND review
+android-research-flavor	chronicle/app/src/research/res/values/strings.xml	accessibility_disclosure_title	drafted in BAND wording, 2026-11-08 flavor gap	consent/legal: BAND review
+android-research-flavor	chronicle/app/src/research/res/values/strings.xml	accessibility_disclosure_body	drafted in BAND wording, 2026-11-08 flavor gap	consent/legal: BAND review
+android-research-flavor	chronicle/app/src/research/res/values/platform_policy.xml	platform_privacy_policy_full	drafted in BAND wording, 2026-11-08 flavor gap; shared paragraphs copied from main's reviewed Spanish	consent/legal: BAND review
+android-amazon	chronicle/app/src/amazon/res/values/strings.xml	platform_privacy_policy_full	drafted in BAND wording, 2026-11-08 flavor gap; shared paragraphs copied from main's reviewed Spanish	consent/legal: BAND review
+android-debug	chronicle/app/src/debug/res/values/strings.xml	app_name	copied from English (developer build label)	

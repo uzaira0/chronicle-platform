@@ -1451,6 +1451,8 @@ chronicle-web/src/modern/i18n/es/translation.json	writes.conflict	404945b38972ac
 chronicle-web/src/modern/i18n/es/translation.json	writes.reload_discard	426c27c48e133dd1
 chronicle-web/src/modern/i18n/es/translation.json	yes	85a39ab345d672ff
 chronicle-web/src/modern/i18n/es/translation.json	yesterday	9523d9fbe79bcf3e
+chronicle/app/src/amazon/res/values-es/strings.xml	platform_privacy_policy_full	13eef98d86272a6d
+chronicle/app/src/debug/res/values-es/strings.xml	app_name	bf8b94bf6b353eb6
 chronicle/app/src/googleServices/res/values-es/consent_copy.xml	consent_activity_recognition_collects[0]	7d660bcefd810a16
 chronicle/app/src/googleServices/res/values-es/consent_copy.xml	consent_activity_recognition_collects[1]	3a6a15f80595f924
 chronicle/app/src/googleServices/res/values-es/consent_copy.xml	consent_activity_recognition_label	1ea0ef17be644ddb
@@ -2086,3 +2088,10 @@ chronicle/app/src/main/res/values-es/strings.xml	user_someone_else_label	3233cb0
 chronicle/app/src/main/res/values-es/strings.xml	user_study_participant_label	940eb7e0e7834d3a
 chronicle/app/src/main/res/values-es/strings.xml	user_unassigned_label	4895f73177ab5d67
 chronicle/app/src/main/res/values-es/strings.xml	work_scheduling_unavailable	6b24f7250ba32158
+chronicle/app/src/research/res/values-es/platform_policy.xml	platform_privacy_policy_full	011c10728c427894
+chronicle/app/src/research/res/values-es/strings.xml	accessibility_disclosure_body	665523a95f8215c6
+chronicle/app/src/research/res/values-es/strings.xml	accessibility_disclosure_title	dd4261a96e357147
+chronicle/app/src/research/res/values-es/strings.xml	interaction_accessibility_service_description	9da7d6c6c35fb19f
+chronicle/app/src/research/res/values-es/strings.xml	interaction_accessibility_service_label	c3c1e429d1ade6e3
+chronicle/app/src/research/res/values-es/strings.xml	open_public_privacy_policy	478cee9c49468bbb
+chronicle/app/src/research/res/values-es/strings.xml	platform_privacy_policy_title	188d78bacb3332f4
