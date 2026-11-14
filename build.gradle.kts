@@ -80,7 +80,7 @@ subprojects {
     // single force aligns both with kotlin_version in gradles/chronicle.gradle.
     configurations.configureEach {
         resolutionStrategy.force(
-            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.4.10",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.4.21",
         )
     }
 

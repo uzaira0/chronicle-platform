@@ -154,6 +154,36 @@ class TakeBackTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(regen.SANDBOX))
 
 
+class GradleVerificationPomTests(unittest.TestCase):
+    """2026-11-07: kotlin-stdlib 2.4.21 publishes Gradle module metadata, so `:p:dependencies` never fetched its
+    POM, the regenerated verification-metadata.xml had no entry for it, and dependencyCheckAnalyze (which asks
+    for every POM) failed verification. The Gradle step must also resolve each project's POMs."""
+
+    def test_the_gradle_step_resolves_every_projects_poms_through_the_init_script(self):
+        calls = []
+        saved = regen.sandbox
+        regen.sandbox = lambda root, scratch, subdir, command, outputs, changed, **kw: calls.append(command) or True
+        try:
+            self.assertTrue(regen.regenerate_gradle(ROOT, ROOT / 'build', []))
+        finally:
+            regen.sandbox = saved
+        (command,) = calls
+        self.assertEqual(regen.POM_INIT, command[command.index('--init-script') + 1])
+        self.assertIn('--write-verification-metadata', command)
+        for project in regen.GRADLE_PROJECTS:
+            self.assertIn(f':{project}:resolveVerificationPoms', command)
+        init = (ROOT / regen.POM_INIT).read_text()
+        self.assertIn("tasks.register('resolveVerificationPoms')", init)
+        self.assertIn('withArtifacts(MavenModule, MavenPomArtifact)', init)
+
+    def test_the_metadata_has_the_runtime_kotlin_stdlib_pom(self):
+        version = re.search(r"^ext\.kotlin_version='([^']+)'", (ROOT / 'gradles/chronicle.gradle').read_text(),
+                            re.MULTILINE).group(1)
+        text = (ROOT / 'gradle/verification-metadata.xml').read_text()
+        component = text.split(f'<component group="org.jetbrains.kotlin" name="kotlin-stdlib" version="{version}">', 1)[1]
+        self.assertIn(f'<artifact name="kotlin-stdlib-{version}.pom">', component.split('</component>', 1)[0])
+
+
 
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()

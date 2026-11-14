@@ -149,14 +149,6 @@ effectiveUntil = 2026-12-11
 reason = "Build-time only, not in the APK (absent from chronicle/app/gradle.lockfile release runtime classpaths). Resolved only into AGP 9.0.1's _internal-unified-test-platform-* configurations, which run solely for connected or managed-device instrumented tests; no gate, release or Play build runs them, and their network peer is a local emulator or device. AGP pins these versions; drop when an AGP upgrade carries the fixed release (handoff to the android lane, triage 2026-10-22) The same version on the AGP buildscript classpath is raised by a buildscript constraint (android lane); this waiver covers only the test-platform copy. Owner: uzaira0 (Android build). Rechecked 2026-11-06: the build still pins AGP 9.0.1 (chronicle/build.gradle); AGP 9.5.1 is the newest stable release, so dropping this waiver means that upgrade."
 
 [[PackageOverrides]]
-name = "org.jetbrains.kotlin:kotlin-gradle-plugin"
-version = "2.4.10"
-ecosystem = "Maven"
-vulnerability.ignore = true
-effectiveUntil = 2026-11-20
-reason = "GHSA-r937-wjx7-w2jp needs an attacker-writable Kotlin build cache. Chronicle configures no remote or shared build cache (chronicle/settings.gradle, settings.gradle.kts); builds use the invoking user's own Gradle home. The only fix is 2.4.20-Beta1; move to 2.4.20 when it is stable (triage 2026-10-22). Owner: uzaira0 (backend and Android builds). Rechecked 2026-11-06: Kotlin 2.4.20 (2026-09-07) and 2.4.21 are stable and fix it; the build still pins 2.4.10 (gradles/chronicle.gradle, settings.gradle.kts), so the Kotlin upgrade is due."
-
-[[PackageOverrides]]
 name = "golang.org/x/crypto"
 version = "0.58.0"
 ecosystem = "Go"

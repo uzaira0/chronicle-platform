@@ -51,6 +51,8 @@ SANDBOX = Path(__file__).resolve().parent / 'deps-sandbox.sh'
 JVM_SUBMODULES = ('chronicle-server', 'chronicle-api', 'rhizome', 'rhizome-client')
 GO_MODULES = ('selfhost/caddy/module', 'selfhost/backup-image/go-cron')
 OS_PINS = Path(__file__).resolve().parent / 'os-package-pins.py'
+# Relative to the tree copy the sandbox runs Gradle in.
+POM_INIT = 'scripts/deps-regenerate-poms.init.gradle'
 OS_HELPER = re.compile(r'os-packages/(?:apk-install-aged|apt-install-aged|dnf-upgrade-aged)\.sh')
 FROM = re.compile(r'^FROM\s.*$', re.MULTILINE)
 MAX_OUTPUT_BYTES = 256 * 1024 * 1024
@@ -261,9 +263,12 @@ def gradle_inputs_changed(root: Path, base: str | None) -> bool:
 
 def regenerate_gradle(root: Path, scratch: Path, changed: list[str]) -> bool:
     outputs = ('gradle/verification-metadata.xml', *(f'{p}/gradle.lockfile' for p in GRADLE_PROJECTS))
-    tasks = [f':{project}:dependencies' for project in GRADLE_PROJECTS]
-    return sandbox(root, scratch, '', ['./gradlew', '--no-daemon', '--console=plain', '--write-locks',
-                                       '--write-verification-metadata', 'sha256', 'buildEnvironment', *tasks],
+    # resolveVerificationPoms (POM_INIT) records the POMs Dependency-Check and the CycloneDX BOM fetch.
+    tasks = [task for project in GRADLE_PROJECTS
+             for task in (f':{project}:dependencies', f':{project}:resolveVerificationPoms')]
+    return sandbox(root, scratch, '', ['./gradlew', '--no-daemon', '--console=plain', '--init-script', POM_INIT,
+                                       '--write-locks', '--write-verification-metadata', 'sha256',
+                                       'buildEnvironment', *tasks],
                    outputs, changed, image='jdk')
 
 

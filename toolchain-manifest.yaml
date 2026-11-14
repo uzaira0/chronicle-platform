@@ -24,7 +24,7 @@ gradle:
   wrapper: "9.7.1"          # root, chronicle-server, chronicle-api, rhizome, rhizome-client
   android_wrapper: "9.3.0"  # chronicle/ (AGP pairing; do not unify)
 
-kotlin: "2.4.10"
+kotlin: "2.4.21"
 
 bun: "1.4.4"               # sole JS runtime — Node is not a dependency of this repo
 

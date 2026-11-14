@@ -1,28 +1,28 @@
 {
   "build.gradle.kts::org.jetbrains.kotlin:kotlin-stdlib-jdk8": {
-    "pin": "2.4.10",
+    "pin": "2.4.21",
     "reason": "Align the empty Kotlin relocation stubs with the compiler/stdlib version; prevents old transitive stubs downgrading the classpath.",
-    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-stdlib-jdk8 2.4.10 or newer, then rerun the security gate.",
-    "reviewed_on": "2026-11-01",
-    "review_after": "2026-12-01",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-stdlib-jdk8 2.4.21 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-07",
+    "review_after": "2026-12-07",
     "source_commit": "552dc0b5368ed738d63173227c1ca8b28f653e04",
     "recorded_advisories": []
   },
   "chronicle-server/build.gradle::org.jetbrains.kotlin:kotlin-reflect": {
-    "pin": "2.4.10",
+    "pin": "2.4.21",
     "reason": "Retained compatibility/security floor.",
-    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-reflect 2.4.10 or newer, then rerun the security gate.",
-    "reviewed_on": "2026-11-01",
-    "review_after": "2026-12-01",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-reflect 2.4.21 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-07",
+    "review_after": "2026-12-07",
     "source_commit": "64fd8b0cd563f5707d9cdb212ceda301e1d56947",
     "recorded_advisories": []
   },
   "chronicle-server/build.gradle::org.jetbrains.kotlin:kotlin-stdlib-jdk8": {
-    "pin": "2.4.10",
+    "pin": "2.4.21",
     "reason": "Align the empty Kotlin relocation stubs with the compiler/stdlib version; prevents old transitive stubs downgrading the classpath.",
-    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-stdlib-jdk8 2.4.10 or newer, then rerun the security gate.",
-    "reviewed_on": "2026-11-01",
-    "review_after": "2026-12-01",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-stdlib-jdk8 2.4.21 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-07",
+    "review_after": "2026-12-07",
     "source_commit": "8a3c5a4ebf1ddc82a89bd51d78247b7bc2cda08f",
     "recorded_advisories": []
   },
@@ -438,5 +438,38 @@
     "remove_when": "The maintained Dokka parents no longer cause Core2.15.3 or other affected Core metadata to be requested after removing this Dokka-only selector, and all supported owning configurations resolve with the full trusted-hash catalog advisory scan and documentation/runtime consumers passing.",
     "reviewed_on": "2026-11-01",
     "review_after": "2026-12-01"
+  },
+  "chronicle-api/build.gradle::org.jetbrains.kotlin:kotlin-reflect": {
+    "pin": "2.4.21",
+    "reason": "jackson-module-kotlin brings kotlin-reflect 2.1.21, which NVD CPE matching for CVE-2026-53914 (Kotlin < 2.4.20) flags; aligns it with the compiler so the depcheck suppression can go.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-reflect 2.4.20 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-07",
+    "review_after": "2026-12-07",
+    "source_commit": "fb014852570543201276f2495bf3b96b5d54702c",
+    "recorded_advisories": [
+      "CVE-2026-53914"
+    ]
+  },
+  "chronicle-models/build.gradle::org.jetbrains.kotlin:kotlin-reflect": {
+    "pin": "2.4.21",
+    "reason": "jackson-module-kotlin brings kotlin-reflect 2.1.21, which NVD CPE matching for CVE-2026-53914 (Kotlin < 2.4.20) flags; aligns it with the compiler so the depcheck suppression can go.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-reflect 2.4.20 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-07",
+    "review_after": "2026-12-07",
+    "source_commit": "d8adc0f68100f662158f8dbe3f3f486de525a25a",
+    "recorded_advisories": [
+      "CVE-2026-53914"
+    ]
+  },
+  "rhizome-client/build.gradle::org.jetbrains.kotlin:kotlin-reflect": {
+    "pin": "2.4.21",
+    "reason": "jackson-module-kotlin brings kotlin-reflect 2.1.21, which NVD CPE matching for CVE-2026-53914 (Kotlin < 2.4.20) flags; aligns it with the compiler so the depcheck suppression can go.",
+    "remove_when": "Remove when unforced, unlocked resolution of every owning configuration selects org.jetbrains.kotlin:kotlin-reflect 2.4.20 or newer, then rerun the security gate.",
+    "reviewed_on": "2026-11-07",
+    "review_after": "2026-12-07",
+    "source_commit": "a056b1d666691f2d759ad877f1284380ad82cebc",
+    "recorded_advisories": [
+      "CVE-2026-53914"
+    ]
   }
 }

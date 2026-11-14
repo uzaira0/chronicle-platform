@@ -1,0 +1,33 @@
+// Init script for scripts/deps-regenerate.py: resolve the POM of every module component each
+// resolvable configuration selects, so `--write-verification-metadata sha256` records it.
+//
+// A component that publishes Gradle module metadata (.module) never has its POM fetched by an
+// ordinary resolution, but OWASP Dependency-Check (dependencyCheckAnalyze) and the CycloneDX BOM
+// request it, and dependency verification then fails on the missing entry. 2026-11-07: after the
+// Kotlin 2.4.21 bump, kotlin-stdlib-2.4.21.pom was absent and :chronicle-api:dependencyCheckAnalyze
+// failed verification of runtimeClasspath.
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedArtifactResult
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+allprojects {
+    tasks.register('resolveVerificationPoms') {
+        doLast {
+            def ids = new LinkedHashSet<ModuleComponentIdentifier>()
+            project.configurations.findAll { it.canBeResolved }.each { configuration ->
+                ids.addAll(configuration.incoming.resolutionResult.allComponents.collect { it.id }
+                    .findAll { it instanceof ModuleComponentIdentifier })
+            }
+            def poms = project.dependencies.createArtifactResolutionQuery().forComponents(ids)
+                .withArtifacts(MavenModule, MavenPomArtifact).execute()
+            poms.resolvedComponents.each { component ->
+                component.getArtifacts(MavenPomArtifact).each { artifact ->
+                    if (artifact instanceof ResolvedArtifactResult) {
+                        artifact.file
+                    }
+                }
+            }
+        }
+    }
+}

@@ -46,48 +46,6 @@
     </suppress>
 
     <!-- ===================================================================
-         CVE-2026-53914 — Kotlin build-cache-metadata unsafe deserialization
-         (CWE-502). The vulnerable code path lives in the Kotlin COMPILER /
-         Gradle build-cache toolchain, NOT in the kotlin-stdlib / kotlin-reflect
-         RUNTIME libraries that ship inside the chronicle backend image. The
-         `cpe:2.3:a:jetbrains:kotlin` match is correct at the product level but
-         over-broad at the component level: DC applies the whole-product CVE to
-         every kotlin-* jar, including the shipped runtime stdlib/reflect, which
-         do not contain the build-cache code. Exploitation requires a poisoned
-         local build cache — JetBrains' own CNA scores it 6.7 MEDIUM (AV:L),
-         vs NVD's 9.8 (AV:N). This is the same risk class as the guava/log4j
-         build-tool suppressions above (build-time only, not shipped at runtime).
-
-         The real fix is upgrading the Kotlin toolchain to >= 2.4.20, which is
-         NOT YET RELEASED as a stable version (only 2.4.20-Beta1 exists on Maven
-         Central as of 2026-07-18; latest stable is 2.4.10, still affected). We
-         will not pin the backend build to a beta compiler. This is a
-         CVE-scoped (not CPE-scoped) suppression so any genuine future stdlib
-         advisory still fails the gate; it becomes inert once we upgrade to a
-         fixed version (a fixed version is simply not flagged). Remove this entry
-         at the Kotlin 2.4.20 GA upgrade.
-         ==================================================================== -->
-    <suppress until="2026-11-20Z">
-        <notes><![CDATA[
-            CVE-2026-53914 is a Kotlin build-cache-metadata deserialization flaw
-            in the compiler/Gradle toolchain, not in the shipped kotlin-stdlib /
-            kotlin-reflect runtime. Build-time only (JetBrains AV:L, 6.7 Medium).
-            Owner: uzaira0 (backend and Android builds). Rechecked 2026-11-06: Kotlin 2.4.20
-            (2026-09-07) and 2.4.21 are stable and fixed; the build still pins 2.4.10
-            (gradles/chronicle.gradle, settings.gradle.kts), so the Kotlin upgrade is due and this
-            suppression lapses on 2026-11-20.
-            Rechecked 2026-11-06 (release blockers): GHSA-r937-wjx7-w2jp lists only
-            org.jetbrains.kotlin:kotlin-gradle-plugin < 2.4.20-Beta1 as affected (CVSS 3.1
-            AV:L/AC:H/PR:H). kotlin-reflect is a runtime library with no build-cache code; it is on
-            runtimeClasspath at 2.1.21 (chronicle-api, chronicle-models, rhizome-client) and 2.4.10
-            (chronicle-server, rhizome). cbc35f3d dropped it from this selector when pinning
-            versions, which turned gradle-depcheck red on all five modules.
-        ]]></notes>
-        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/(kotlin-(stdlib|stdlib-jdk7|stdlib-jdk8|reflect)@2\.4\.10|kotlin-reflect@2\.1\.21)$</packageUrl>
-        <cve>CVE-2026-53914</cve>
-    </suppress>
-
-    <!-- ===================================================================
          CPE/package false positives verified against the affected upstream
          products on 2026-08-17. Each suppression is constrained by Maven
          package URL and either the one misapplied CVE or the one erroneous
