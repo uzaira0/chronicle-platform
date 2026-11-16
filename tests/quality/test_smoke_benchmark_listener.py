@@ -47,9 +47,27 @@ def retries_a_failed_round_trip_only(block):
             and not any(words[:1] == ['lb_retry_match'] for words in directives))
 
 
+def keeps_the_log_first(cleanup):
+    """True when cleanup writes the listener's docker logs into the run directory before it removes it."""
+    saved = re.search(r'docker logs [^\n]*"\$BENCHMARK_LISTENER_CONTAINER" >"\$\{RUN_DIR\}/[^"\n]+"', cleanup)
+    removed = re.search(r'docker rm -fv "\$BENCHMARK_LISTENER_CONTAINER"', cleanup)
+    return bool(saved and removed and saved.start() < removed.start())
+
+
 class BenchmarkListenerTests(unittest.TestCase):
     def test_the_listener_sends_a_get_again_when_its_round_trip_failed_without_an_answer(self):
         self.assertTrue(retries_a_failed_round_trip_only(listener_proxy_block(SMOKE.read_text())))
+
+    def test_a_failed_run_keeps_the_listeners_log_before_removing_it(self):
+        # The listener is no Compose service: without this its output is gone with it (2026-11-16, a 502 of
+        # its own failed the k6 job and nothing of it was kept).
+        cleanup = re.search(r'\ncleanup\(\) \{\n(.*?)\n\}\n', SMOKE.read_text(), re.S).group(1)
+        self.assertTrue(keeps_the_log_first(cleanup))
+        self.assertFalse(keeps_the_log_first(
+            '  [[ -z "${BENCHMARK_LISTENER_CONTAINER:-}" ]] || docker rm -fv "$BENCHMARK_LISTENER_CONTAINER"\n'))
+        self.assertFalse(keeps_the_log_first(
+            '  docker rm -fv "$BENCHMARK_LISTENER_CONTAINER"\n'
+            '  docker logs "$BENCHMARK_LISTENER_CONTAINER" >"${RUN_DIR}/final-benchmark-listener.log" 2>&1\n'))
 
     def test_the_retry_check_catches_the_listener_of_2026_11_16_and_a_status_matcher(self):
         listener = ("(folder / 'benchmark.Caddyfile').write_text('''{\n    admin off\n}\n:8080 {\n"

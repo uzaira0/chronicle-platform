@@ -112,7 +112,13 @@ cleanup() {
     wait "$interrupted_up" 2>/dev/null || true
   fi
   [[ -z "$TLS_PROXY_CONTAINER" ]] || docker rm -fv "$TLS_PROXY_CONTAINER" >/dev/null 2>&1
-  [[ -z "${BENCHMARK_LISTENER_CONTAINER:-}" ]] || docker rm -fv "$BENCHMARK_LISTENER_CONTAINER" >/dev/null 2>&1
+  if [[ -n "${BENCHMARK_LISTENER_CONTAINER:-}" ]]; then
+    # The listener is not a Compose service, so final-compose-logs.txt has nothing of it. On 2026-11-16 a
+    # 502 of its own failed the k6 job, and its output (caddy logs each failed round trip) was gone.
+    [[ "$SMOKE_PASSED" == true ]] ||
+      docker logs --timestamps "$BENCHMARK_LISTENER_CONTAINER" >"${RUN_DIR}/final-benchmark-listener.log" 2>&1
+    docker rm -fv "$BENCHMARK_LISTENER_CONTAINER" >/dev/null 2>&1
+  fi
   [[ -z "${BENCHMARK_EDGE_NETWORK:-}" ]] || docker network rm "$BENCHMARK_EDGE_NETWORK" >/dev/null 2>&1
   if [[ -n "$REDIRECT_SERVER_PID" ]]; then
     kill "$REDIRECT_SERVER_PID" 2>/dev/null || true
