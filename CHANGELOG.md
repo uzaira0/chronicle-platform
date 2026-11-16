@@ -5,6 +5,52 @@ matching the `chronicle-selfhost-<version>` bundle, its image tags, and `./chron
 One bundle per calendar day: a same-day suffix such as `-2` is a semver prerelease and
 would sort below the day's release, so `./chronicle update` would refuse it.
 
+## [2026.11.16]
+
+Server, dashboard and self-host bundle, updated in place from 2026.11.12 or from 2026.11.2 with
+`./chronicle update`. The database moves one minor version and keeps its data directory; there is
+no operator step. This release has no new Android build.
+
+### Security
+
+- Self-host: the database and backup images are built on Percona Distribution for PostgreSQL
+  18.7.1-1, which is PostgreSQL 18.7, the security release of 12 November 2026 (2026.11.12 shipped
+  18.6). Its fixes are in the server itself: memory-safety and type-confusion flaws that a
+  session sending its own SQL could use to run code as the database. Only Chronicle's own
+  containers can open such a session, and the image scan could not see these flaws (it has no
+  data for Percona's builds), so the database image is now also checked against the vendor's
+  newest build: local CI fails when it trails one by more than 10 days.
+- Self-host: the new base already holds the expat and ca-certificates builds that 2026.11.12
+  installed on top of the old one, and newer builds of Python 3.9, libxml2, util-linux and `gosu`
+  (built with Go 1.26.10). The image scan no longer reports CVE-2026-19445 and CVE-2026-19553
+  (Python), CVE-2026-53613 and CVE-2026-53615 (util-linux) or CVE-2026-111943 (`gosu`), which
+  2026.11.12 carried with waivers that are now removed, or CVE-2026-74860 and CVE-2026-86140
+  (libxml2), which Red Hat fixed on 11 November. zlib is the same build as before; the scan no
+  longer reports CVE-2026-76844 for it, and no program in either image imports the function that
+  flaw needs.
+- Self-host: the database and backup images no longer contain the base's second Python (3.12),
+  Patroni and its Python libraries, the compiler, linker and kernel headers, the BIND tools, RHEL's
+  own libpq 13, or three PostgreSQL modules that need Python 3.12 (`hstore_plpython3`,
+  `jsonb_plpython3`, `ltree_plpython3`). Those three are transforms for PL/Python, which the image
+  has never contained, so nothing could use them. PostgreSQL's own programs and modules are checked
+  at build time to still find every library they load.
+- Self-host: the log shipper (Fluent Bit) image carries Debian's fixed zlib (DSA-6613-1,
+  CVE-2026-76844 and CVE-2026-85091).
+- Self-host: the web edge (Caddy) is built with OpenTelemetry Go 1.47.0 (CVE-2026-128085).
+- Still open, each with its reason, recheck date and expiry in `.trivyignore.yaml`: MIT Kerberos
+  libraries in four images (no Kerberos service, key table or ticket cache exists in any of them;
+  Red Hat's fixed build was not yet in the UBI repositories on 16 November), expat in the database
+  and backup images (no fixed build exists), and libpq in the Fluent Bit image (Debian's fixed
+  build can be taken from 20 November under the 7-day rule).
+
+### Changed
+
+- The server is built with Kotlin 2.4.21, and the Temurin 25 JDK image it is built from is at its
+  current upstream build.
+- The helper that installs pinned Red Hat packages into the database and backup images uses
+  `microdnf`, the only package manager the new base has. The images install no pinned Red Hat
+  package at present.
+
 ## [2026.11.12]
 
 Server, dashboard and self-host bundle, updated in place from 2026.11.2 with `./chronicle update`;
