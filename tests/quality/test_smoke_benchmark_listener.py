@@ -4,7 +4,14 @@ The backend/web network has been internal since b335e2d2, and Docker publishes n
 whose only network is internal. The 2026.11.12 smoke started the listener on that network alone and
 failed with "no public port '8080/tcp' published". The listener is now created on a fixture bridge that
 carries the published port, joined to the backend network, then started. The Docker test below shows
-both behaviours; the static test holds the smoke to that order."""
+both behaviours; the static test holds the smoke to that order.
+
+The listener also sends a GET again when its round trip to the backend failed without an answer. The
+load script's oversized-URI probe makes Jetty answer 414 and close while caddy is still sending the
+request line; when caddy sees its failed write first, it answers 502 itself. Measured on 2026-11-16
+against the 2026.11.16 backend through a caddy configured like the listener: 10 of 3,000 such requests
+came back 502 ("write: broken pipe" or EOF in caddy's log), and 0 of 6,000 with lb_retries 2. One such
+502 among 38 answers failed a smoke of 2026.11.16."""
 import re
 import shutil
 import subprocess
@@ -26,7 +33,36 @@ def published_networks(text):
             for command in commands if '--publish' in command and '--network' in command]
 
 
+def listener_proxy_block(text):
+    """The reverse_proxy block of the Caddyfile that text writes for the benchmark listener."""
+    caddyfile = re.search(r"\(folder / 'benchmark\.Caddyfile'\)\.write_text\('''(.*?)'''\)", text, re.S).group(1)
+    return re.search(r'\n    reverse_proxy https://backend:8443 \{\n(.*?)\n    \}\n', caddyfile, re.S).group(1)
+
+
+def retries_a_failed_round_trip_only(block):
+    """True when the block retries, and no matcher lets an answer from the backend be retried away."""
+    directives = [line.split('#', 1)[0].split() for line in block.splitlines()]
+    retries = [words for words in directives if words[:1] == ['lb_retries']]
+    return (len(retries) == 1 and len(retries[0]) == 2 and retries[0][1].isdigit() and int(retries[0][1]) >= 1
+            and not any(words[:1] == ['lb_retry_match'] for words in directives))
+
+
 class BenchmarkListenerTests(unittest.TestCase):
+    def test_the_listener_sends_a_get_again_when_its_round_trip_failed_without_an_answer(self):
+        self.assertTrue(retries_a_failed_round_trip_only(listener_proxy_block(SMOKE.read_text())))
+
+    def test_the_retry_check_catches_the_listener_of_2026_11_16_and_a_status_matcher(self):
+        listener = ("(folder / 'benchmark.Caddyfile').write_text('''{\n    admin off\n}\n:8080 {\n"
+                    "    reverse_proxy https://backend:8443 {\nRETRY        transport http {\n"
+                    "            versions 1.1\n        }\n    }\n}\n''')\n")
+        self.assertFalse(retries_a_failed_round_trip_only(listener_proxy_block(listener.replace('RETRY', ''))))
+        self.assertFalse(retries_a_failed_round_trip_only(listener_proxy_block(
+            listener.replace('RETRY', '        # lb_retries 2\n'))))
+        self.assertTrue(retries_a_failed_round_trip_only(listener_proxy_block(
+            listener.replace('RETRY', '        lb_retries 2\n'))))
+        self.assertFalse(retries_a_failed_round_trip_only(listener_proxy_block(listener.replace(
+            'RETRY', '        lb_retries 2\n        lb_retry_match expression `{rp.status_code} in [502]`\n'))))
+
     def test_the_listener_publishes_from_its_own_bridge_and_joins_the_backend_network_after(self):
         text = SMOKE.read_text()
         self.assertIn('"$BENCHMARK_EDGE_NETWORK"', published_networks(text))

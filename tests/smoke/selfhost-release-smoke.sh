@@ -1126,6 +1126,12 @@ with open(folder / 'benchmark-listener.env', 'x', opener=lambda path, flags: os.
     @researcher path /chronicle/v3/*
     request_header @researcher X-Chronicle-Internal-Web {$CHRONICLE_INTERNAL_WEB_SECRET}
     reverse_proxy https://backend:8443 {
+        # Jetty answers the oversized-URI probe with 414 and closes while caddy is still sending the request
+        # line. When caddy sees its failed write before the answer, the round trip fails ("write: broken
+        # pipe", EOF) and caddy answers 502 itself: 10 of 3,000 such requests on 2026-11-16, and one of 38
+        # in a smoke of 2026.11.16, which failed on it. A GET whose round trip failed without an answer is
+        # sent again; an answer from the backend, a 5xx included, is passed on and never retried.
+        lb_retries 2
         transport http {
             # HTTP/1.1: over h2 the Go client refuses a request line above Jetty's advertised header bound and
             # caddy answers 502, so the oversized-URI probe would never reach Jetty's 414.
