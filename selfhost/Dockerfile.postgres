@@ -2,37 +2,47 @@
 # Build with selfhost/ as context. User, entrypoint, command and labels stay the base image's.
 # Must match toolchain-manifest.yaml postgres.image + postgres.index_digest.
 #checkov:skip=CKV_DOCKER_2: The same image runs the database and the one-shot config-guard, cert-init, db-init and restore services; selfhost/docker-compose.yml gives the database service its pg_isready healthcheck.
-FROM percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+FROM percona/percona-distribution-postgresql:18.7.1-1@sha256:25b6ee7e12e0fb6eb57001b6a89023168b03ae33827e834beb69139b3c092ce7
 
 USER 0
 
-# Fixed RHEL builds the pinned Percona image predates (same pins and drop conditions as Dockerfile.backup):
-# Python 3.9 (CVE-2026-19445, CVE-2026-19553), expat (CVE-2026-77214), ca-certificates (CVE-2026-114406) and
-# libxml2 (CVE-2026-74860, CVE-2026-86140; RHSA-2026:98468 names this build as the fix).
-# os-packages/dnf-upgrade-aged.sh: only these builds, aged; the base version stays once one has left the repositories.
-RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
-    sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
-      --upgrade python3=3.9.25-7.el9_8.6 python3-libs=3.9.25-7.el9_8.6 \
-        python-unversioned-command=3.9.25-7.el9_8.6 expat=2.5.0-9.el9_9.4 \
-        ca-certificates=2026.2.92_v9.0.319-90.3.el9_8 libxml2=2.9.13-18.el9_9.1
+# No package is upgraded here: the 18.7.1-1 base (RHEL 9.9 packages) ships each fixed build the 18.6.1-4 base
+# needed a pinned upgrade for (Python 3.9, expat, ca-certificates, libxml2), or a newer one.
 
-# Unused base packages with HIGH findings, and make and binutils (no build runs here): BIND client tools, kernel headers,
-# emacs-filesystem, vim-filesystem,
-# the RPM build macros (go-srpm-macros and the macro packages that need it; qt5-srpm-macros, one macro file that no
-# other package left here requires, CVE-2026-16762 and CVE-2026-103653), and Patroni with its etcd client and
-# the Python 3.12 stack only they used (pip wheel, urllib3, unpackaged dnspython CVE-2026-114605). Same list as
-# Dockerfile.backup.
-RUN dnf -y remove bind-utils bind-libs bind-license kernel-headers emacs-filesystem vim-filesystem make binutils \
-        go-srpm-macros fonts-srpm-macros python-srpm-macros redhat-rpm-config qt5-srpm-macros \
-        percona-patroni python3.12-etcd python3.12 python3.12-libs python3.12-pip-wheel && \
-    dnf clean all && \
-    rm -rf /usr/lib/python3.12 /usr/lib64/python3.12 && \
-    test ! -e /usr/bin/python3.12
+# Unused base packages with HIGH findings, and the build tools (no build runs here): the RPM build macros
+# (go-srpm-macros CVE-2026-56860, qt5-srpm-macros CVE-2026-103653, and the macro packages that need them), kernel
+# headers, Red Hat's libpq 13 (CVE-2026-116328; every PostgreSQL program here loads /usr/pgsql-18/lib/libpq.so.5),
+# Patroni with its etcd client and the Python 3.12 modules only they used (dnspython CVE-2026-128089), BIND client
+# tools, make, binutils, and the compilers and Perl build modules that need those.
+# The base has rpm and microdnf but no dnf. rpm with the exact list refuses when a package that stays needs one
+# of them, and fails on a name that is not installed, which is how a new base shows that the list needs another
+# look. Same list as Dockerfile.backup.
+RUN rpm -e annobin bind-libs bind-license bind-utils binutils binutils-gold fonts-srpm-macros gcc gcc-c++ \
+        gcc-plugin-annobin glibc-devel go-srpm-macros kernel-headers libpq libxcrypt-devel make \
+        percona-patroni percona-patroni-etcd perl perl-CPAN perl-ExtUtils-CBuilder perl-ExtUtils-Embed \
+        perl-ExtUtils-Miniperl perl-devel python-srpm-macros python3-ydiff python3.12-cffi python3.12-click \
+        python3.12-cryptography python3.12-dateutil python3.12-dns python3.12-etcd python3.12-idna \
+        python3.12-ply python3.12-prettytable python3.12-psutil python3.12-psycopg2 python3.12-pycparser \
+        python3.12-pyyaml python3.12-six python3.12-systemd python3.12-urllib3 python3.12-wcwidth \
+        qt5-srpm-macros redhat-rpm-config
 
-# Package-manager libraries (CVE-2026-120194, CVE-2026-119373, CVE-2026-119586); no dnf or rpm after this.
-RUN rpm -e --nodeps json-glib librhsm sqlite-libs
+# The Python 3.12 runtime (python3.12-pip-wheel CVE-2026-57585) and the package-manager libraries (json-glib
+# CVE-2026-120194; sqlite-libs CVE-2026-119373, CVE-2026-119374, CVE-2026-119379, CVE-2026-119586); no rpm,
+# microdnf or gpg after this. --nodeps because percona-postgresql18-contrib records libpython3.12 for its three
+# PL/Python transform modules. The base has no PL/Python itself (no plpython3.so), so they could never load; they
+# go with the runtime, and the build fails if any other PostgreSQL program or library has lost a library (or if
+# ldd no longer resolves PostgreSQL's own libpq for any of them, which is what a listing that did not run looks like).
+RUN rpm -e --nodeps python3.12 python3.12-libs python3.12-pip-wheel json-glib librhsm sqlite-libs && \
+    rm -rf /usr/lib/python3.12 /usr/lib64/python3.12 /usr/pgsql-18/lib/hstore_plpython3.so \
+        /usr/pgsql-18/lib/jsonb_plpython3.so /usr/pgsql-18/lib/ltree_plpython3.so && \
+    test ! -e /usr/bin/python3.12 && test ! -e /usr/pgsql-18/lib/plpython3.so && \
+    for f in /usr/pgsql-18/bin/* /usr/pgsql-18/lib/*.so*; do ldd "$f" >>/tmp/ldd.out 2>/dev/null || true; done && \
+    grep -q '/usr/pgsql-18/lib/libpq\.so\.5 ' /tmp/ldd.out && \
+    if grep 'not found' /tmp/ldd.out; then exit 1; fi && \
+    rm /tmp/ldd.out
 
-# CVE-2026-114406: the same eMudhra intermediate blocklist as Dockerfile.backup, on top of the fixed ca-certificates.
+# CVE-2026-114406: the same eMudhra intermediate blocklist as Dockerfile.backup, on top of the base's fixed
+# ca-certificates (2026.2.92).
 COPY backup-image/emudhra-distrusted-2026-10.pem /etc/pki/ca-trust/source/blocklist/
 RUN update-ca-trust extract
 

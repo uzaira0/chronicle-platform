@@ -76,14 +76,16 @@ class RegenerateTests(unittest.TestCase):
         self.assertEqual(again, [])
 
     def test_postgres_bump_reaches_pgtap_and_contract_schema(self):
+        # A tag no release has, like the bun case above: this test named 18.7.1-1 until the pin itself became
+        # 18.7.1-1 on 2026-11-16, when the edit changed nothing and the test failed.
         self.edit('toolchain-manifest.yaml', r'^  image: "percona/percona-distribution-postgresql:[^"]+"',
-                  '  image: "percona/percona-distribution-postgresql:18.7.1-1"')
+                  '  image: "percona/percona-distribution-postgresql:99.9.9-9"')
         self.edit('toolchain-manifest.yaml', r'^  index_digest: "sha256:[0-9a-f]{64}"', f'  index_digest: "{NEW_DIGEST}"')
         changed = []
         regen.sync_postgres(self.root, changed)
         self.assertEqual(len(changed), 2)
         pgtap = (self.root / FILES[3]).read_text()
-        self.assertIn(f'ARG PROD_POSTGRES_IMAGE=percona/percona-distribution-postgresql:18.7.1-1@{NEW_DIGEST}', pgtap)
+        self.assertIn(f'ARG PROD_POSTGRES_IMAGE=percona/percona-distribution-postgresql:99.9.9-9@{NEW_DIGEST}', pgtap)
         schema = (self.root / FILES[4]).read_text()
         self.assertIn(f'PROD_POSTGRES_IMAGE = "percona/percona-distribution-postgresql@{NEW_DIGEST}"', schema)
 

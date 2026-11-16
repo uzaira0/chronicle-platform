@@ -36,12 +36,31 @@ commandTests:
     args: [-ec, 'trust list --filter=blocklist | grep -c "label: EM "']
     expectedOutput: ['^16\n?$']
     exitCode: 0
-  # rpm cannot run here (its sqlite-libs are removed), so check files each package owned in the pinned base:
-  # ls prints any that still exist on stdout, which must stay empty.
+  # rpm cannot run here (its sqlite-libs are removed), so check files each package owned in the pinned base
+  # (rpm -ql in percona-distribution-postgresql 18.7.1-1): ls prints any that still exist on stdout, which
+  # must stay empty. A base that renames one of these files needs its new name here, or the check is empty.
   - name: unused BIND, kernel-header and compiler packages are absent
     command: ls
-    args: [-d, /usr/bin/dig, /usr/bin/nslookup, /usr/bin/host, /usr/lib64/libdns-9.16.23-RH.so,
-           /usr/lib64/libisc-9.16.23-RH.so, /usr/include/linux, /usr/share/emacs, /usr/bin/gcc, /usr/bin/cc]
+    args: [-d, /usr/bin/dig, /usr/bin/nslookup, /usr/bin/host, /usr/lib64/libdns-9.16.50-RH.so,
+           /usr/lib64/libisc-9.16.50-RH.so, /usr/include/linux, /usr/bin/gcc, /usr/bin/cc, /usr/bin/ld]
     excludedOutput: ['.']
-    expectedError: ['/usr/bin/dig', '/usr/lib64/libdns-9.16.23-RH.so', '/usr/include/linux', '/usr/bin/gcc']
+    expectedError: ['/usr/bin/dig', '/usr/lib64/libdns-9.16.50-RH.so', '/usr/include/linux', '/usr/bin/gcc']
     exitCode: 2
+  # The base's second Python (3.12, for Patroni) and RHEL's own libpq 13 are removed with their findings
+  # (python3.12-pip-wheel CVE-2026-57585, dnspython CVE-2026-128089, libpq CVE-2026-116328); so are the three
+  # transform modules that need libpython3.12 and could not load without it.
+  - name: Python 3.12, Patroni, RHEL libpq 13 and the PL/Python transform modules are absent
+    command: ls
+    args: [-d, /usr/bin/python3.12, /usr/lib64/libpython3.12.so.1.0, /usr/lib/python3.12, /usr/lib64/python3.12,
+           /usr/bin/patroni, /usr/bin/patronictl, /usr/lib64/libpq.so.5, /usr/pgsql-18/lib/hstore_plpython3.so,
+           /usr/pgsql-18/lib/jsonb_plpython3.so, /usr/pgsql-18/lib/ltree_plpython3.so,
+           /usr/lib/rpm/macros.d/macros.go-srpm]
+    excludedOutput: ['.']
+    expectedError: ['/usr/bin/python3.12', '/usr/lib64/libpq.so.5', '/usr/pgsql-18/lib/hstore_plpython3.so']
+    exitCode: 2
+  # The backup's own tools use PostgreSQL 18's libpq, which stays.
+  - name: PostgreSQL 18 client library is present and psql loads it
+    command: bash
+    args: [-ec, 'test -e /usr/pgsql-18/lib/libpq.so.5; psql --version']
+    expectedOutput: ['psql \(PostgreSQL\) 18\.']
+    exitCode: 0

@@ -82,8 +82,10 @@ class ReleaseDockerfileTests(unittest.TestCase):
                     self.assertEqual([], [name for name in sections['add'] if name not in pinned])
                     self.assertTrue(all('=' in w for w in sections['pin'] + sections['upgrade']))
                     self.assertTrue(call.stage_from and '@sha256:' in call.stage_from, call.stage_from)
-        # backend (builder apt, runtime apk), frontend, caddy, grafana, backup (apt, dnf), postgres, fluentbit
-        self.assertEqual(9, calls)
+        # backend (builder apt, runtime apk), frontend, caddy, grafana, backup (builder apt), fluentbit. The
+        # backup and postgres runtime stages had a dnf-upgrade-aged.sh call each until 2026-11-16: the 18.7.1-1
+        # base ships every build those calls pinned, so there are 7 calls, not 9.
+        self.assertEqual(7, calls)
 
     def test_each_helper_exists_and_is_posix_sh(self):
         for helper in os_packages.HELPERS:
@@ -415,21 +417,92 @@ def docker_ready() -> bool:
                                                            check=False).returncode == 0
 
 
-@unittest.skipUnless(docker_ready(), 'needs a running Docker daemon')
+@unittest.skipUnless(docker_ready(), 'needs a running Docker daemon and the UBI repositories')
 class DnfHelperTests(unittest.TestCase):
     """dnf-upgrade-aged.sh in the pinned Percona base (linux/amd64)."""
 
-    def test_metadata_that_does_not_load_is_indeterminate_not_a_kept_base_version(self):
+    @classmethod
+    def setUpClass(cls):
         base = re.search(r'^FROM (percona/\S+@sha256:[0-9a-f]{64})$', (ROOT / 'selfhost/Dockerfile.postgres').read_text(),
                          re.MULTILINE).group(1)
+        cls.image = pins_tool.amd64_reference(base)
+
+    def run_helper(self, *args: str, image: str | None = None, network: str = 'none') -> subprocess.CompletedProcess:
         helper = ROOT / 'selfhost/os-packages/dnf-upgrade-aged.sh'
-        result = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--user', '0', '-e', 'DNF_METADATA_BACKOFF=0',
-                                 '--entrypoint', 'sh', '-v', f'{helper}:/h.sh:ro', pins_tool.amd64_reference(base),
-                                 '/h.sh', 'el9', '--upgrade', 'expat=2.5.0-6.el9_8.7'],
-                                capture_output=True, text=True, timeout=900, check=False)
+        # No --platform: self.image names the amd64 manifest itself, and the Debian base is stored here for the
+        # machine's own platform under its index digest, which Docker will not overwrite with another one.
+        return subprocess.run(['docker', 'run', '--rm', '--network', network, '--user', '0', '-e', 'DNF_METADATA_BACKOFF=0',
+                               '--entrypoint', 'sh', '-v', f'{helper}:/h.sh:ro', image or self.image, '/h.sh', *args],
+                              capture_output=True, text=True, timeout=900, check=False)
+
+    def test_metadata_that_does_not_load_is_indeterminate_not_a_kept_base_version(self):
+        result = self.run_helper('el9', '--upgrade', 'expat=2.5.0-6.el9_8.7')
         self.assertEqual(2, result.returncode, result.stderr)
         self.assertIn('metadata did not load', result.stderr)
         self.assertNotIn('keeping the base image', result.stderr)
+        # 2026-11-16: the helper called dnf, which the 18.7.1-1 base does not have. Three "dnf: not found"
+        # attempts read as metadata that did not load, and the three assertions above passed.
+        self.assertNotIn('not found', result.stderr)
+
+    def test_a_base_without_the_package_manager_fails_and_is_not_indeterminate(self):
+        debian = re.search(r'^FROM (debian:13-slim@sha256:[0-9a-f]{64}) AS', (ROOT / 'selfhost/Dockerfile.fluentbit').read_text(),
+                           re.MULTILINE).group(1)
+        result = self.run_helper('el9', '--upgrade', 'expat=2.5.0-6.el9_8.7', image=debian)
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn('microdnf is not in the base image', result.stderr)
+
+    def test_a_build_the_repositories_lack_keeps_the_base_and_the_installed_build_is_left_alone(self):
+        installed = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'rpm', self.image,
+                                    '-q', '--qf', '%{VERSION}-%{RELEASE}', 'expat'],
+                                   capture_output=True, text=True, timeout=300, check=True).stdout
+        result = self.run_helper('el9', '--upgrade', 'expat=0.0.1-1.el9', network='bridge')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(f"keeping the base image's expat={installed}", result.stderr)
+        result = self.run_helper('el9', '--upgrade', f'expat={installed}', network='bridge')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn('keeping the base image', result.stderr)
+
+    def test_a_name_the_base_lacks_and_pins_for_another_release_fail(self):
+        result = self.run_helper('el9', '--upgrade', 'no-such-package-xyz=1-1.el9', network='bridge')
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn('is not installed in the base image', result.stderr)
+        result = self.run_helper('el8', '--upgrade', 'expat=2.5.0-6.el9_8.7')
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn('the pins are for el8', result.stderr)
+
+
+@unittest.skipUnless(docker_ready(), 'needs a running Docker daemon')
+class DatabaseImageLibraryCheckTests(unittest.TestCase):
+    """The library check that ends the package removal in the two database images, run in the pinned base."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.checks = {}
+        for name in ('Dockerfile.postgres', 'Dockerfile.backup'):
+            text = (ROOT / 'selfhost' / name).read_text()
+            base = re.search(r'^FROM (percona/\S+@sha256:[0-9a-f]{64})$', text, re.MULTILINE).group(1)
+            step = next(part for part in instructions(text) if ' ldd ' in part)
+            cls.checks[name] = (pins_tool.amd64_reference(base), step[step.index('for f in /usr/pgsql-18/bin/'):])
+
+    def run_check(self, name: str, ldd: str = '') -> int:
+        image, check = self.checks[name]
+        return subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--user', '0', '--entrypoint', 'sh', image,
+                               '-c', f'{ldd} {check}'], capture_output=True, text=True, timeout=900, check=False).returncode
+
+    def test_the_check_passes_on_the_base_and_fails_on_a_missing_library(self):
+        missing = ('ldd() { printf "\\tlibfoo.so.1 => not found\\n'
+                   '\\tlibpq.so.5 => /usr/pgsql-18/lib/libpq.so.5 (0x0)\\n"; };')
+        for name in self.checks:
+            with self.subTest(name):
+                self.assertEqual(0, self.run_check(name))
+                self.assertNotEqual(0, self.run_check(name, missing))
+
+    def test_a_listing_that_did_not_run_fails(self):
+        # 2026-11-16: `ldd ... >>file 2>/dev/null || true` left an empty file when ldd was missing or printed
+        # nothing, and "no line says not found" passed on it.
+        for name in self.checks:
+            with self.subTest(name):
+                self.assertNotEqual(0, self.run_check(name, 'ldd() { return 127; };'))
 
 
 @unittest.skipUnless(docker_ready(), 'needs a running Docker daemon and the Alpine index')

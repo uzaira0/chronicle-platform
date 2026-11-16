@@ -11,15 +11,20 @@
 # The UBI repositories keep only the current build of a package, so a pinned build disappears once
 # Red Hat replaces it; that upgrade is then skipped and the base version stays (as old as the base
 # image digest, which the age gate checks). Fails closed: after the upgrade, every package must be at
-# its base version or at a pinned one; anything else dnf pulled in fails the build. Repository metadata
-# that does not load, or a query that fails, exits 2 (indeterminate): only a build the loaded metadata
-# lacks keeps the base version.
+# its base version or at a pinned one; anything else the upgrade pulled in fails the build. Repository
+# metadata that does not load, or a query that fails, exits 2 (indeterminate): only a build the loaded
+# metadata lacks keeps the base version.
+#
+# The package manager is microdnf: percona-distribution-postgresql 18.7.1-1 has no dnf, and 18.6.1-4 had
+# both. A base without microdnf exits 1 before anything else, so a missing tool is never reported as
+# metadata that did not load.
 set -eu
 
 usage() { echo 'usage: dnf-upgrade-aged.sh RELEASE --upgrade NAME=VERSION-RELEASE...' >&2; exit 2; }
 [ $# -ge 2 ] && [ "$2" = --upgrade ] || usage
 release=$1
 shift 2
+command -v microdnf >/dev/null 2>&1 || { echo 'dnf-upgrade-aged: microdnf is not in the base image' >&2; exit 1; }
 actual="el$(rpm -E '%{rhel}')"
 [ "$actual" = "$release" ] || { echo "dnf-upgrade-aged: the base image is $actual, the pins are for $release" >&2; exit 1; }
 
@@ -27,7 +32,7 @@ installed() { rpm -qa --qf '%{NAME}=%{VERSION}-%{RELEASE}\n' | sort -u; }
 work=$(mktemp -d)
 installed > "$work/before"
 attempt=1
-until dnf -q makecache; do
+until microdnf makecache >/dev/null; do
   if [ "$attempt" -ge 3 ]; then
     echo "dnf-upgrade-aged: the repository metadata did not load after $attempt attempts; nothing was upgraded" >&2
     exit 2
@@ -42,9 +47,10 @@ for pin in "$@"; do
   pins="$pins $pin"
   grep -q "^$name=" "$work/before" || { echo "dnf-upgrade-aged: $name is not installed in the base image" >&2; exit 1; }
   grep -qx "$pin" "$work/before" && continue
-  found=$(dnf -q --cacheonly repoquery --available "$name-${pin#*=}") ||
+  microdnf repoquery --available "$name-${pin#*=}" > "$work/query" ||
     { echo "dnf-upgrade-aged: the repository query for $pin failed" >&2; exit 2; }
-  if [ -n "$found" ]; then
+  # One line per build and architecture, NAME-VERSION-RELEASE.ARCH; anything else microdnf printed is not a build.
+  if grep -qF "$name-${pin#*=}." "$work/query"; then
     upgrade="$upgrade $name-${pin#*=}"
   else
     echo "dnf-upgrade-aged: $pin is no longer in the repositories; keeping the base image's" \
@@ -53,9 +59,9 @@ for pin in "$@"; do
 done
 if [ -n "$upgrade" ]; then
   # shellcheck disable=SC2086 # one word per build
-  dnf -y upgrade $upgrade
+  microdnf -y upgrade $upgrade
 fi
-dnf clean all
+microdnf clean all
 
 unexpected=''
 for line in $(installed); do

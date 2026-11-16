@@ -33,12 +33,13 @@ python: "3.12"              # floor for scripts/ tests/ selfhost/ helpers; pytho
                             # requirements-dev.txt pins PyYAML and openpyxl with hashes; scripts/check-python-dev-pins.py fails on any other installed version
 
 postgres:
-  image: "percona/percona-distribution-postgresql:18.6.1-4"  # pg_tde pins prod; same image in dev/CI/testcontainers
-  index_digest: "sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e"
+  image: "percona/percona-distribution-postgresql:18.7.1-1"  # pg_tde pins prod; same image in dev/CI/testcontainers
+  index_digest: "sha256:25b6ee7e12e0fb6eb57001b6a89023168b03ae33827e834beb69139b3c092ce7"
   # Percona, not stock Postgres, because pg_tde is a Percona extension and it IS the
   # encryption-at-rest model (init-db-encryption.sh, migrate-tde.sh, selfhost/init-tde.sh,
   # rotate-tde-principal-key.sh). Percona tracks upstream:
-  # 18.6.1-4 carries PostgreSQL 18.6, the current stable release — 19 is still beta.
+  # 18.7.1-1 carries PostgreSQL 18.7 (the security release of 2026-11-12), the current stable release — 19 is
+  # still beta. A minor version: the data directory stays, and pg_tde is extension version 2.2 in both.
   #
   # 17.5-3 -> 18.4-5 is a MAJOR jump. Two consequences that are not image-swap-shaped:
   #   - The data directory is not forward-compatible. An existing cluster needs a

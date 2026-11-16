@@ -11,7 +11,7 @@ services:
   # sslmode=verify-full, as in production. Same script, image and volume path as the selfhost
   # cert-init service; root only to hand the key to uid 26.
   postgres-cert-init:
-    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+    image: percona/percona-distribution-postgresql:18.7.1-1@sha256:25b6ee7e12e0fb6eb57001b6a89023168b03ae33827e834beb69139b3c092ce7
     restart: "no"
     user: "0:0"
     network_mode: none
@@ -50,7 +50,7 @@ services:
       - ssl_key_file=/etc/postgres-tls/postgres.key
       - -c
       - ssl_min_protocol_version=TLSv1.2
-    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+    image: percona/percona-distribution-postgresql:18.7.1-1@sha256:25b6ee7e12e0fb6eb57001b6a89023168b03ae33827e834beb69139b3c092ce7
     # -dev suffix: the prod stack (docker-compose.traefik.yml) owns the names
     # chronicle-postgres / chronicle-backend on this host — an unsuffixed dev
     # stack cannot start beside it and invites `docker rm -f` against prod.

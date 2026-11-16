@@ -158,62 +158,38 @@ vulnerabilities:
       Rechecked 2026-11-06: fluent-bit 5.1.5 is the newest release and adds libcurl findings, so 5.1.3 stays; Debian lists no fix.
 
 # Unfixed third-party runtime findings reviewed for release 2026.10.5.
-  - id: CVE-2026-53613
-    purls:
-      - "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libfdisk@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/util-linux-core@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/util-linux@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-    expired_at: 2026-12-11
-    owner: uzaira0
-    rechecked: 2026-11-06
-    statement: >-
-      Postgres and backup images (pinned Percona 18.6.1-4 base; Red Hat lists no fixed util-linux). dnf
-      cannot remove util-linux or its libraries: systemd (protected) requires util-linux, libblkid and
-      libfdisk, and dnf itself requires libsmartcols. The flaw is a TOCTOU in the setuid mount program for
-      user/users fstab entries. Every service and one-shot run of these images (docker-compose.yml,
-      overlays/backups.yml, chronicle_ops docker run) drops all capabilities and adds back only CHOWN,
-      FOWNER and DAC_OVERRIDE, so mount(2) has no CAP_SYS_ADMIN; Compose services also set
-      no-new-privileges, so the setuid bit grants nothing, and run read-only with Compose-supplied mounts
-      and no local login. Drop when RHEL ships a fixed util-linux.
-      Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
   - id: CVE-2026-57585
     purls:
-      - "pkg:rpm/redhat/python3-pip-wheel@21.3.1-2.el9_8?arch=noarch&distro=redhat-9.8"
+      - "pkg:rpm/redhat/python3-pip-wheel@21.3.1-2.el9_8?arch=noarch&distro=redhat-9.9"
     expired_at: 2026-12-11
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-16
     statement: >-
-      percona/percona-distribution-postgresql:18.6.1-4: no upstream fix is available for the RHEL package
-      in this image (Trivy FixedVersion is empty). The PostgreSQL runtime and Bash/psql/OpenSSL helpers do
-      not install packages with pip or deserialize attacker-supplied MessagePack with its vendored
-      Unpacker. The wheel is only ensurepip's bundled copy; dnf cannot remove it because python3-libs
-      requires it.
-      Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
+      Postgres and backup images (percona/percona-distribution-postgresql:18.7.1-1 base): no upstream fix is
+      available for the RHEL package (Trivy FixedVersion is empty). The PostgreSQL runtime and
+      Bash/psql/OpenSSL helpers do not install packages with pip or deserialize attacker-supplied MessagePack
+      with its vendored Unpacker. The wheel is only ensurepip's bundled copy; it cannot be removed because
+      python3-libs requires it (rpm -q --whatrequires in the base).
+      Rechecked 2026-11-16: the 18.7.1-1 base ships the same build as 18.6.1-4 did, as a RHEL 9.9 package;
+      18.7.1-1 is the newest image.
   - id: CVE-2026-76641
     purls:
-      - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.9"
     expired_at: 2026-12-11
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-16
     statement: >-
-      Postgres and backup images (pinned Percona 18.6.1-4 base, expat upgraded to 2.5.0-9.el9_9.4, the
-      only build UBI 9 serves since 2.5.0-6.el9_8.7 left it; pin moved 2026-11-12, and Trivy reports this
-      advisory on the new build too, status affected; Red Hat lists no fix). The flaw is an out-of-bounds
-      read in parsers created with XML_ExternalEntityParserCreate.
-      dnf cannot remove expat: dbus-broker (required by systemd) and
-      python3-libs need it. In these images libexpat is linked only by xmlwf, dbus-broker-launch, libcomps
-      and the Python 3.9 pyexpat module; none of those programs is an entrypoint. selfcheck.py and the
-      dump verifier run without loading pyexpat. restore.sh imports chronicle_ops.verify for one constant,
-      which loads plistlib and so pyexpat, but creates no parser there (sentence corrected 2026-11-12; the
-      import probe is described under CVE-2026-115506). PostgreSQL's XML functions use libxml2. No untrusted
-      XML reaches libexpat. Drop when RHEL ships a fixed expat.
-      Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
-
-
+      Postgres and backup images (pinned Percona 18.7.1-1 base, which ships expat 2.5.0-9.el9_9.4, the only
+      build UBI 9 serves; Trivy reports this advisory on it, status affected; Red Hat lists no fix). The flaw
+      is an out-of-bounds read in parsers created with XML_ExternalEntityParserCreate.
+      expat cannot be removed: dbus-broker (required by systemd) and python3-libs need it. In these images
+      libexpat is linked only by xmlwf, dbus-broker-launch and the Python 3.9 pyexpat module; none of those
+      programs is an entrypoint. selfcheck.py and the dump verifier run without loading pyexpat. restore.sh
+      imports chronicle_ops.verify for one constant, which loads plistlib and so pyexpat, but creates no parser
+      there (the import probe is described under CVE-2026-115506). PostgreSQL's XML functions use libxml2. No
+      untrusted XML reaches libexpat. Drop when RHEL ships a fixed expat.
+      Rechecked 2026-11-16 on the images built from the 18.7.1-1 base (ELF listing of both; libcomps, a
+      fourth user in the 18.6.1-4 images, is not in this base).
 # Newest-vendor-image findings reviewed 2026-10-06; exact package/binary scopes.
   - id: CVE-2026-14456
     purls:
@@ -555,85 +531,18 @@ vulnerabilities:
       busybox grep/sed in the images' own fixed entrypoint scripts. Neither publishes a host port;
       both sit on internal networks. Rechecked 2026-11-07: v0.60.6 and v0.5.0 are still the newest
       releases. Drop when the vendor images are rebuilt on the fixed musl.
-# Findings in the pinned Percona 18.6.1-4 image (also the backup image base) reviewed 2026-10-21.
-  - id: CVE-2026-53615
-    purls:
-      - "pkg:rpm/redhat/libblkid@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libfdisk@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libmount@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libsmartcols@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/libuuid@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/util-linux-core@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/util-linux@2.37.4-25.el9?arch=x86_64&distro=redhat-9.8"
-    expired_at: 2026-12-11
-    owner: uzaira0
-    rechecked: 2026-11-06
-    statement: >-
-      Postgres and backup images (pinned Percona 18.6.1-4 base; Red Hat lists no fixed util-linux). dnf
-      cannot remove util-linux or its libraries (systemd and dnf require them). The DOS partition parser
-      runs only when blkid, fdisk, lsblk or mount probe a block device. No service or one-shot run of
-      these images is given a device (no devices: in docker-compose.yml or overlays/backups.yml, no
-      --device in chronicle_ops), all capabilities are dropped except CHOWN, FOWNER and DAC_OVERRIDE, and
-      no entrypoint or script runs those tools. Drop when RHEL ships a fixed util-linux.
-      Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
-  - id: CVE-2026-111943
-    purls:
-      - "pkg:golang/stdlib@v1.26.9"
-    paths:
-      - "usr/sbin/gosu"
-    expired_at: 2026-12-23
-    owner: uzaira0
-    rechecked: 2026-11-06
-    statement: >-
-      percona/percona-distribution-postgresql:18.6.1-4 ships gosu built with Go 1.26.9. crypto/x509
-      intermediate-certificate verification: gosu only switches user and execs postgres; it makes no TLS
-      connection and verifies no certificate.
-      Rechecked 2026-11-06: percona-distribution-postgresql 18.6.1-4 is still the newest image.
 # Reviewed 2026-11-12 for release 2026.11.12 (image gate at 70a693b7): MIT krb5 in the postgres, backup,
-# fluentbit and cAdvisor images, the Python 3.9 build the pinned fix no longer replaces, and expat. Short
-# expiries on purpose: 2026-11-19 is three days after UBI's current Python build passes the dependency wait;
-# the krb5 and expat entries end within 21 days of this review.
-  - id: CVE-2026-19445
-    purls:
-      - "pkg:rpm/redhat/python-unversioned-command@3.9.25-7.el9_8.3?arch=noarch&distro=redhat-9.8"
-      - "pkg:rpm/redhat/python3-libs@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/python3@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
-    expired_at: 2026-11-19
-    owner: uzaira0
-    rechecked: 2026-11-12
-    statement: >-
-      Postgres and backup images (pinned Percona 18.6.1-4 base): Python 3.9.25-7.el9_8.3. The Dockerfiles pin
-      the fixed 3.9.25-7.el9_8.6, but that build has left the UBI 9 repositories, so
-      os-packages/dnf-upgrade-aged.sh keeps the base build (build log: "python3=3.9.25-7.el9_8.6 is no longer in
-      the repositories; keeping the base image's python3=3.9.25-7.el9_8.3"). UBI's current build,
-      3.9.25-16.el9_9, was published 2026-11-09T09:51:18Z (python-unversioned-command in appstream primary.xml)
-      and passes the seven-day wait of scripts/check-dependency-age.py on 2026-11-16; this entry ends three days
-      later. Then run scripts/os-package-pins.py --write, rebuild, and remove this entry. Until then: the flaw
-      is a use-after-free in a Python TLS server whose sni_callback switches SSLContext. Neither image runs a
-      Python TLS server. git grep finds no sni_callback under selfhost/; the only ssl users there are two urllib
-      clients (chronicle_ops/alerts.py, monitoring/grafana-user.py) that ./chronicle runs with the host's
-      Python. Import probe in both images, 2026-11-12: chronicle_ops.common, .dump, .images, .receipts,
-      .release, .startup and /selfcheck.py load no ssl module; restore.sh imports chronicle_ops.verify for one
-      constant, which loads ssl and opens no socket.
-  - id: CVE-2026-19553
-    purls:
-      - "pkg:rpm/redhat/python-unversioned-command@3.9.25-7.el9_8.3?arch=noarch&distro=redhat-9.8"
-      - "pkg:rpm/redhat/python3-libs@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
-      - "pkg:rpm/redhat/python3@3.9.25-7.el9_8.3?arch=x86_64&distro=redhat-9.8"
-    expired_at: 2026-11-19
-    owner: uzaira0
-    rechecked: 2026-11-12
-    statement: >-
-      Same Python 3.9.25-7.el9_8.3 packages, same reason the pinned fixed build is not installed and same end
-      date as CVE-2026-19445 (UBI's 3.9.25-16.el9_9 passes the seven-day wait on 2026-11-16; then
-      scripts/os-package-pins.py --write and remove this entry). The flaw: SSLContext.wrap_bio() and the asyncio
-      TLS calls skip hostname verification when no server_hostname is passed. git grep finds no wrap_bio,
-      asyncio or start_tls under selfhost/, and no Python in these images opens a TLS connection: the two ssl
-      users (chronicle_ops/alerts.py, monitoring/grafana-user.py) are urllib clients that ./chronicle runs with
-      the host's Python.
+# fluentbit and cAdvisor images, and expat. Short expiries on purpose: the entries end within 21 days of that
+# review.
+# 2026-11-16, the postgres and backup images moved to the percona 18.7.1-1 base (RHEL 9.9 packages). Entries
+# removed because Trivy reports nothing for them in the images built from it (database of 2026-11-15): util-linux
+# and its libraries (2.37.4-28.el9_9.1 now), Python 3.9 (3.9.25-16.el9_9 now), gosu (built with Go 1.26.10 now)
+# and zlib. Entries re-keyed to the RHEL 9.9 package: python3-pip-wheel and expat (same builds), and krb5-libs
+# (1.21.1-10.el9_8.1 now, same 14 advisories; Red Hat's fixed build is 1.21.1-10.el9_9.2, and the UBI 9
+# repositories did not serve it on that day).
   - id: CVE-2026-107364
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -641,12 +550,14 @@ vulnerabilities:
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
     expired_at: 2026-12-01
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-16
     statement: >-
-      MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (pinned Percona 18.6.1-4
-      base), Debian 13.7's four krb5 library packages in the fluentbit image (fluent/fluent-bit 5.1.3) and
-      krb5-libs 1.22.1 in ghcr.io/google/cadvisor v0.60.6 (monitoring overlay). No distribution lists a fixed
-      build. The advisory is a read overrun in the ASN.1 decoder when a KDC reads an unauthenticated request; no
+      MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (1.21.1-10.el9_8.1 in the
+      pinned Percona 18.7.1-1 base), Debian 13.7's four krb5 library packages in the fluentbit image
+      (fluent/fluent-bit 5.1.3) and krb5-libs 1.22.1 in ghcr.io/google/cadvisor v0.60.6 (monitoring overlay).
+      No distribution listed a fixed build on 2026-11-12. Red Hat's is 1.21.1-10.el9_9.2 now (Trivy database
+      of 2026-11-15), and the UBI 9 repositories, the only ones the base is configured for, served
+      1.21.1-10.el9_8.1 on 2026-11-16 (baseos primary.xml), so there was nothing to install. The advisory is a read overrun in the ASN.1 decoder when a KDC reads an unauthenticated request; no
       image has krb5kdc or kadmind (file listing of the linux/amd64 images, 2026-11-12). The decoder is libkrb5
       code that a GSS-API acceptor or initiator also runs on Kerberos messages, so those callers were checked
       the same day. Acceptor: PostgreSQL in the postgres image. A peer on the internal Compose networks database
@@ -662,15 +573,22 @@ vulnerabilities:
       credential (g_accept_sec_context.c:253-256). The image has no keytab and selfhost/config/postgres-hba.conf
       has only scram-sha-256 lines, so such a peer reaches PostgreSQL's packet framing, the GSS token header and
       SPNEGO's NegTokenInit parser, and not libkrb5's ASN.1 decoder. Initiators: libpq drops GSS when
-      gss_acquire_cred finds no credential cache (src/interfaces/libpq/fe-connect.c:4819-4840 at REL_18_6); no
+      it finds no credential cache (src/interfaces/libpq/fe-connect.c:4821-4845 at REL_18_7); no
       image has kinit, a keytab or a ticket cache; no Chronicle script passes curl --negotiate; the fluent-bit
       binary imports no gss_ or krb5_ symbol, and its libcurl and libpq import only initiator functions.
       cAdvisor: /usr/bin/cadvisor needs only libpfm and musl; only the ZFS tools load the Kerberos libraries
       (through libtirpc), and the service (selfhost/overlays/monitoring.yml) runs cadvisor and a busybox wget
-      health check. Drop when the distributions ship a fixed build.
+      health check. Drop when the distributions ship a fixed build; for the postgres and backup images that is
+      a pinned upgrade once UBI serves the fixed krb5-libs and it has passed the dependency wait, or a Percona
+      base that carries it.
+      Rechecked 2026-11-16 on the postgres and backup images built from the 18.7.1-1 base, not on the other
+      two: the file listing has no krb5kdc, kadmind, kinit or keytab; the same five synthetic tokens get the
+      same refusals from PostgreSQL 18.7 and the server keeps answering; libcurl (Percona's 8.23.0 build) and
+      libssh are new importers of libgssapi_krb5 there, initiators only, and no script under selfhost/ passes
+      curl --negotiate or an scp or sftp address.
   - id: CVE-2026-119079
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -689,7 +607,7 @@ vulnerabilities:
       ship a fixed build.
   - id: CVE-2026-71199
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -735,29 +653,29 @@ vulnerabilities:
       1.22.3 or newer.
   - id: CVE-2026-115506
     purls:
-      - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.9"
     expired_at: 2026-12-02
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-16
     statement: >-
-      Postgres and backup images (pinned Percona 18.6.1-4 base): expat 2.5.0-9.el9_9.4, the build UBI 9
-      carries since 2026-10-21 (the pin moved to it on 2026-11-12, when 2.5.0-6.el9_8.7 had left UBI); Red Hat
-      lists no fixed build and Trivy reports the new build as affected. The flaw is CPU exhaustion when
-      libexpat parses a document with a large DTD and nested entity expansions.
-      Checked 2026-11-12 on both linux/amd64 images by listing every ELF file's
-      DT_NEEDED entries: libexpat.so.1 is needed only by /usr/bin/xmlwf, /usr/bin/dbus-broker-launch,
-      /usr/lib64/libcomps.so.0 and Python 3.9's pyexpat module, and dnf cannot remove it (rpm -q --whatrequires
-      'libexpat.so.1()(64bit)' in a build cut off before rpm's libraries are removed: dbus-broker, libcomps,
-      expat, python3-libs). No entrypoint or script under selfhost/ runs xmlwf, dbus-broker or dnf, and the
-      postgres binary does not load libexpat. Python, by import probe reading /proc/self/maps:
-      chronicle_ops.common, .dump, .images, .receipts, .release, .startup and /selfcheck.py load no pyexpat;
+      Postgres and backup images (pinned Percona 18.7.1-1 base): expat 2.5.0-9.el9_9.4, the build UBI 9
+      carries since 2026-10-21 and the base ships; Red Hat lists no fixed build and Trivy reports it as
+      affected. The flaw is CPU exhaustion when libexpat parses a document with a large DTD and nested entity
+      expansions.
+      Checked 2026-11-16 on both linux/amd64 images built from that base by listing every ELF file's
+      DT_NEEDED entries: libexpat.so.1 is needed only by /usr/bin/xmlwf, /usr/bin/dbus-broker-launch and
+      Python 3.9's pyexpat module, and it cannot be removed (rpm -q --whatrequires 'libexpat.so.1()(64bit)' in
+      the base, less what the Dockerfiles remove: dbus-broker, expat, python3-libs). No entrypoint or script
+      under selfhost/ runs xmlwf or dbus-broker, and the postgres binary does not load libexpat. Python, by
+      import probe reading /proc/self/maps: chronicle_ops.common, .dump, .receipts, .release, .startup and
+      /selfcheck.py load no pyexpat (2026-11-16; .images on 2026-11-12, same Python 3.9.25 modules);
       restore.sh imports chronicle_ops.verify for one constant, which loads plistlib and so maps libexpat, but
       the module's only parser call (plistlib.loads, verify.py:327) is in the macOS branch of
       verify_backup_storage and reads diskutil's output. No document from outside reaches libexpat. Drop when
       RHEL ships a fixed expat.
   - id: CVE-2026-112315
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -765,12 +683,13 @@ vulnerabilities:
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
     expired_at: 2026-11-27
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-16
     statement: >-
-      MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (pinned Percona 18.6.1-4
-      base), Debian 13.7's four krb5 library packages in the fluentbit image (fluent/fluent-bit 5.1.3) and
-      krb5-libs 1.22.1 in ghcr.io/google/cadvisor v0.60.6 (monitoring overlay). No distribution lists a fixed
-      build. The flaw is a memory leak when kadmind fails to decode an RPCSEC_GSS message
+      MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (1.21.1-10.el9_8.1 in the
+      pinned Percona 18.7.1-1 base), Debian 13.7's four krb5 library packages in the fluentbit image
+      (fluent/fluent-bit 5.1.3) and krb5-libs 1.22.1 in ghcr.io/google/cadvisor v0.60.6 (monitoring overlay).
+      No distribution listed a fixed build on 2026-11-12; Red Hat's is 1.21.1-10.el9_9.2 now, which UBI 9 did
+      not serve on 2026-11-16 (see CVE-2026-107364). The flaw is a memory leak when kadmind fails to decode an RPCSEC_GSS message
       (lib/rpc/authgss_prot.c, built into libgssrpc). Checked 2026-11-12 on the linux/amd64 images by listing
       every file and every ELF file's DT_NEEDED entries: no image has krb5kdc, kadmind, kadmin or a keytab. The
       fluentbit image has no libgssrpc. In the postgres, backup and cAdvisor images libgssrpc.so.4 is on disk as
@@ -779,9 +698,12 @@ vulnerabilities:
       postgres, libpq, libcurl and libsasl2 (postgres and backup), libcurl and libpq under fluent-bit, and
       libtirpc under the ZFS tools (cAdvisor) need libgssapi_krb5.so.2. Drop when the distributions ship a fixed
       build.
+      Rechecked 2026-11-16 on the postgres and backup images built from the 18.7.1-1 base, not on the other
+      two: no krb5kdc, kadmind, kadmin or keytab; libgssrpc.so.4 is needed only by libkdb5 there, and no file
+      needs libkdb5, libkadm5 or libkrad.
   - id: CVE-2026-112319
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -797,7 +719,7 @@ vulnerabilities:
       kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112320
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -813,7 +735,7 @@ vulnerabilities:
       does not have it), and no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112321
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -829,7 +751,7 @@ vulnerabilities:
       no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112322
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -845,7 +767,7 @@ vulnerabilities:
       kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112323
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -861,7 +783,7 @@ vulnerabilities:
       no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112316
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -879,7 +801,7 @@ vulnerabilities:
       Drop when the distributions ship a fixed build.
   - id: CVE-2026-112317
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -896,7 +818,7 @@ vulnerabilities:
       it. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112318
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -912,7 +834,7 @@ vulnerabilities:
       distributions ship a fixed build.
   - id: CVE-2026-118380
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -929,7 +851,7 @@ vulnerabilities:
       distributions ship a fixed build.
   - id: CVE-2026-71200
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -945,35 +867,21 @@ vulnerabilities:
       distributions ship a fixed build.
 # Reviewed 2026-11-13 (image gate at 2d8bd92a, Trivy database of 2026-11-13 07:00 UTC; the same images scanned
 # clean on 2026-11-12). Two things changed in the advisory data, nothing in the images:
-#   - Red Hat marked zlib in RHEL 9 as affected by CVE-2026-76844 and has no fixed build (one entry);
+#   - Red Hat marked zlib in RHEL 9 as affected by CVE-2026-76844 and has no fixed build. Its entry was removed
+#     on 2026-11-16: the images built from the 18.7.1-1 base hold the same zlib 1.2.11-40.el9 and Trivy
+#     (database of 2026-11-15) does not report the advisory for them. What the entry rested on: no ELF file in
+#     either image imported gzclearerr, which the overflow needs before zlib 1.3.1.2, and the backup's
+#     pg_dump -Z1 ends with pg_fatal on the first short gzwrite. The import check was repeated on 2026-11-16
+#     on both images built from the 18.7.1-1 base: of their ELF files only libz.so.1.2.11 itself carries the
+#     name gzclearerr.
 #   - PostgreSQL released 18.7, 17.12, 16.16, 15.20 and 14.25 on 2026-11-12. Debian tracks every advisory of
 #     that release against source package postgresql-17, so Trivy reports all 38 rated HIGH against libpq5,
 #     the one binary package of that source in the fluent-bit image (38 entries). The expiries are spread over
 #     four days by where the flaw lives; all of them go when a fixed libpq5 is in the image.
-# The database itself is another matter: the postgres and backup images run Percona's PostgreSQL 18.6, which
-# these advisories do affect, and Trivy reports none of them there (it lists percona-postgresql18-server
-# 18.6-1.el9 among the packages and has no advisory for Percona's builds). That is fixed by moving the base
-# image to percona-distribution-postgresql 18.7.1-1 (pushed 2026-11-13T05:09Z), not by an entry here.
-  - id: CVE-2026-76844
-    purls:
-      - "pkg:rpm/redhat/zlib@1.2.11-40.el9?arch=x86_64&distro=redhat-9.8"
-    expired_at: 2026-12-05
-    owner: uzaira0
-    rechecked: 2026-11-13
-    statement: >-
-      zlib 1.2.11-40.el9 in the postgres and backup images, the RHEL build of the Percona base. Red Hat lists
-      zlib in RHEL 9 as Affected with no fixed build (security data API, 2026-11-13); UBI's current build is
-      this one, from 2023. After a write() fails, gz_write() keeps a pointer into the caller's buffer and a
-      later gz* write call overflows a heap buffer; before zlib 1.3.1.2 the failed write must also be followed
-      by gzclearerr(). No ELF file in either image imports gzclearerr (llvm-nm -D --undefined-only over all
-      1278 and 1280 ELF files), so no program here can make the second call after a failure. The files that
-      import gzwrite or gzputs are pg_dump, pg_restore, pg_basebackup, pg_receivewal, pg_tde_basebackup,
-      librpmio, libsolvext, libxml2 and gcc's cc1; nothing under selfhost/ names any of the programs but
-      pg_dump. The backup runs pg_dump -Z1 (POSTGRES_EXTRA_OPTS in Dockerfile.backup), and its Gzip_write()
-      ends the process with pg_fatal on the first short gzwrite (src/bin/pg_dump/compress_gzip.c at REL_18_6;
-      Percona's release-18.6.1 file is byte-identical). restore.sh and rotate-secret.sh pipe an uncompressed
-      pg_dump to the gzip program, which imports no gz* function. Drop when UBI ships a fixed zlib (then a
-      --upgrade pin in both Dockerfiles) or the Percona base carries one.
+# The database itself was another matter: the postgres and backup images ran Percona's PostgreSQL 18.6, which
+# these advisories do affect, and Trivy reported none of them there (it listed percona-postgresql18-server
+# 18.6-1.el9 among the packages and has no advisory for Percona's builds). That was fixed on 2026-11-16 by moving
+# the base image to percona-distribution-postgresql 18.7.1-1 (PostgreSQL 18.7), not by an entry here.
   - id: CVE-2026-116304
     purls:
       - "pkg:deb/debian/libpq5@17.11-0%2Bdeb13u1?arch=amd64&distro=debian-13.7"

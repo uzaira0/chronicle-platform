@@ -19,7 +19,7 @@ services:
   # Root only to hand the empty volume to uid 26.
   postgres-volume-init:
     profiles: ["legacy-standalone"]
-    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+    image: percona/percona-distribution-postgresql:18.7.1-1@sha256:25b6ee7e12e0fb6eb57001b6a89023168b03ae33827e834beb69139b3c092ce7
     restart: "no"
     user: "0:0"
     network_mode: none
@@ -40,7 +40,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g
     profiles: ["legacy-standalone"]
-    image: percona/percona-distribution-postgresql:18.6.1-4@sha256:27a1dba816fcc4cec88f216d54e3ec86db4c1d4b16799f49800055c41606e11e
+    image: percona/percona-distribution-postgresql:18.7.1-1@sha256:25b6ee7e12e0fb6eb57001b6a89023168b03ae33827e834beb69139b3c092ce7
     container_name: chronicle-postgres
     restart: unless-stopped
     cap_drop: ["ALL"]

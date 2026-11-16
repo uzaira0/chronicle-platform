@@ -14,3 +14,21 @@ commandTests:
     args: [--version]
     expectedOutput: ['PostgreSQL\) 18\.']
     exitCode: 0
+  # Files each removed package owned in the pinned base (rpm -ql in percona-distribution-postgresql
+  # 18.7.1-1): ls prints any that still exist on stdout, which must stay empty.
+  - name: compiler, BIND, Python 3.12, Patroni, RHEL libpq 13 and the PL/Python transform modules are absent
+    command: ls
+    args: [-d, /usr/bin/gcc, /usr/bin/cc, /usr/bin/ld, /usr/include/linux, /usr/bin/dig,
+           /usr/lib64/libdns-9.16.50-RH.so, /usr/bin/python3.12, /usr/lib64/libpython3.12.so.1.0,
+           /usr/lib/python3.12, /usr/lib64/python3.12, /usr/bin/patroni, /usr/bin/patronictl, /usr/lib64/libpq.so.5,
+           /usr/pgsql-18/lib/hstore_plpython3.so, /usr/pgsql-18/lib/jsonb_plpython3.so,
+           /usr/pgsql-18/lib/ltree_plpython3.so, /usr/lib/rpm/macros.d/macros.go-srpm]
+    excludedOutput: ['.']
+    expectedError: ['/usr/bin/gcc', '/usr/bin/python3.12', '/usr/lib64/libpq.so.5', '/usr/pgsql-18/lib/hstore_plpython3.so']
+    exitCode: 2
+  # Every PostgreSQL program and module still finds its libraries after those removals.
+  - name: psql and pg_dump load PostgreSQL 18's own client library
+    command: sh
+    args: [-ec, 'test -e /usr/pgsql-18/lib/libpq.so.5; /usr/pgsql-18/bin/psql --version; /usr/pgsql-18/bin/pg_dump --version']
+    expectedOutput: ['psql \(PostgreSQL\) 18\.', 'pg_dump \(PostgreSQL\) 18\.']
+    exitCode: 0

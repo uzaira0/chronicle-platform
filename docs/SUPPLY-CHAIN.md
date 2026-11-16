@@ -217,7 +217,7 @@ bind-mounted into the `RUN` that uses them:
 |---|---|---|---|
 | `apk-install-aged.sh BRANCH [--add N...] [--pin N=V...] [--upgrade N=V...]` | backend, frontend, caddy, grafana runtime stages | `--pin`: each added package and each dependency the base lacks; `--upgrade`: newer versions of base packages | the APK index build time `t:` (`dl-cdn.alpinelinux.org/alpine/<branch>/{main,community}/x86_64/APKINDEX.tar.gz`) |
 | `apt-install-aged.sh DISTRO SNAPSHOT [--https] [--download] [--add N...] [--pin N=V...] [--upgrade N=V...]` | backend builder (Ubuntu), backup builder (Debian), fluentbit's Debian stage (`--download`); the dependency sandbox images `scripts/sandbox/Dockerfile.{deps,gate}` (Debian) and `Dockerfile.jdk` (Ubuntu) | the full resolved closure, exact versions | Debian: `first_seen` of the amd64 (or all) binary from `snapshot.debian.org/mr/binary/<pkg>/<ver>/binfiles?fileinfo=1`; Ubuntu: `date_published` from Launchpad `getPublishedBinaries` (amd64) |
-| `dnf-upgrade-aged.sh RELEASE --upgrade N=V-R...` | backup and postgres (Percona/UBI 9) | the six fixed RHEL builds, exact | UBI 9 `repodata/*-primary.xml.gz` `<time file= build=>`: the later of the two |
+| `dnf-upgrade-aged.sh RELEASE --upgrade N=V-R...` | backup and postgres (Percona/UBI 9), when the base lacks a fixed RHEL build; no call at present (see below) | each fixed RHEL build, exact | UBI 9 `repodata/*-primary.xml.gz` `<time file= build=>`: the later of the two |
 
 `scripts/check-dependency-age.py` reads these pins from every Dockerfile (module `scripts/os_packages.py`)
 as `apk:v3.24/<name>`, `deb:debian/<name>` / `deb:ubuntu/<name>` and `rpm:el9/<name>` entries and
@@ -269,10 +269,19 @@ backend builder's against the arm64 index of the same snapshot and requires the 
   and its image fails to build until `os-package-pins.py` proposes a replacement that has aged.
   The trade: a distribution fix can be absent for up to its wait, and the trivy gate then fails
   instead of shipping an unaged package.
-- **UBI keeps one build per package too.** The UBI 9 baseos `primary.xml` lists exactly one
-  `python3` build (3.9.25-7.el9_8.6), so the RPM helper has the same skip-and-keep-the-base rule.
-  The file times of the five pinned builds are 2026-10-20 to 2026-10-23; the build times are up to
-  two days earlier. The build time is the builder's own header, so the gate takes the later file time.
+- **UBI keeps one build per package too.** On 2026-11-06 the UBI 9 baseos `primary.xml` listed exactly
+  one `python3` build (3.9.25-7.el9_8.6), so the RPM helper has the same skip-and-keep-the-base rule.
+  The file times of the five builds pinned then were 2026-10-20 to 2026-10-23; the build times are up
+  to two days earlier. The build time is the builder's own header, so the gate takes the later file time.
+- **The Percona base decides whether the RPM helper has anything to do.** `percona-distribution-postgresql`
+  18.7.1-1 (taken 2026-11-16) ships every build the six pins on 18.6.1-4 selected or a newer one, so
+  `selfhost/Dockerfile.postgres` and `Dockerfile.backup` call the helper for nothing and
+  `config/dependency-overrides.json` holds no RPM record. That base has `microdnf` and `rpm` but no `dnf`,
+  and only the UBI repositories are configured in it, so the helper runs `microdnf` (18.6.1-4 had both
+  tools) and the Dockerfiles remove unused packages with an explicit `rpm -e` list. The next fixed RHEL
+  build the base lacks comes back as a `dnf-upgrade-aged.sh el9 --upgrade NAME=VERSION-RELEASE` call with
+  its override record, once UBI serves that build and it has aged: on 2026-11-16 that is krb5-libs
+  1.21.1-10.el9_9.2, which UBI did not serve yet (`.trivyignore.yaml`, CVE-2026-107364).
 - **Debian and Ubuntu keep every version in their snapshots, but snapshot.debian.org is not always
   up.** It answered HTTP 503/504 to every request between 07:18 and 07:31 UTC on 2026-11-06, while
   `snapshot.ubuntu.com` answered at once. So builds do not depend on a snapshot alone: the apt
