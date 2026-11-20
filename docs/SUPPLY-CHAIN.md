@@ -302,10 +302,10 @@ backend builder's against the arm64 index of the same snapshot and requires the 
   after and fails the build if any package is at a version that is neither the base image's nor
   pinned (an unpinned dependency at the repository's newest version, for instance).
 
-Not covered: `scripts/sandbox/Dockerfile.deps`, `Dockerfile.jdk` and `Dockerfile.gate` (sandbox
-images built on the workstation, never released; their build context is `scripts/sandbox/`, so they
-cannot bind the helpers) still `apk add`/`apt-get install` unpinned from their digest-pinned bases. `.hadolint.yaml` keeps DL3008/DL3018 ignored for them;
-`tests/quality/test_os_package_pins.py` is what holds the release Dockerfiles to the helpers.
+Not covered: `docker/Dockerfile.frontend.prod` and `docker/hetzner/crowdsec/Dockerfile.hardened`,
+which no self-host release builds, still `apk add` unpinned from their digest-pinned bases;
+`.hadolint.yaml` keeps DL3008/DL3018 ignored for them. `tests/quality/test_os_package_pins.py` is
+what holds the release Dockerfiles and the three sandbox Dockerfiles to the helpers.
 
 ## Build isolation
 
