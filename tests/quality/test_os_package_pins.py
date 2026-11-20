@@ -398,7 +398,7 @@ class ProposalTests(unittest.TestCase):
             positional, sections, problems = pins_tool.propose_apt(call, ROOT, dt.datetime(2026, 11, 6, 15, tzinfo=dt.UTC))
         self.assertEqual([], problems)
         self.assertEqual(['libbrotli1=1.1.0-2+deb13u1'], sections['pin'])
-        self.assertEqual(['debian', '20261106T000000Z'], positional)
+        self.assertEqual(['debian', '20261023T000000Z'], positional)
         [command] = seen
         self.assertEqual(['bash', str(ROOT / 'scripts/deps-sandbox.sh')], command[:2])
         options, helper = command[:command.index('--')], command[command.index('--') + 1:]
@@ -411,6 +411,88 @@ class ProposalTests(unittest.TestCase):
         self.assertTrue(any(a == '--mount' and b.endswith(':/etc/ssl/certs/ca-certificates.crt:ro') for a, b in pairs))
         self.assertEqual(['sh', '/usr/local/sbin/apt-install-aged.sh', 'debian', '20261023T000000Z', '--https',
                           '--download', '--resolve', 'libbrotli1'], helper)
+
+    BUILDER = textwrap.dedent('''\
+        FROM ubuntu:26.04@sha256:{a} AS builder
+        RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \\
+            sh /usr/local/sbin/apt-install-aged.sh ubuntu 20261109T000000Z \\
+              --add git \\
+              --pin git=1:2.53.0-1ubuntu1.1 libperl5.40=5.40.1-7ubuntu0.3
+        ''').format(a='a' * 64)
+    DOWNLOAD = textwrap.dedent('''\
+        FROM debian:13-slim@sha256:{b}
+        RUN --mount=type=bind,source=os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \\
+            sh /usr/local/sbin/apt-install-aged.sh debian SNAPSHOT --download \\
+              --pin libpq5=17.12-0+deb13u1 zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1
+        ''').format(b='b' * 64)
+    ZLIB, ZLIB_NEXT = 'pin zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1', 'pin zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u2'
+
+    def propose_apt(self, dockerfile, now, snapshots):
+        """propose_apt with the sandbox replaced by `snapshots`: stamp -> the lines the helper's --resolve
+        prints there. Returns (positional, sections, problems, the stamps resolved against in order)."""
+        [call] = os_packages.helper_calls(dockerfile)
+        asked = []
+
+        def run(command, **_kwargs):
+            stamp = command[command.index('--') + 4]  # sh, the helper, the distribution, the snapshot
+            asked.append(stamp)
+            return subprocess.CompletedProcess(command, 0, ''.join(line + '\n' for line in snapshots[stamp]), '')
+
+        with mock.patch.object(pins_tool, 'amd64_reference', lambda reference: reference), \
+                mock.patch.object(pins_tool.subprocess, 'run', run):
+            return (*pins_tool.propose_apt(call, ROOT, now), asked)
+
+    def test_the_fallback_is_the_snapshot_resolved_against_when_no_newer_pin_was_kept(self):
+        # 2026-11-20, docker/Dockerfile.backend: Ubuntu had replaced libperl5.40 5.40.1-7ubuntu0.3 on
+        # 2026-11-10. The snapshot of 14 days before still resolved to the pins, so they stayed, and today's
+        # snapshot was written as the place to fetch them from. The build stopped: the pinned build "is in
+        # neither the live mirror nor the 20261120T000000Z snapshot".
+        pins = ['pin git=1:2.53.0-1ubuntu1.1', 'pin libperl5.40=5.40.1-7ubuntu0.3']
+        positional, sections, problems, asked = self.propose_apt(
+            self.BUILDER, dt.datetime(2026, 11, 20, 10, tzinfo=dt.UTC),
+            {'20261106T000000Z': pins,
+             '20261120T000000Z': ['pin git=1:2.53.0-1ubuntu1.1', 'pin libperl5.40=5.40.1-7ubuntu0.4']})
+        self.assertEqual([], problems)
+        self.assertEqual(['git=1:2.53.0-1ubuntu1.1', 'libperl5.40=5.40.1-7ubuntu0.3'], sections['pin'])
+        self.assertEqual(['ubuntu', '20261106T000000Z'], positional)
+        self.assertEqual(['20261106T000000Z'], asked)  # lists them by construction: nothing else is asked
+
+    def test_a_kept_newer_pin_keeps_the_calls_own_snapshot_while_that_resolves_to_the_pins(self):
+        # libpq5 17.12 is newer than the snapshot of 14 days before, so that snapshot cannot be the source.
+        # The call's own still resolves to both pins; today's has a zlib1g build that replaced the pinned one.
+        positional, sections, problems, asked = self.propose_apt(
+            self.DOWNLOAD.replace('SNAPSHOT', '20261120T000000Z'), dt.datetime(2026, 11, 25, 10, tzinfo=dt.UTC),
+            {'20261111T000000Z': ['pin libpq5=17.11-0+deb13u1', self.ZLIB],
+             '20261120T000000Z': ['pin libpq5=17.12-0+deb13u1', self.ZLIB],
+             '20261125T000000Z': ['pin libpq5=17.12-0+deb13u1', self.ZLIB_NEXT]})
+        self.assertEqual([], problems)
+        self.assertEqual(['libpq5=17.12-0+deb13u1', self.ZLIB.split(' ')[1]], sections['pin'])
+        self.assertEqual(['debian', '20261120T000000Z'], positional)
+        self.assertEqual(['20261111T000000Z', '20261120T000000Z'], asked)
+
+    def test_a_pin_newer_than_the_calls_own_snapshot_moves_the_fallback_to_todays(self):
+        # The libpq5 pin of 2026-11-20: added by hand to a call whose snapshot (9 November) predates the build.
+        positional, sections, problems, asked = self.propose_apt(
+            self.DOWNLOAD.replace('SNAPSHOT', '20261109T000000Z'), dt.datetime(2026, 11, 20, 10, tzinfo=dt.UTC),
+            {'20261106T000000Z': ['pin libpq5=17.11-0+deb13u1', self.ZLIB],
+             '20261109T000000Z': ['pin libpq5=17.11-0+deb13u1', self.ZLIB],
+             '20261120T000000Z': ['pin libpq5=17.12-0+deb13u1', self.ZLIB]})
+        self.assertEqual([], problems)
+        self.assertEqual(['libpq5=17.12-0+deb13u1', self.ZLIB.split(' ')[1]], sections['pin'])
+        self.assertEqual(['debian', '20261120T000000Z'], positional)
+        self.assertEqual(['20261106T000000Z', '20261109T000000Z', '20261120T000000Z'], asked)
+
+    def test_no_snapshot_that_resolves_to_the_pins_is_a_problem(self):
+        # Neither candidate has both: the call's own predates libpq5 17.12, today's has replaced zlib1g.
+        _, _, problems, asked = self.propose_apt(
+            self.DOWNLOAD.replace('SNAPSHOT', '20261109T000000Z'), dt.datetime(2026, 11, 25, 10, tzinfo=dt.UTC),
+            {'20261111T000000Z': ['pin libpq5=17.11-0+deb13u1', self.ZLIB],
+             '20261109T000000Z': ['pin libpq5=17.11-0+deb13u1', self.ZLIB],
+             '20261125T000000Z': ['pin libpq5=17.12-0+deb13u1', self.ZLIB_NEXT]})
+        self.assertEqual(['20261111T000000Z', '20261109T000000Z', '20261125T000000Z'], asked)
+        [problem] = problems
+        self.assertEqual('no snapshot to fetch the pins from: with libpq5=17.12-0+deb13u1 kept, no debian snapshot '
+                         'among 20261109T000000Z, 20261125T000000Z resolves to exactly the pins', problem)
 
 
 def docker_ready() -> bool:

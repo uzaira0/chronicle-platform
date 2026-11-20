@@ -12,8 +12,10 @@ tracked Dockerfile:
        version was built at least the wait ago (--upgrade). The branch is the base image's.
   apt  resolves the --add packages (or, with --download, the pinned names) inside the base image
        against the distribution's snapshot taken MAJOR_DAYS ago at midnight UTC, so nothing it pins
-       can be younger than any wait; it never moves a pin back to an older version, and writes
-       today's snapshot as the fallback source. The base image runs in this checkout's
+       can be younger than any wait; it never moves a pin back to an older version. The snapshot it
+       writes into the call, the fallback source, is one whose index lists every pin: the one it
+       resolved against or, when a newer pin was kept, the call's own or today's, whichever resolves
+       to exactly the pins. The base image runs in this checkout's
        scripts/deps-sandbox.sh --base-image with --network registries: its only route out is the
        allowlisting egress proxy (HTTPS CONNECT to scripts/sandbox/egress-allowlist.txt), so apt
        reaches the snapshot over HTTPS (apt-install-aged.sh --https) with this host's CA bundle.
@@ -174,12 +176,11 @@ def ca_bundle() -> str:
     raise Indeterminate('no CA bundle on this host for reaching the snapshot over HTTPS')
 
 
-def propose_apt(call: os_packages.HelperCall, root: Path, now: dt.datetime) -> tuple[list[str], dict[str, list[str]], list[str]]:
+def resolve_apt(call: os_packages.HelperCall, root: Path, snapshot: str, names: list[str]) -> dict[str, list[str]]:
+    """What the helper's own --resolve prints for names at snapshot, in the stage's base image."""
     sections = call.sections
     distro = sections['positional'][0]
     download = '--download' in sections['flags']
-    names = sections['add'] or [os_packages.split_pin(w)[0] for w in sections['pin'] + sections['upgrade']]
-    snapshot = snapshot_now(now)
     helper = root / 'selfhost/os-packages/apt-install-aged.sh'
     image = amd64_reference(call.stage_from or '')
     with tempfile.TemporaryDirectory(prefix='os-package-pins-') as empty:  # the sandbox's /work: nothing
@@ -193,21 +194,45 @@ def propose_apt(call: os_packages.HelperCall, root: Path, now: dt.datetime) -> t
     if result.returncode or not lines:
         raise Indeterminate(f'resolving {" ".join(names)} against the {distro} snapshot {snapshot} failed: '
                             f'{result.stderr.strip()[-400:]}')
-    resolved = {'pin': sorted(w for kind, w in lines if kind == 'pin'),
-                'upgrade': sorted(w for kind, w in lines if kind == 'upgrade')}
+    return {'pin': sorted(w for kind, w in lines if kind == 'pin'),
+            'upgrade': sorted(w for kind, w in lines if kind == 'upgrade')}
+
+
+def propose_apt(call: os_packages.HelperCall, root: Path, now: dt.datetime) -> tuple[list[str], dict[str, list[str]], list[str]]:
+    sections = call.sections
+    distro, own = sections['positional'][:2]
+    names = sections['add'] or [os_packages.split_pin(w)[0] for w in sections['pin'] + sections['upgrade']]
+    snapshot = snapshot_now(now)
+    resolved = resolve_apt(call, root, snapshot, names)
     missing = set(names) - {os_packages.split_pin(w)[0] for w in resolved['pin'] + resolved['upgrade']}
     problems = [f'the {distro} snapshot {snapshot} has no {name}' for name in sorted(missing)]
     # A pin is never moved back: a newer one already passed the age gate when it was committed (a
     # security build the snapshot of one wait ago predates, for instance), so it stays.
     previous = dict(os_packages.split_pin(w) for w in sections['pin'] + sections['upgrade'])
+    kept_newer = []
     for kind in ('pin', 'upgrade'):
         resolved[kind], kept = os_packages.never_back(resolved[kind], previous)
+        kept_newer += kept
         for name in kept:
             note(f'{name}: keeping {previous[name]}; the {snapshot} snapshot has only an older build')
-    # The snapshot written into the call is only where a pin is fetched from once the live mirror has
-    # replaced it, so it must be no older than the newest pin: today at midnight UTC.
-    fallback = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y%m%dT%H%M%SZ')
-    return [distro, fallback], {'add': sections['add'], **resolved}, problems
+    # The snapshot written into the call is where a pin is fetched from once the live mirror has replaced
+    # it, so its indexes have to list every pin, and a pocket's index lists one build of a package. The
+    # snapshot resolved against lists them all unless a newer pin was kept. Then the call's own is tried
+    # (it leaves the call as it is) and then today's: the first that resolves to exactly these pins.
+    # Until 2026-11-20 today's was written unchecked. That day the backend builder stopped on
+    # "libperl5.40=5.40.1-7ubuntu0.3 is in neither the live mirror nor the 20261120T000000Z snapshot":
+    # Ubuntu had replaced that build on 2026-11-10, and no pin of the call was newer than the snapshot
+    # of 14 days before.
+    fallback = snapshot
+    if kept_newer and not problems:
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y%m%dT%H%M%SZ')
+        candidates = [stamp for stamp in dict.fromkeys([own, today]) if stamp != snapshot]
+        fallback = next((stamp for stamp in candidates if resolve_apt(call, root, stamp, names) == resolved), None)
+        if fallback is None:
+            kept = ', '.join(f'{name}={previous[name]}' for name in sorted(kept_newer))
+            problems.append(f'no snapshot to fetch the pins from: with {kept} kept, no {distro} snapshot among '
+                            f'{", ".join(candidates)} resolves to exactly the pins')
+    return [distro, fallback or own], {'add': sections['add'], **resolved}, problems
 
 
 def propose_dnf(call: os_packages.HelperCall, now: dt.datetime) -> tuple[list[str], dict[str, list[str]], list[str]]:

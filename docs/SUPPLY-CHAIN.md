@@ -240,8 +240,10 @@ needs, no cache volume, and no route out but the allowlisting egress proxy, whic
 distribution snapshot taken 14 days ago at midnight UTC, so nothing it pins can be younger than any wait, never
 moves a pin back to an older version (the 14-day snapshot predates the libbrotli1 1.1.0-2+deb13u1
 security build, first seen 2026-10-23 21:07 UTC, and would otherwise resolve the vulnerable +b7), refuses
-to resolve when any snapshot pocket failed to update, and writes today's snapshot as the fallback
-source; for RPM
+to resolve when any snapshot pocket failed to update, and writes into the call a snapshot that
+resolves to exactly the pins, as the source once the live mirror has replaced one: the snapshot it
+resolved against or, when a newer pin was kept, the call's own or else today's, checked by resolving
+there (none that does is exit 1 and the call is left as it was); for RPM
 it moves each pinned build to the UBI repository's current build once that is older than the wait.
 It prints each changed file; exit 1 means some image has no aged version to install (its build
 fails until one ages), exit 2 that a lookup failed and that call was left as it was.
@@ -290,6 +292,12 @@ backend builder's against the arm64 index of the same snapshot and requires the 
   versions, so a pin installs from the live mirror while it is current and from the snapshot after;
   only a pin that neither has fails. A Debian pin change whose `first_seen` cannot be read while
   snapshot.debian.org is down is indeterminate and is retried by the next gate run.
+  "Every version" is across snapshots, not within one: the indexes of one snapshot are the archive
+  at that moment, one build of a package per pocket. SNAPSHOT therefore has to be a moment at which
+  every pin was listed. On 2026-11-20 the pin tool wrote that day's snapshot into the backend
+  builder's call without checking; Ubuntu had replaced the pinned perl 5.40.1-7ubuntu0.3 on
+  2026-11-10, so the build stopped ("is in neither the live mirror nor the 20261120T000000Z
+  snapshot"). The tool now writes only a snapshot it resolved the pins from.
 - **Every helper fails closed after installing.** Each compares the package database before and
   after and fails the build if any package is at a version that is neither the base image's nor
   pinned (an unpinned dependency at the repository's newest version, for instance).

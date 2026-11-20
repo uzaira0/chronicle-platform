@@ -7,7 +7,7 @@ WORKDIR /app
 # exact versions older than the dependency wait (selfhost/os-packages/apt-install-aged.sh; the pins are
 # refreshed by scripts/os-package-pins.py and aged by scripts/check-dependency-age.py).
 RUN --mount=type=bind,source=selfhost/os-packages/apt-install-aged.sh,target=/usr/local/sbin/apt-install-aged.sh \
-    sh /usr/local/sbin/apt-install-aged.sh ubuntu 20261109T000000Z \
+    sh /usr/local/sbin/apt-install-aged.sh ubuntu 20261106T000000Z \
       --add curl unzip dos2unix git \
       --pin curl=8.18.0-1ubuntu2.8 dos2unix=7.5.4-1 git-man=1:2.53.0-1ubuntu1.1 git=1:2.53.0-1ubuntu1.1 \
         libcurl3t64-gnutls=8.18.0-1ubuntu2.8 libcurl4t64=8.18.0-1ubuntu2.8 liberror-perl=0.17030-1 \
