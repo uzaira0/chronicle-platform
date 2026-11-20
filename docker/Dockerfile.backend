@@ -123,15 +123,17 @@ COPY --from=jlinker /opt/jre-minimal /opt/java/openjdk
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Install gettext (envsubst) + su-exec (lightweight user switching); use wget (busybox) for healthchecks.
+# Install envsubst + su-exec (lightweight user switching); use wget (busybox) for healthchecks.
+# envsubst comes from gettext-envsubst alone. The whole gettext package is not installed: nothing here runs its
+# other tools, and it brings libxml2, libgomp, ncurses, libunistring and xz-libs, each an added package that
+# stops this build until its replacement has aged whenever Alpine rebuilds it (libxml2 on 2026-11-20).
 # OS packages enter only at versions older than the dependency wait, base packages included
 # (selfhost/os-packages/apk-install-aged.sh; scripts/os-package-pins.py refreshes the pins).
 RUN --mount=type=bind,source=selfhost/os-packages/apk-install-aged.sh,target=/usr/local/sbin/apk-install-aged.sh \
     sh /usr/local/sbin/apk-install-aged.sh v3.24 \
-      --add gettext su-exec \
-      --pin gettext=1.0-r0 gettext-envsubst=1.0-r0 gettext-libs=1.0-r0 libgomp=15.2.0-r5 libintl=1.0-r0 \
-        libncursesw=6.6_p20260516-r0 libunistring=1.4.2-r0 libxml2=2.13.9-r2 \
-        ncurses-terminfo-base=6.6_p20260516-r0 su-exec=0.3-r0 xz-libs=5.8.4-r0 && \
+      --add gettext-envsubst su-exec \
+      --pin gettext-envsubst=1.0-r0 libintl=1.0-r0 su-exec=0.3-r0 \
+      --upgrade zlib=1.4-r0 && \
     addgroup -S chronicle && adduser -S -G chronicle -h /server -s /sbin/nologin chronicle && \
     mkdir -p /var/log/chronicle /var/lib/chronicle/exports /usr/share/doc/chronicle && \
     chown -R chronicle:chronicle /var/log/chronicle /var/lib/chronicle

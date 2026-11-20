@@ -515,6 +515,7 @@ class ApkHelperTests(unittest.TestCase):
                          re.MULTILINE).group(1)
         cls.image = pins_tool.amd64_reference(base)
         call = os_packages.helper_calls((ROOT / 'docker/Dockerfile.backend').read_text())[1]
+        cls.additions = call.sections['add']
         cls.closure = call.sections['pin']
 
     def run_helper(self, *args: str) -> subprocess.CompletedProcess:
@@ -523,7 +524,10 @@ class ApkHelperTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=600, check=False)
 
     def test_the_backend_closure_installs(self):
-        result = self.run_helper('v3.24', '--add', 'gettext', 'su-exec', '--pin', *self.closure)
+        # The additions are the Dockerfile's own: on 2026-11-20 this case named gettext itself and failed with
+        # the image's build the moment Alpine replaced one of gettext's dependencies.
+        self.assertIn('su-exec', self.additions)
+        result = self.run_helper('v3.24', '--add', *self.additions, '--pin', *self.closure)
         self.assertEqual(0, result.returncode, result.stderr)
 
     def test_an_index_that_does_not_update_is_indeterminate_not_a_policy_failure(self):
@@ -535,8 +539,9 @@ class ApkHelperTests(unittest.TestCase):
         self.assertIn('index did not update', result.stderr)
 
     def test_an_unpinned_dependency_fails(self):
-        result = self.run_helper('v3.24', '--add', 'gettext', '--pin', 'gettext=' + dict(
-            os_packages.split_pin(p) for p in self.closure)['gettext'])
+        # gettext-envsubst needs libintl, which the base lacks and this call does not pin.
+        result = self.run_helper('v3.24', '--add', 'gettext-envsubst', '--pin', 'gettext-envsubst=' + dict(
+            os_packages.split_pin(p) for p in self.closure)['gettext-envsubst'])
         self.assertEqual(1, result.returncode, result.stderr)
         self.assertIn('neither the base image', result.stderr)
 

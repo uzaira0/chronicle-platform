@@ -54,6 +54,16 @@ fileExistenceTests:
     path: "/server/lib/test-fixtures.jar"
     shouldExist: false
 
+  # Only envsubst of gettext is installed (docker/Dockerfile.backend): the whole package brought libxml2 and
+  # four more libraries that nothing in the image runs.
+  - name: "gettext's own tools are not installed"
+    path: "/usr/bin/msgfmt"
+    shouldExist: false
+
+  - name: "libxml2 is not installed"
+    path: "/usr/lib/libxml2.so.2"
+    shouldExist: false
+
 fileContentTests:
   - name: "server GPL license is shipped"
     path: "/usr/share/doc/chronicle/chronicle-server-LICENSE"
@@ -118,7 +128,7 @@ commandTests:
     args: ["su-exec"]
     exitCode: 0
 
-  - name: "envsubst is available (gettext)"
+  - name: "envsubst is available (gettext-envsubst)"
     command: "which"
     args: ["envsubst"]
     exitCode: 0
