@@ -90,7 +90,14 @@ gate_tree() {
   local label="$1" tree="$2" dir; dir="$(repo_dir "$label")"
   local export="$WORK/.tree-$label"; rm -rf "$export"; (umask 077 && mkdir -p "$export")
   trap 'rm -rf "$WORK"/.tree-* "$WORK"/.gitleaks-*.json "$WORK"/.allow-*' EXIT
-  git -C "$dir" archive "$tree" | tar -x -C "$export"
+  # Through a file, never `git archive | tar -x`: bsdtar stops reading at the end-of-archive mark and
+  # exits 0 with everything extracted, while git archive can still be writing the padding after it.
+  # git archive is then ended by SIGPIPE (141) and, under pipefail, so is this script, without a
+  # line. About one export in ten of this gate's own test ended that way on 2026-11-20.
+  local archive="$WORK/.tree-$label.tar"
+  (umask 077 && git -C "$dir" archive --format=tar -o "$archive" "$tree")
+  tar -x -f "$archive" -C "$export"
+  rm -f "$archive"
   if [[ -f "$dir/.publishignore" ]]; then
     # ls-files needs a repo to evaluate patterns against; a throwaway one inside
     # the export. Command failure here must fail the gate, never pass it.
@@ -102,7 +109,8 @@ gate_tree() {
   local allow="$WORK/.allow-$label"; : > "$allow"
   [[ -f "$dir/.publishallow" ]] && sed -E 's/[[:space:]]+#.*$//' "$dir/.publishallow" | grep -v '^#' | grep -v '^$' > "$allow" || true
   local report="$WORK/.gitleaks-$label.json"; rm -f "$report"
-  gitleaks detect --no-git --no-banner -s "$export" --exit-code 0 --report-format json --report-path "$report" >/dev/null 2>&1
+  gitleaks detect --no-git --no-banner -s "$export" --exit-code 0 --report-format json --report-path "$report" >/dev/null 2>&1 \
+    || fail "$label: gitleaks exited $? on the filtered tree"
   gitleaks_json "$report"
   local hits; hits="$(jq -r '.[] | (.File|sub(".*/\\.tree-[^/]+/";""))' "$report" | sort -u | { grep -vxFf "$allow" || true; })"
   [[ -z "$hits" ]] || fail "$label: gitleaks findings outside .publishallow: $(tr '\n' ' ' <<<"$hits")"
@@ -134,7 +142,8 @@ gate_commits() {
   done
   local allow="$WORK/.allow-$label"
   local report="$WORK/.gitleaks-commits-$label.json"; rm -f "$report"
-  gitleaks detect --no-banner -s "$wt" --log-opts="$range" --exit-code 0 --report-format json --report-path "$report" >/dev/null 2>&1
+  gitleaks detect --no-banner -s "$wt" --log-opts="$range" --exit-code 0 --report-format json --report-path "$report" >/dev/null 2>&1 \
+    || fail "$label: gitleaks exited $? on the new commits"
   gitleaks_json "$report"
   local hits; hits="$(jq -r '.[] | .File' "$report" | sort -u | { grep -vxFf "$allow" || true; })"
   [[ -z "$hits" ]] || fail "$label: gitleaks findings in the new commits outside .publishallow: $(tr '\n' ' ' <<<"$hits")"

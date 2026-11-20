@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""scripts/publish.sh push must refuse when gitleaks leaves no readable report."""
+"""scripts/publish.sh push must refuse when gitleaks leaves no readable report, must say which scan
+ended it when one dies, and must not be ended by a tar that has read all it needs."""
 
 import os
 import shutil
@@ -21,7 +22,18 @@ GITLEAKS_STUB = textwrap.dedent('''\
       if [[ "$1" == --log-opts=* ]]; then fixture="$FIXTURE_COMMIT_REPORT"; fi
       shift
     done
+    # "killed" ends the scan as a closed pipe would: by SIGPIPE, which the caller sees as exit 141.
+    [[ "$fixture" != killed ]] || kill -PIPE $$
     [[ "$fixture" == none ]] || printf '%s' "$fixture" > "$report"
+''')
+
+TAR_STUB = textwrap.dedent('''\
+    #!/usr/bin/env bash
+    # Given an archive file, the real tar. Reading an archive from its standard input, it leaves at
+    # once with exit 0, as bsdtar leaves at the end-of-archive mark: a writer that still has bytes
+    # to send is then ended by SIGPIPE.
+    for argument in "$@"; do [[ "$argument" != -f ]] || exec REAL_TAR "$@"; done
+    exit 0
 ''')
 
 
@@ -35,6 +47,8 @@ class PublishGitleaksGateTests(unittest.TestCase):
         for name in ('publish.sh', 'check-commit-msg.sh'):
             shutil.copy2(ROOT / 'scripts' / name, repo / 'scripts' / name)
         (repo / '.gitmodules').write_text('')
+        # More than a pipe holds (64 KiB): the archive of this tree cannot all be written to a reader that left.
+        (repo / 'padding.bin').write_bytes(bytes(1 << 20))
         (bin_dir / 'gitleaks').write_text(GITLEAKS_STUB)
         (bin_dir / 'gh').write_text('#!/usr/bin/env bash\necho main\n')
         for stub in bin_dir.iterdir():
@@ -72,6 +86,25 @@ class PublishGitleaksGateTests(unittest.TestCase):
                     result = self.push(**{scope: report})
                     self.assertNotEqual(result.returncode, 0, result.stderr)
                     self.assertIn(message, result.stderr)
+
+    def test_a_scan_that_dies_is_named_with_its_status(self):
+        # 2026-11-20: a dry run of the root exited 141 and printed nothing. Both scans run with their
+        # output discarded, so the gate has to say which one ended and how.
+        for scope, where in (('tree', 'on the filtered tree'), ('commits', 'on the new commits')):
+            with self.subTest(scope=scope):
+                result = self.push(**{scope: 'killed'})
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'publish: root: gitleaks exited 141 {where}', result.stderr)
+
+    def test_a_tar_that_leaves_before_its_writer_is_done_cannot_end_the_export(self):
+        # The export was `git archive | tar -x`. bsdtar exits 0 once it has the whole archive, and
+        # git archive, cut off while writing the padding after it, ended the gate with exit 141.
+        stub = self.tmp / 'bin' / 'tar'
+        stub.write_text(TAR_STUB.replace('REAL_TAR', shutil.which('tar')))
+        stub.chmod(0o755)
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('would push 1 commit(s)', result.stderr)
 
 
 if __name__ == '__main__':

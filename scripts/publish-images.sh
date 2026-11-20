@@ -291,10 +291,14 @@ scan_publication_source() (
   fi
   mkdir -p "$root/build/releases" "$reports"
   snapshot=$(mktemp -d "$root/build/releases/chronicle-release-sca.XXXXXX")
-  trap 'rm -rf -- "$snapshot"' EXIT
+  trap 'rm -rf -- "$snapshot" "$snapshot.tar"' EXIT
+  # Through a file, not a pipe into tar: bsdtar leaves at the end-of-archive mark, and a writer cut
+  # off while sending the padding after it would fail this step although the snapshot is complete.
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 -c \
     'from chronicle_ops.images import archive_source; import sys; archive_source(*sys.argv[1:4], sys.stdout.buffer)' \
-    "$root" "$revision" . | tar -xf - -C "$snapshot"
+    "$root" "$revision" . >"$snapshot.tar"
+  tar -xf "$snapshot.tar" -C "$snapshot"
+  rm -f -- "$snapshot.tar"
   bash "$root/scripts/deps-sandbox.sh" --network registries --mount "$reports:/reports" --env CHRONICLE_LOCAL_CI_REPORT_DIR=/reports \
     "$snapshot" -- bash scripts/local-ci.sh bun-audit osv
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/selfhost" python3 - "$revision" "$reports" "$evidence" <<'PY_SCA_EVIDENCE'

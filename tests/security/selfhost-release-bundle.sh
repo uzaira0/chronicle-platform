@@ -40,9 +40,12 @@ trap '/bin/rm -rf -- "$RUN_DIR"' EXIT
 # leaving developer edits in place; fresh-bundle Python tests package the working files.
 SOURCE_SNAPSHOT="${RUN_DIR}/committed-inputs"
 mkdir "$SOURCE_SNAPSHOT"
-git -C "$ROOT_DIR" archive "$SOURCE_REVISION" -- \
-  selfhost docker/init-db-roles.sql LICENSE THIRD-PARTY.md CHANGELOG.md SECURITY.md |
-  tar -xf - -C "$SOURCE_SNAPSHOT"
+# Through a file, not a pipe into tar: bsdtar leaves at the end-of-archive mark, and git archive,
+# cut off by SIGPIPE while writing the padding after it, would end this script under pipefail.
+git -C "$ROOT_DIR" archive --format=tar -o "${RUN_DIR}/committed-inputs.tar" "$SOURCE_REVISION" -- \
+  selfhost docker/init-db-roles.sql LICENSE THIRD-PARTY.md CHANGELOG.md SECURITY.md
+tar -xf "${RUN_DIR}/committed-inputs.tar" -C "$SOURCE_SNAPSHOT"
+/bin/rm -f -- "${RUN_DIR}/committed-inputs.tar"
 run_builder() {
   GIT_WORK_TREE="$SOURCE_SNAPSHOT" GIT_OPTIONAL_LOCKS=0 "$BUILDER" "$@"
 }
