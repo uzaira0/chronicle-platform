@@ -103,21 +103,24 @@ vulnerabilities:
   - id: CVE-2026-12064
     purls:
       - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u7?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-11
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-20
     statement: >-
       libcurl in the pinned fluent-bit 5.1.3 image (libcurl4t64 8.14.1-2+deb13u7); Debian has no fix yet. SFTP/SCP host
       verification; Chronicle's fluent-bit uses forward/tail inputs and its own http output to
       victorialogs, never curl URLs. Drop when the fluent-bit image carries a fixed libcurl.
       Rechecked 2026-11-06: fluent-bit 5.1.5 is the newest release and adds libcurl findings, so 5.1.3 stays; Debian lists no fix.
+      Rechecked 2026-11-20: Debian still has no fixed build for trixie (security tracker: 8.14.1-2+deb13u7
+      vulnerable, <no-dsa>, minor issue; fixed in unstable only). Fluent Bit 5.2.0 (2026-11-09, image rebuilt
+      2026-11-17) carries the same libcurl4t64 build, so moving to it does not end this entry.
   - id: CVE-2026-85091
     purls:
       - "pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.23.6"
       - "pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-24
+    expired_at: 2026-12-06
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       Alpine zlib 1.3.2-r0 in the newest cadvisor (v0.60.6) and docker-socket-proxy (v0.5.0) images;
       Alpine's fix (1.3.2-r1) is in neither. The overflow is in
@@ -136,26 +139,40 @@ vulnerabilities:
       (docs/SUPPLY-CHAIN.md), so its wait ends 2026-11-13 18:26 UTC, not 2026-11-09 as the last recheck said.
       Neither image is built in this repository, so installing 1.4-r0 means deriving both images through
       selfhost/os-packages/apk-install-aged.sh; this short end date keeps that decision in view.
+      Rechecked 2026-11-20: both pinned digests are unchanged, so the files are those read on 2026-11-12. Both
+      projects have published new images. cAdvisor v0.61.0 (2026-11-16 14:23 UTC) and v0.61.1 (2026-11-18 20:46 UTC)
+      are on Alpine 3.23.8; docker-socket-proxy v0.6.0 (2026-11-17) ends version tags and publishes 3.4 and lts
+      (pushed 2026-11-17 09:27 UTC, Alpine 3.24.4). Scanned from their registries with the Trivy database of
+      2026-11-20 07:09 UTC, none of the four images has this finding. Each is a major change for the age gate (0.60
+      to 0.61; v0.5.0 to 3.4), 14 days: cAdvisor from 2026-11-30 14:24 UTC (v0.61.0) or 2026-12-02 20:47 UTC
+      (v0.61.1), docker-socket-proxy from 2026-12-01 09:27 UTC. Moving both pins ends this entry. This repository's
+      own Alpine images took zlib 1.4-r0 on 2026-11-20; they never had this finding.
   - id: CVE-2026-8458
     purls:
       - "pkg:deb/debian/libcurl4t64@8.14.1-2%2Bdeb13u7?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-11
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-20
     statement: >-
       Same libcurl (8.14.1-2+deb13u7) in fluent-bit 5.1.3, no Debian fix; connection reuse logic. Not used by any
       configured fluent-bit input or output.
       Rechecked 2026-11-06: fluent-bit 5.1.5 is the newest release and adds libcurl findings, so 5.1.3 stays; Debian lists no fix.
+      Rechecked 2026-11-20: Debian still has no fixed build for trixie (security tracker: 8.14.1-2+deb13u7
+      vulnerable, <no-dsa>, minor issue; fixed in unstable only). Fluent Bit 5.2.0 (2026-11-09, image rebuilt
+      2026-11-17) carries the same libcurl4t64 build, so moving to it does not end this entry.
   - id: CVE-2026-16742
     purls:
       - "pkg:deb/debian/libsystemd0@257.13-1~deb13u1?arch=amd64&distro=debian-13.7"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-11
     owner: uzaira0
-    rechecked: 2026-11-06
+    rechecked: 2026-11-20
     statement: >-
       libsystemd0 in fluent-bit 5.1.3, no Debian fix; local privilege escalation through
       systemd-homed, which does not run in the container (fluent-bit is PID 1, no systemd).
       Rechecked 2026-11-06: fluent-bit 5.1.5 is the newest release and adds libcurl findings, so 5.1.3 stays; Debian lists no fix.
+      Rechecked 2026-11-20: Debian still has no fixed build for trixie (security tracker: 257.13-1~deb13u1
+      vulnerable, <no-dsa>, minor issue; fixed in unstable 261.2-1). Fluent Bit 5.2.0 (2026-11-09, image rebuilt
+      2026-11-17) carries the same libsystemd0 build, so moving to it does not end this entry.
 
 # Unfixed third-party runtime findings reviewed for release 2026.10.5.
   - id: CVE-2026-57585
@@ -195,9 +212,9 @@ vulnerabilities:
     purls:
       - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=x86_64&distro=3.24.1"
       - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-25
+    expired_at: 2026-12-05
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       tecnativa/docker-socket-proxy:v0.5.0: newest vendor image still ships it (stable releases
       and digest rechecked 2026-10-06). OpenSSL is linked into HAProxy, but
@@ -212,12 +229,17 @@ vulnerabilities:
       HAProxy's own QUIC stack, unused without a quic bind. Alpine v3.24 now has libssl3 and libcrypto3
       3.5.9-r0 (built 2026-09-30, past the 7-day wait); the image is not built in this repository, so taking
       them means deriving it through selfhost/os-packages/apk-install-aged.sh (open decision).
+      Rechecked 2026-11-20: the pinned digest is unchanged. docker-socket-proxy v0.6.0 (2026-11-17) ends version
+      tags and publishes 3.4 and lts (pushed 2026-11-17 09:27 UTC, Alpine 3.24.4); scanned from Docker Hub with the
+      Trivy database of 2026-11-20 07:09 UTC, both are free of HIGH and CRITICAL findings. As a major change for the
+      age gate (v0.5.0 to 3.4, 14 days) the pin can move from 2026-12-01 09:27 UTC, which ends this entry. That
+      closes the open decision above: the fix comes with the vendor's image, not by deriving one here.
   - id: CVE-2026-103111
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-26
+    expired_at: 2026-12-05
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
       HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
@@ -234,12 +256,17 @@ vulnerabilities:
       past the 7-day wait); the image is not built in this repository, so taking it means deriving it through
       selfhost/os-packages/apk-install-aged.sh (open decision). The earlier wording (image-supplied expressions,
       POST=0) described the image's own entrypoint, which the overlay does not run.
+      Rechecked 2026-11-20: the pinned digest is unchanged. docker-socket-proxy v0.6.0 (2026-11-17) ends version
+      tags and publishes 3.4 and lts (pushed 2026-11-17 09:27 UTC, Alpine 3.24.4); scanned from Docker Hub with the
+      Trivy database of 2026-11-20 07:09 UTC, both are free of HIGH and CRITICAL findings. As a major change for the
+      age gate (v0.5.0 to 3.4, 14 days) the pin can move from 2026-12-01 09:27 UTC, which ends this entry. That
+      closes the open decision above: the fix comes with the vendor's image, not by deriving one here.
   - id: CVE-2026-86145
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-26
+    expired_at: 2026-12-05
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
       HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
@@ -255,12 +282,17 @@ vulnerabilities:
       this repository, so taking it means deriving it through selfhost/os-packages/apk-install-aged.sh (open
       decision). The earlier wording (image-supplied expressions, POST=0) described the image's own entrypoint,
       which the overlay does not run.
+      Rechecked 2026-11-20: the pinned digest is unchanged. docker-socket-proxy v0.6.0 (2026-11-17) ends version
+      tags and publishes 3.4 and lts (pushed 2026-11-17 09:27 UTC, Alpine 3.24.4); scanned from Docker Hub with the
+      Trivy database of 2026-11-20 07:09 UTC, both are free of HIGH and CRITICAL findings. As a major change for the
+      age gate (v0.5.0 to 3.4, 14 days) the pin can move from 2026-12-01 09:27 UTC, which ends this entry. That
+      closes the open decision above: the fix comes with the vendor's image, not by deriving one here.
   - id: CVE-2026-89157
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-26
+    expired_at: 2026-12-05
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
       HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
@@ -276,12 +308,17 @@ vulnerabilities:
       (built 2026-10-01, past the 7-day wait); the image is not built in this repository, so taking it means
       deriving it through selfhost/os-packages/apk-install-aged.sh (open decision). The earlier wording
       (image-supplied expressions, POST=0) described the image's own entrypoint, which the overlay does not run.
+      Rechecked 2026-11-20: the pinned digest is unchanged. docker-socket-proxy v0.6.0 (2026-11-17) ends version
+      tags and publishes 3.4 and lts (pushed 2026-11-17 09:27 UTC, Alpine 3.24.4); scanned from Docker Hub with the
+      Trivy database of 2026-11-20 07:09 UTC, both are free of HIGH and CRITICAL findings. As a major change for the
+      age gate (v0.5.0 to 3.4, 14 days) the pin can move from 2026-12-01 09:27 UTC, which ends this entry. That
+      closes the open decision above: the fix comes with the vendor's image, not by deriving one here.
   - id: CVE-2026-89161
     purls:
       - "pkg:apk/alpine/pcre2@10.47-r1?arch=x86_64&distro=3.24.1"
-    expired_at: 2026-11-26
+    expired_at: 2026-12-05
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       tecnativa/docker-socket-proxy:v0.5.0 (Alpine 3.24.1, pcre2 10.47-r1): newest vendor image still ships it.
       HAProxy compiles only the patterns in its configuration, and the only configuration this HAProxy reads is
@@ -301,6 +338,11 @@ vulnerabilities:
       built in this repository, so taking it means deriving it through selfhost/os-packages/apk-install-aged.sh
       (open decision). The earlier wording (image-supplied expressions, POST=0) described the image's own
       entrypoint, which the overlay does not run.
+      Rechecked 2026-11-20: the pinned digest is unchanged. docker-socket-proxy v0.6.0 (2026-11-17) ends version
+      tags and publishes 3.4 and lts (pushed 2026-11-17 09:27 UTC, Alpine 3.24.4); scanned from Docker Hub with the
+      Trivy database of 2026-11-20 07:09 UTC, both are free of HIGH and CRITICAL findings. As a major change for the
+      age gate (v0.5.0 to 3.4, 14 days) the pin can move from 2026-12-01 09:27 UTC, which ends this entry. That
+      closes the open decision above: the fix comes with the vendor's image, not by deriving one here.
   - id: CVE-2026-56854
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.54.0"
@@ -547,9 +589,9 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-01
+    expired_at: 2026-12-09
     owner: uzaira0
-    rechecked: 2026-11-16
+    rechecked: 2026-11-20
     statement: >-
       MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (1.21.1-10.el9_8.1 in the
       pinned Percona 18.7.1-1 base), Debian 13.7's four krb5 library packages in the fluentbit image
@@ -585,6 +627,14 @@ vulnerabilities:
       same refusals from PostgreSQL 18.7 and the server keeps answering; libcurl (Percona's 8.23.0 build) and
       libssh are new importers of libgssapi_krb5 there, initiators only, and no script under selfhost/ passes
       curl --negotiate or an scp or sftp address.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-119079
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -592,9 +642,9 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-01
+    expired_at: 2026-12-09
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       decode_sequence_of() in libkrb5's ASN.1 decoder (lib/krb5/asn.1/asn1_encode.c) grows its array one element
       at a time; the advisory's case is a KDC reading an AS-REQ or TGS-REQ over TCP, and no image has a KDC. The
@@ -603,6 +653,14 @@ vulnerabilities:
       token before libkrb5 decodes a Kerberos message (probe of the built image and krb5-1.21.1 source,
       2026-11-12); no initiator has a ticket; cadvisor loads no Kerberos library. Drop when the distributions
       ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-71199
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -610,9 +668,9 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-01
+    expired_at: 2026-12-09
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       An authenticated Kerberos user can get past an authentication-indicator requirement with an unkeyed
       checksum in the CAMMAC authorization-data container. That data is read by a KDC, or by an acceptor after
@@ -621,12 +679,20 @@ vulnerabilities:
       a ticket, and no Chronicle service authenticates with Kerberos (selfhost/config/postgres-hba.conf has only
       scram-sha-256 lines), so no authentication-indicator requirement exists to get past. Drop when the
       distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-40355
     purls:
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-02
+    expired_at: 2026-12-06
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       ghcr.io/google/cadvisor:v0.60.6 (Alpine 3.23.6, krb5-libs 1.22.1-r0; fixed in 1.22.3-r0). v0.60.6,
       published 2026-09-18, is still the newest cAdvisor release and tag (GitHub API, 2026-11-12), so there is
@@ -636,18 +702,30 @@ vulnerabilities:
       service runs (selfhost/overlays/monitoring.yml), needs only libpfm.so.4 and musl; krb5-libs is installed
       only because libtirpc needs it for the ZFS tools (apk database: krb5-libs is required by libtirpc,
       libtirpc by zfs-libs, zfs-libs by zfs). Drop when the vendor ships an image with krb5 1.22.3 or newer.
+      Rechecked 2026-11-20: the pinned digest is unchanged. cAdvisor v0.61.0 (2026-11-16 14:23 UTC) and v0.61.1
+      (2026-11-18 20:46 UTC) are on Alpine 3.23.8 and, scanned from ghcr.io with the Trivy database of 2026-11-20
+      07:09 UTC, have no finding in an Alpine package. As a major change for the age gate (0.60 to 0.61, 14 days)
+      the pin can move from 2026-11-30 14:24 UTC (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1), which ends this entry.
+      Their binary carries google.golang.org/grpc v1.83.1: the entry for CVE-2026-84445 names v1.81.1 and has to be
+      rechecked for it with the move.
   - id: CVE-2026-40356
     purls:
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-02
+    expired_at: 2026-12-06
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       Same image, package and check as CVE-2026-40355 (v0.60.6 still the newest cAdvisor release on 2026-11-12).
       The flaw is an integer underflow and out-of-bounds read in parse_message, again only when an application
       calls gss_accept_sec_context with a NegoEx mechanism registered in /etc/gss/mech: the image has no
       /etc/gss, and /usr/bin/cadvisor loads no Kerberos library. Drop when the vendor ships an image with krb5
       1.22.3 or newer.
+      Rechecked 2026-11-20: the pinned digest is unchanged. cAdvisor v0.61.0 (2026-11-16 14:23 UTC) and v0.61.1
+      (2026-11-18 20:46 UTC) are on Alpine 3.23.8 and, scanned from ghcr.io with the Trivy database of 2026-11-20
+      07:09 UTC, have no finding in an Alpine package. As a major change for the age gate (0.60 to 0.61, 14 days)
+      the pin can move from 2026-11-30 14:24 UTC (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1), which ends this entry.
+      Their binary carries google.golang.org/grpc v1.83.1: the entry for CVE-2026-84445 names v1.81.1 and has to be
+      rechecked for it with the move.
   - id: CVE-2026-115506
     purls:
       - "pkg:rpm/redhat/expat@2.5.0-9.el9_9.4?arch=x86_64&distro=redhat-9.9"
@@ -677,9 +755,9 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-08
     owner: uzaira0
-    rechecked: 2026-11-16
+    rechecked: 2026-11-20
     statement: >-
       MIT krb5 in four images: krb5-libs 1.21.1 in the postgres and backup images (1.21.1-10.el9_8.1 in the
       pinned Percona 18.7.1-1 base), Debian 13.7's four krb5 library packages in the fluentbit image
@@ -697,6 +775,14 @@ vulnerabilities:
       Rechecked 2026-11-16 on the postgres and backup images built from the 18.7.1-1 base, not on the other
       two: no krb5kdc, kadmind, kadmin or keytab; libgssrpc.so.4 is needed only by libkdb5 there, and no file
       needs libkdb5, libkadm5 or libkrad.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112319
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -704,14 +790,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-08
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       kadmind's GSS-RPC layer puts no size limit on XDR-decoded data, so an authenticated kadmin client can
       exhaust its memory or CPU. Same four images and same check as CVE-2026-112315: the code is in libgssrpc,
       which no program in these images loads (the fluentbit image does not have it), and no image has kadmind or
       kadmin. Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112320
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -719,14 +813,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-08
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       kadmind's GSS-RPC transport keeps the previous authentication context when a client switches from a GSS
       flavor to a non-GSS flavor on one TCP connection (memory exhaustion). Same four images and same check as
       CVE-2026-112315: the code is in libgssrpc, which no program in these images loads (the fluentbit image
       does not have it), and no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112321
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -734,14 +836,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-08
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       kadmind's AUTH_GSSAPI handler (lib/rpc/svc_auth_gssapi.c) does not free decoded arguments on some error
       paths of AUTH_GSSAPI_INIT (memory exhaustion). Same four images and same check as CVE-2026-112315: the
       code is in libgssrpc, which no program in these images loads (the fluentbit image does not have it), and
       no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112322
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -749,14 +859,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-08
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       clean_client() in lib/rpc/svc_auth_gssapi.c rescans the AUTH_GSSAPI client list from its head after each
       removal (quadratic CPU in kadmind). Same four images and same check as CVE-2026-112315: the code is in
       libgssrpc, which no program in these images loads (the fluentbit image does not have it), and no image has
       kadmind or kadmin. Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112323
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -764,14 +882,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-11-27
+    expired_at: 2026-12-08
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       Each failed AUTH_GSSAPI_INIT request leaves client state in kadmind for 15 minutes
       (lib/rpc/svc_auth_gssapi.c; memory exhaustion). Same four images and same check as CVE-2026-112315: the
       code is in libgssrpc, which no program in these images loads (the fluentbit image does not have it), and
       no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112316
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -779,9 +905,9 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-03
+    expired_at: 2026-12-10
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       xdr_krb5_tl_data() in lib/kadm5/kadm_rpc_xdr.c (libkadm5) does not free partially decoded data when
       kadmind fails to decode a request from an authenticated client. Same four images and same check as
@@ -789,6 +915,14 @@ vulnerabilities:
       libkadm5 library; the cAdvisor image has libkadm5clnt_mit and libkadm5srv_mit on disk, but no program
       needs them (only the KDC database plugin db2.so needs libkadm5srv_mit, and no program loads that plugin).
       Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112317
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -796,15 +930,23 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-03
+    expired_at: 2026-12-10
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       krb5_ktkdb_get_entry() in lib/kdb/keytab.c (libkdb5, the KDC database keytab) does not free decrypted key
       material when a check after decryption fails, a memory leak in a KDC or kadmind. Same four images and same
       check as CVE-2026-112315: no image has krb5kdc or kadmind; the fluentbit image has no libkdb5; in the
       postgres, backup and cAdvisor images libkdb5.so.10 is on disk as part of krb5-libs, but no program needs
       it. Drop when the distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-112318
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -812,14 +954,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-03
+    expired_at: 2026-12-10
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       kadmind's policy RPC stubs (kadmin/server/server_stubs.c) dereference a NULL policy name sent by an
       authenticated client. That file is part of the kadmind program, and none of the four images has kadmind
       (file listing of the linux/amd64 images, 2026-11-12; same images as CVE-2026-112315). Drop when the
       distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-118380
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -827,15 +977,23 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-03
+    expired_at: 2026-12-10
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       An active network attacker can alter the arguments a client sends to an RPC service protected by krb5's
       RPCSEC_GSS, or make the replies travel in plain text; the service is kadmind and the client is kadmin.
       Same four images and same check as CVE-2026-112315: the code is in libgssrpc, which no program in these
       images loads (the fluentbit image does not have it), and no image has kadmind or kadmin. Drop when the
       distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
   - id: CVE-2026-71200
     purls:
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -843,14 +1001,22 @@ vulnerabilities:
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5support0@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:apk/alpine/krb5-libs@1.22.1-r0?arch=x86_64&distro=3.23.6"
-    expired_at: 2026-12-03
+    expired_at: 2026-12-10
     owner: uzaira0
-    rechecked: 2026-11-12
+    rechecked: 2026-11-20
     statement: >-
       A KDC configured for PKINIT dereferences a NULL pointer on a crafted pre-authentication request. Same four
       images and same check as CVE-2026-112315: no image has krb5kdc, and none has the pkinit.so plugin (the
       preauth plugin directories hold spake.so, and in cAdvisor also otp.so and test.so). Drop when the
       distributions ship a fixed build.
+      Rechecked 2026-11-20: the postgres and backup images are out of this entry. They install Red Hat's fixed
+      krb5-libs 1.21.1-10.el9_9.2 now (selfhost/os-packages/dnf-upgrade-aged.sh; UBI 9 baseos file time 2026-11-12
+      15:08 UTC, past its 7 days), their scan has no krb5 finding, and the rpm purl is removed. The entry stays for
+      two images whose files are unchanged (same pinned digests). fluentbit: Debian has no fixed build (security
+      tracker, 2026-11-20: trixie and trixie-security 1.21.3-5+deb13u1 vulnerable, unstable unfixed, bug 1153598),
+      and Fluent Bit 5.2.0's image carries the same four packages. cAdvisor: v0.61.0 and v0.61.1 (Alpine 3.23.8) are
+      free of it and, as a major change for the age gate (14 days), can be pinned from 2026-11-30 14:24 UTC
+      (v0.61.0) or 2026-12-02 20:47 UTC (v0.61.1).
 # Reviewed 2026-11-13 (image gate at 2d8bd92a, Trivy database of 2026-11-13 07:00 UTC; the same images scanned
 # clean on 2026-11-12). Two things changed in the advisory data, nothing in the images:
 #   - Red Hat marked zlib in RHEL 9 as affected by CVE-2026-76844 and has no fixed build. Its entry was removed
