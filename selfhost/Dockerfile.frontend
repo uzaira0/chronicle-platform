@@ -39,7 +39,8 @@ ARG SOURCE_REF=unknown
 # Alpine fixes enter only once older than the dependency wait (selfhost/os-packages/apk-install-aged.sh;
 # scripts/os-package-pins.py refreshes the pins).
 RUN --mount=type=bind,source=selfhost/os-packages/apk-install-aged.sh,target=/usr/local/sbin/apk-install-aged.sh \
-    sh /usr/local/sbin/apk-install-aged.sh v3.24 && \
+    sh /usr/local/sbin/apk-install-aged.sh v3.24 \
+      --upgrade zlib=1.4-r0 && \
     mkdir -p /usr/share/doc/chronicle
 
 COPY LICENSE /usr/share/doc/chronicle/LICENSE
