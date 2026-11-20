@@ -331,5 +331,51 @@
     "recorded_advisories": [
       "CVE-2026-53914"
     ]
+  },
+  "selfhost/Dockerfile.backup::krb5-libs": {
+    "pin": "krb5-libs-1.21.1-10.el9_9.2",
+    "reason": "The pinned Percona 18.7.1-1 base predates Red Hat's fixed krb5-libs RPM (base: 1.21.1-10.el9_8.1; the 14 MIT Kerberos advisories listed below); the exact NEVRA selects the UBI build. UBI 9 baseos served it with file time 2026-11-12 15:08 UTC; pinned on 2026-11-20, past its 7 days.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports krb5-libs-1.21.1-10.el9_9.2 or newer without an upgrade.",
+    "reviewed_on": "2026-11-20",
+    "review_after": "2026-12-20",
+    "recorded_advisories": [
+      "CVE-2026-71199",
+      "CVE-2026-71200",
+      "CVE-2026-107364",
+      "CVE-2026-112315",
+      "CVE-2026-112316",
+      "CVE-2026-112317",
+      "CVE-2026-112318",
+      "CVE-2026-112319",
+      "CVE-2026-112320",
+      "CVE-2026-112321",
+      "CVE-2026-112322",
+      "CVE-2026-112323",
+      "CVE-2026-118380",
+      "CVE-2026-119079"
+    ]
+  },
+  "selfhost/Dockerfile.postgres::krb5-libs": {
+    "pin": "krb5-libs-1.21.1-10.el9_9.2",
+    "reason": "The pinned Percona 18.7.1-1 base predates Red Hat's fixed krb5-libs RPM (base: 1.21.1-10.el9_8.1; the 14 MIT Kerberos advisories listed below); the exact NEVRA selects the UBI build. UBI 9 baseos served it with file time 2026-11-12 15:08 UTC; pinned on 2026-11-20, past its 7 days.",
+    "remove_when": "Remove when the pinned Percona base rpm query reports krb5-libs-1.21.1-10.el9_9.2 or newer without an upgrade.",
+    "reviewed_on": "2026-11-20",
+    "review_after": "2026-12-20",
+    "recorded_advisories": [
+      "CVE-2026-71199",
+      "CVE-2026-71200",
+      "CVE-2026-107364",
+      "CVE-2026-112315",
+      "CVE-2026-112316",
+      "CVE-2026-112317",
+      "CVE-2026-112318",
+      "CVE-2026-112319",
+      "CVE-2026-112320",
+      "CVE-2026-112321",
+      "CVE-2026-112322",
+      "CVE-2026-112323",
+      "CVE-2026-118380",
+      "CVE-2026-119079"
+    ]
   }
 }

@@ -45,9 +45,17 @@ FROM percona/percona-distribution-postgresql:18.7.1-1@sha256:25b6ee7e12e0fb6eb57
 USER 0
 WORKDIR /
 
-# No package is upgraded here: the 18.7.1-1 base (RHEL 9.9 packages) ships each fixed build the 18.6.1-4 base
-# needed a pinned upgrade for (Python 3.9, expat, ca-certificates, libxml2), or a newer one. Same in
-# Dockerfile.postgres.
+# One fixed build of a base package the pinned Percona image predates (trivy gate in scripts/publish-images.sh):
+# krb5-libs 1.21.1-10.el9_9.2, Red Hat's fix for the 14 MIT Kerberos advisories that .trivyignore.yaml listed for
+# the base's 1.21.1-10.el9_8.1. Red Hat's build from the UBI repositories (the exact NEVRA). Same pin in
+# Dockerfile.postgres. Drop the call once the pinned Percona base ships that build or a newer one. The 18.7.1-1
+# base (RHEL 9.9 packages) ships every other fixed build the 18.6.1-4 base needed a pinned upgrade for (Python 3.9,
+# expat, ca-certificates, libxml2), or a newer one.
+# os-packages/dnf-upgrade-aged.sh installs only this build (aged by scripts/check-dependency-age.py) and
+# keeps the base version once the build has left the repositories.
+RUN --mount=type=bind,source=os-packages/dnf-upgrade-aged.sh,target=/usr/local/sbin/dnf-upgrade-aged.sh \
+    sh /usr/local/sbin/dnf-upgrade-aged.sh el9 \
+      --upgrade krb5-libs=1.21.1-10.el9_9.2
 
 # Base packages the backup never runs, removed instead of waived (trivy gate in scripts/publish-images.sh): the RPM
 # build macros (go-srpm-macros CVE-2026-56860, qt5-srpm-macros CVE-2026-103653, and the macro packages that need

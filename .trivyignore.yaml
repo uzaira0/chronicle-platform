@@ -542,7 +542,6 @@ vulnerabilities:
 # repositories did not serve it on that day).
   - id: CVE-2026-107364
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -588,7 +587,6 @@ vulnerabilities:
       curl --negotiate or an scp or sftp address.
   - id: CVE-2026-119079
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -607,7 +605,6 @@ vulnerabilities:
       ship a fixed build.
   - id: CVE-2026-71199
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -675,7 +672,6 @@ vulnerabilities:
       RHEL ships a fixed expat.
   - id: CVE-2026-112315
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -703,7 +699,6 @@ vulnerabilities:
       needs libkdb5, libkadm5 or libkrad.
   - id: CVE-2026-112319
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -719,7 +714,6 @@ vulnerabilities:
       kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112320
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -735,7 +729,6 @@ vulnerabilities:
       does not have it), and no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112321
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -751,7 +744,6 @@ vulnerabilities:
       no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112322
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -767,7 +759,6 @@ vulnerabilities:
       kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112323
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -783,7 +774,6 @@ vulnerabilities:
       no image has kadmind or kadmin. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112316
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -801,7 +791,6 @@ vulnerabilities:
       Drop when the distributions ship a fixed build.
   - id: CVE-2026-112317
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -818,7 +807,6 @@ vulnerabilities:
       it. Drop when the distributions ship a fixed build.
   - id: CVE-2026-112318
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -834,7 +822,6 @@ vulnerabilities:
       distributions ship a fixed build.
   - id: CVE-2026-118380
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
@@ -851,7 +838,6 @@ vulnerabilities:
       distributions ship a fixed build.
   - id: CVE-2026-71200
     purls:
-      - "pkg:rpm/redhat/krb5-libs@1.21.1-10.el9_8.1?arch=x86_64&distro=redhat-9.9"
       - "pkg:deb/debian/libgssapi-krb5-2@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libk5crypto3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"
       - "pkg:deb/debian/libkrb5-3@1.21.3-5%2Bdeb13u1?arch=amd64&distro=debian-13.7"

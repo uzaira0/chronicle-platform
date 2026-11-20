@@ -82,10 +82,11 @@ class ReleaseDockerfileTests(unittest.TestCase):
                     self.assertEqual([], [name for name in sections['add'] if name not in pinned])
                     self.assertTrue(all('=' in w for w in sections['pin'] + sections['upgrade']))
                     self.assertTrue(call.stage_from and '@sha256:' in call.stage_from, call.stage_from)
-        # backend (builder apt, runtime apk), frontend, caddy, grafana, backup (builder apt), fluentbit. The
-        # backup and postgres runtime stages had a dnf-upgrade-aged.sh call each until 2026-11-16: the 18.7.1-1
-        # base ships every build those calls pinned, so there are 7 calls, not 9.
-        self.assertEqual(7, calls)
+        # backend (builder apt, runtime apk), frontend, caddy, grafana, backup (builder apt, runtime dnf),
+        # fluentbit, postgres (dnf). The backup and postgres runtime stages had no dnf-upgrade-aged.sh call from
+        # 2026-11-16, when the 18.7.1-1 base shipped every build the calls pinned, to 2026-11-20, when Red Hat's
+        # fixed krb5-libs had aged: 9 calls again, not 7.
+        self.assertEqual(9, calls)
 
     def test_each_helper_exists_and_is_posix_sh(self):
         for helper in os_packages.HELPERS:
