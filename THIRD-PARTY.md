@@ -38,7 +38,8 @@ with unused packages removed.
 
 `ghcr.io/uzaira0/chronicle-selfhost-fluentbit` (monitoring overlay) is the pinned Fluent Bit image
 (Apache-2.0, https://github.com/fluent/fluent-bit) with Debian's security builds of libbrotli1 (MIT),
-libcurl4t64 (curl license, MIT-style) and zlib1g (zlib license) in place of the shipped ones.
+libcurl4t64 (curl license, MIT-style), libpq5 (PostgreSQL License) and zlib1g (zlib license) in place of
+the shipped ones.
 
 | Image | Used by | Upstream |
 |---|---|---|
